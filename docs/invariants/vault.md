@@ -271,15 +271,16 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   finché la chiave non viene ricreata. Nessuna regola del server lo impedisce
   dopo il fatto: si difende **prima** (niente script estranei nella pagina) e
   si **limita e si vede** il danno. Le difese, e dove stanno:
-  - **CSP dell'origine** (C1/M1): header di Caddy su `/`, `/app` e `/guide`,
+  - **CSP dell'origine** (C1/M1): header di Caddy sull'app (alla radice `/`
+    da R1, prima su `/app`) e su `/guide`,
     `script-src 'self'` senza `unsafe-inline` né `unsafe-eval`, più
     `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` e
     `connect-src 'self'`. `connect-src` chiude solo `fetch`, XHR, WebSocket e
     EventSource verso altri host: uno script che gira nella pagina ha ancora
     immagini, navigazioni e form verso fuori per portare via un segreto. La
     difesa vera è `script-src`, cioè che uno script estraneo non giri. La guida ammette per hash solo gli script inline
-    di Starlight. Il build di caddy fallisce se il web o l'app hanno uno
-    script inline (`scripts/caddy-csp.mjs`, test in CI). Su `/app` anche COOP
+    di Starlight. Il build di caddy fallisce se l'app ha uno
+    script inline (`scripts/caddy-csp.mjs`, test in CI). Sull'app anche COOP
     `same-origin` e `index.html` `no-store`. Chi aggiunge uno script inline,
     o un `eval`, rompe la pagina in produzione, non solo una regola: la
     strada è un file `.js` servito dall'origine.
@@ -313,7 +314,7 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
     (o `Origin` con lo stesso host), altrimenti 403 `cross_origin_request`;
     copre l'altro sottodominio dello stesso sito, che `SameSite=Lax` non
     ferma. Il PAT non è toccato.
-  Rimandati, e perché: **Trusted Types** su `/app`. Il renderer usa
+  Rimandati, e perché: **Trusted Types** sull'app. Il renderer usa
   `dangerouslySetInnerHTML` in cinque punti (riconferma, configurazione
   del secondo fattore, sicurezza, blocchi wireframe, stampa), e accenderli
   vuole prima una policy per ognuno.

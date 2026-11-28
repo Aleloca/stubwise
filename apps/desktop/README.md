@@ -11,7 +11,7 @@ contro il server vero:
 |---|---|---|---|
 | `prototype` | finti, in memoria | `dev`, `preview:web`, i test | nessuno («View as») |
 | `app` desktop | server vero | Electron, dmg locale non firmato (`package:mac`) | dal browser di sistema |
-| `app` web | server vero | SPA su `/app`, servita da caddy | cookie di sessione del web |
+| `app` web | server vero | alla radice dell'istanza (`/`, da R1), servita da caddy | cookie di sessione del browser |
 
 Il modo lo sceglie `STUBWISE_BUILD` (default `prototype`): `vite.backend.ts`
 risolve `@backend/api` e `@backend/clock` sull'implementazione finta
@@ -22,8 +22,8 @@ arrivo» (`data/integration.ts`).
 
 Il prototipo **è la specifica** dell'app vera: ogni pagina è definita fino in
 fondo, con dati finti realistici. Chi lo sviluppa davvero (server, API) parte
-da qui, non dal web: `apps/web` e `apps/mobile` NON sono un riferimento per
-questa app (`PRODUCT.md`).
+da qui: `apps/mobile` NON è un riferimento per questa app (`PRODUCT.md`), e il
+web vecchio (`apps/web`) è stato cancellato con il ritiro (R1).
 
 ## Avvio
 
@@ -35,7 +35,7 @@ pnpm --filter @stubwise/desktop typecheck
 
 # Build «app» (server vero)
 STUBWISE_BUILD=app pnpm --filter @stubwise/desktop dev   # Electron contro l'istanza scelta al primo avvio
-pnpm --filter @stubwise/desktop build:web                # la SPA per /app (in dist-web/), come in Dockerfile.caddy
+pnpm --filter @stubwise/desktop build:web                # l'app per la radice dell'istanza (in dist-web/), come in Dockerfile.caddy
 node apps/desktop/scripts/check-no-seed.mjs apps/desktop/dist-web   # nessun dato del seed nel bundle
 pnpm --filter @stubwise/desktop package:mac              # .dmg locale non firmato in release/
 ```
@@ -44,7 +44,8 @@ pnpm --filter @stubwise/desktop package:mac              # .dmg locale non firma
 niente firma, notarizzazione né auto-update (non obiettivi), e il protocollo
 `stubwise://` registrato nel pacchetto. Al primo avvio si sceglie l'indirizzo
 dell'istanza; il **login passa dal browser di sistema** (passkey compresa):
-l'app apre `<istanza>/app/#/desktop-login` con un challenge PKCE, il browser
+l'app apre `<istanza>/#/desktop-login` con un challenge PKCE (i Mac di prima
+di R1 aprono `/app/#/desktop-login`, che Caddy porta alla radice), il browser
 dopo il login e «Allow» riapre l'app con `stubwise://auth?code=…&state=…`, e
 il main scambia il codice col suo token (`src/main/browserLogin.ts`,
 `POST /api/auth/desktop-exchange`). Il token sta nel Keychain
@@ -118,9 +119,9 @@ passa una richiesta al main, che aggiunge il bearer; `instance` legge e
 scrive l'indirizzo dell'istanza; `session` avvia e annulla il login dal
 browser (`startBrowserLogin`, `cancelBrowserLogin`), ne riceve l'esito
 (`onChanged`), fa logout e dice lo stato (`login` con password è deprecato e
-risponde sempre `use_browser_login`); `openWeb` apre una pagina del web
-vecchio nel browser. Il renderer non richiede alcuna API Electron per
-renderizzare: nel browser (`preview:web`, `/app`) `window.stubwise` manca.
+risponde sempre `use_browser_login`); `openWeb` apre una pagina
+dell'istanza nel browser. Il renderer non richiede alcuna API Electron per
+renderizzare: nel browser (`preview:web`, la build web) `window.stubwise` manca.
 
 ## Sicurezza della finestra
 

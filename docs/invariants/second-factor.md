@@ -81,7 +81,8 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   `security.alert` (non ne esiste uno per il primo login di un dispositivo).
 - **Limite accettato dello schema `stubwise://` (RFC 8252).** Uno schema
   custom non è legato all'app che lo registra: chi costruisce un link
-  `/app/#/desktop-login` con un challenge scelto da lui, e lo fa approvare
+  `/#/desktop-login` (o `/app/#/…`, che Caddy porta alla radice) con un
+  challenge scelto da lui, e lo fa approvare
   alla vittima, fa consegnare il codice al gestore `stubwise://` sulla
   macchina della vittima. PKCE protegge lo scambio (serve il verifier del
   challenge), non chi riceve il codice. La difesa è la conferma esplicita: il
@@ -252,6 +253,8 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   origin: un'istanza servita da un altro hostname invalida le passkey
   registrate. L'app mobile chiede il codice (TOTP o di riserva); un utente
   senza 2FA è mandato a configurarlo sul web.
-- **Test E2E: `TRUST_PROXY=true` solo in `apps/web/e2e/start-stack.mjs`.**
+- **Test E2E: `TRUST_PROXY=true` solo nello stack della suite E2E** (era
+  `apps/web/e2e/start-stack.mjs`, cancellato con il web vecchio in R1; la
+  suite della nuova app tiene la stessa regola).
   Serve a dare a ogni contesto il suo IP (`X-Forwarded-For`) e non esaurire
   il bucket delle credenziali; non è una configurazione di produzione.

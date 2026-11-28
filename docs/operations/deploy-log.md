@@ -7555,3 +7555,80 @@ deploy o di un rollback che la tocca.
   della variabile non mostra la data (prima della revisione la sezione dei
   file d'ambiente saltava), e senza `replaced`/`skipped` l'esito dell'import
   conta tutto come nuovo, nessuna riga saltata.
+
+- **«Il taglio del web vecchio, R1» (28 nov 2026)**: ramo `feat/taglio-r1`,
+  piano `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md` §1.1 (R1) e §2.
+  ⚠️ **NON si mergia finché i prerequisiti non sono chiusi**: la suite E2E
+  della nuova app verde in CI contro la radice (D3), la fase 2 della
+  cassaforte nel browser (79: creare la chiave, kit e recupero, attivare
+  l'istanza, la conferma dell'accoppiamento del Mac, che oggi fa solo il web
+  vecchio), il blocco P (plugin e tool MCP sulle rotte dell'app), R0 stabile.
+  Cosa cambia:
+  - **Caddy**: la nuova app alla RADICE (`/srv/app`, CSP stretta, COOP,
+    `index.html` `no-store`). `/app` e `/app/*` sono un 308 alla radice PER
+    SEMPRE (il browser tiene il frammento dei link già spediti, `/app/#/…`,
+    e del login dei Mac installati). Il blocco «Ritiro del web vecchio» è
+    acceso: i percorsi con un id (`/tickets/*`, `/backlog*`, `/projects/*`,
+    `/docs/*`, `/monitor/servers/*`, `/agents/job/*`) vanno ai rimandi
+    `/go/…`, `/settings/security|account|notifications` e `/inbox` alle
+    pagine dell'app. `@graphHtml`, `/api`, `/go`, `/widget.js`,
+    `/widget/*`, `/monitor/ingest|config` e `/guide` invariati. Il web
+    vecchio non si builda né si serve più (`Dockerfile.caddy`, stage
+    `static-build`).
+  - **I link nuovi sono `/#/…`** (`APP_ENTRY = "/"`): card, email, push,
+    webhook in uscita, MCP, i rimandi `/go`. Il link di reset della password
+    (`url` di `POST /api/users/:id/password-reset`) è quello dell'app, e il
+    ritorno di Google senza `client` va a Preferenze → Account dell'app.
+  - **Risposte**: `webHref` non c'è più in `GET /api/tasks/:id/work`, nelle
+    richieste (`/api/requests/to-convert`, l'elenco del progetto) e nelle
+    decisioni di Claude (`/api/me/claude-decisions`).
+  - **Il Mac**: il login apre `<istanza>/#/desktop-login`.
+  - **`apps/web` cancellato**, con il job E2E del web vecchio, il suo gruppo
+    nel piano della CI e la voce nei changeset. `design-tokens.ts` è la
+    fonte dei colori (D9). La guida ha un banner che dice che descrive
+    ancora il web vecchio (D6), finché non è riscritta.
+  Nessuna migrazione, nessuna env.
+  **Prima del deploy**: TENERE le immagini di adesso, perché il codice del
+  web vecchio non è più nel repo e il caddy di prima non si ricostruisce:
+  ```sh
+  docker tag stubwise-caddy:latest stubwise-caddy:pre-r1
+  docker tag stubwise-server:latest stubwise-server:pre-r1
+  docker tag stubwise-worker:latest stubwise-worker:pre-r1
+  ```
+  **Cosa ribuildare e in che ordine**: `server` e `caddy` nello stesso
+  deploy, poi `worker` (scrive anche lui i link delle card; finché è quello
+  di prima scrive `/app/#/…`, che il redirect porta a destinazione). In
+  nessuno dei due ordini fra server e caddy c'è una finestra rotta: col
+  caddy prima i link restano `/app/#/…` e passano dal redirect; col server
+  prima il caddy vecchio serve il web vecchio alla radice, e un link `/#/…`
+  apre la sua Home per qualche minuto, mai un errore. Niente riavvii del
+  worker con lavoro dell'agente in corso. **Il Mac va ribuildato e
+  installato nello stesso rilascio** (`package:mac`): quello di prima legge
+  `webHref` come obbligatorio nel lavoro di Claude di una task, nelle
+  richieste e nelle decisioni, e col server nuovo quelle letture
+  fallirebbero (il suo login invece funziona, via `/app/#/desktop-login`).
+  **Controllo dopo il deploy**:
+  ```sh
+  curl -sI https://<istanza>/ | grep -iE 'content-security-policy|cross-origin-opener|cache-control'
+  curl -sI https://<istanza>/app/ | grep -iE '^HTTP|location'           # 308, Location: /
+  curl -sI https://<istanza>/app/assets/x.js | grep -i location         # /assets/x.js
+  curl -sI https://<istanza>/settings/security | grep -i location       # /#/preferences/security
+  curl -sI https://<istanza>/widget.js | grep -ci content-security-policy   # 0
+  ```
+  Nel browser: un link vecchio (`/app/#/p/<CODICE>/tasks?task=<CODICE-n>`)
+  e uno del web vecchio (`/tickets/<id>`) aprono la task nell'app; `/guide`
+  mostra il banner; dal Mac nuovo il login dal browser riapre l'app.
+  **Rollback**: le immagini `pre-r1` di `caddy` e `server` (e del `worker`
+  se è già salito), insieme:
+  ```sh
+  docker tag stubwise-caddy:pre-r1 stubwise-caddy:latest
+  docker tag stubwise-server:pre-r1 stubwise-server:latest
+  docker compose up -d --no-build server caddy
+  ```
+  Il web vecchio torna alla radice e la nuova app su `/app`. Durante il
+  rollback un link `/#/…` scritto dopo R1 apre la Home del web vecchio
+  invece della pagina: un degrado, non un errore, che dura finché non si
+  risale. Il Mac nuovo, col caddy di prima, apre `/#/desktop-login` sul web
+  vecchio e non riesce a fare il login: si usa il browser, o il Mac di
+  prima, finché non si risale. R2 (la pulizia del server) parte solo
+  quando R1 è stabile, perché le rotte del web servono a un rollback.
