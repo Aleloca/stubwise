@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { automationEvents, projectStatuses, projects, ticketEvents, tickets, ticketStatusSql } from "@stubwise/db";
+import { automationEvents, projectStatuses, projects, roleUpdate, ticketEvents, tickets, ticketStatusSql } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicket, startTestDb } from "@stubwise/db/testing";
 import { projectStatusViewSchema } from "@stubwise/shared";
@@ -160,12 +160,42 @@ describe("stati del progetto", () => {
     expect(events.filter((e) => e.kind === "task_closed" && e.objectId !== null && [a.ticketId, b.ticketId].includes(e.objectId))).toEqual([]);
   });
 
-  it("rinominare uno stato non tocca l'enum né updated_at delle task", async () => {
+  it("R3: uno stato che cambia famiglia porta con sé closed_at e lo smistamento delle sue task", async () => {
+    const projectId = await leadProject();
+    const { ticketId } = await seedTicket(testDb.db, { projectId, repositoryId: repoOf.get(projectId)! });
+    const before = await rows(projectId);
+    const todo = before[0]!;
+    const review = before[2]!;
+    const state = async () =>
+      (await testDb.db.select({ closedAt: tickets.closedAt, triagedAt: tickets.triagedAt, s: ticketStatusSql }).from(tickets).where(eq(tickets.id, ticketId)))[0]!;
+    const save = (familyOf: (id: string) => string) =>
+      put(projectId, { statuses: before.map((st) => ({ id: st.id, name: st.name, family: familyOf(st.id) })), reassign: {} });
+    // «In review» diventa chiuso: la task dentro si chiude, con la data.
+    await testDb.db.update(tickets).set({ statusId: review.id }).where(eq(tickets.id, ticketId));
+    expect((await save((id) => (id === review.id ? "closed" : before.find((b) => b.id === id)!.family))).statusCode).toBe(200);
+    expect((await state()).closedAt).not.toBeNull();
+    // E torna active: la data se ne va.
+    expect((await save((id) => before.find((b) => b.id === id)!.family)).statusCode).toBe(200);
+    expect((await state()).closedAt).toBeNull();
+    // Un todo smistato in uno stato che diventa active: il segno cade.
+    await testDb.db.update(tickets).set({ ...roleUpdate("open"), statusId: todo.id }).where(eq(tickets.id, ticketId));
+    await testDb.db.update(tickets).set(roleUpdate("triaged")).where(eq(tickets.id, ticketId));
+    expect((await state()).s).toBe("triaged");
+    // (Un todo nuovo prima, così il progetto ne ha ancora uno.)
+    const res = await put(projectId, {
+      statuses: [{ name: "Ready", family: "todo" }, ...before.map((st) => ({ id: st.id, name: st.name, family: st.id === todo.id ? "active" : st.family }))],
+      reassign: {},
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect((await state()).triagedAt).toBeNull();
+  });
+
+  it("rinominare uno stato non tocca lo status né updated_at delle task", async () => {
     const projectId = await leadProject();
     const { ticketId } = await seedTicket(testDb.db, { projectId, repositoryId: repoOf.get(projectId)! });
     const before = await rows(projectId);
     // Un `triaged` dentro il todo, e un updated_at di ieri.
-    await testDb.db.execute(sql`update tickets set status = 'triaged', updated_at = now() - interval '1 day' where id = ${ticketId}`);
+    await testDb.db.update(tickets).set({ ...roleUpdate("triaged"), updatedAt: sql`now() - interval '1 day'` }).where(eq(tickets.id, ticketId));
     const [pre] = await testDb.db.select({ s: ticketStatusSql, u: tickets.updatedAt }).from(tickets).where(eq(tickets.id, ticketId));
     const res = await put(projectId, {
       statuses: before.map((s, i) => ({ id: s.id, name: i === 0 ? "Backlog" : s.name, family: s.family })),

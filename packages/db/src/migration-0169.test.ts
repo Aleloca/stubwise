@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { asc, eq, sql } from "drizzle-orm";
+import { roleUpdate } from "./ticket-status.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   automationEffects,
@@ -15,7 +16,7 @@ import {
   roles,
   tickets,
 } from "./schema.js";
-import { expectSqlState, firstStatusOf, seedBacklogItem, seedRepository, startTestDb, type TestDb, legacyTicketStatus } from "./testing.js";
+import { expectSqlState, firstStatusOf, seedBacklogItem, seedRepository, startTestDb, type TestDb } from "./testing.js";
 
 /**
  * Migrazione 0169 (13 nov 2026, area 7, fetta 1): le Automations di progetto
@@ -93,8 +94,8 @@ describe("migrazione 0169: i trigger degli eventi", () => {
     await t.db.update(tickets).set({ statusId: cancelled!.id }).where(eq(tickets.id, row!.id));
     expect(await kinds()).toEqual(["task_created", "task_closed"]);
     await t.db.update(tickets).set({ statusId: active }).where(eq(tickets.id, row!.id));
-    // L'enum vecchio: il trigger di sync traduce `status` in `status_id`.
-    await t.db.update(legacyTicketStatus).set({ status: "done" }).where(eq(tickets.id, row!.id));
+    // Uno scrittore che dà un ruolo (`roleUpdate`, la pipeline): `status_id` dal ruolo.
+    await t.db.update(tickets).set(roleUpdate("done")).where(eq(tickets.id, row!.id));
     expect(await kinds()).toEqual(["task_created", "task_closed", "task_closed"]);
   });
 

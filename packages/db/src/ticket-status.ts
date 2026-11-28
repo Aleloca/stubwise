@@ -3,7 +3,7 @@ import { tickets } from "./schema.js";
 
 // Gli stati senza l'enum (blocco T del ritiro del web vecchio, R0;
 // `docs/invariants/tasks.md`, `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md`
-// §1.2). La colonna `tickets.status` non è più nello schema: chi cambia
+// §1.2). La colonna `tickets.status` non c'è più (0245, R3): chi cambia
 // stato scrive `statusId`, chi lo legge lo deriva. La regola resta in SQL, in
 // UN posto (`stubwise_status_for_legacy`, `stubwise_ticket_status`): qui
 // stanno solo i frammenti che la richiamano.
@@ -18,8 +18,8 @@ export type TicketRole = "open" | "triaged" | "in_progress" | "in_review" | "don
  * `in_review`, …). Si usa nell'`UPDATE`: `.set({ statusId: statusIdForRole("done") })`.
  *
  * `triaged` è un ruolo `open` più `triagedAt` (0240): chi lo scrive imposta
- * anche `triagedAt: sql\`now()\``, e il trigger `tickets_triaged_reset` lo
- * azzera quando il ticket esce da todo.
+ * anche `triagedAt: sql\`now()\``, e il trigger `tickets_state` lo azzera
+ * quando il ticket esce da todo.
  */
 export function statusIdForRole(role: TicketRole): SQL<string> {
   return sql<string>`stubwise_status_for_legacy(${tickets.projectId}, ${roleLiteral(role)}, ${tickets.statusId})`;
@@ -28,7 +28,7 @@ export function statusIdForRole(role: TicketRole): SQL<string> {
 /**
  * Il ruolo come LETTERALE SQL senza tipo (`'done'`): Postgres lo risolve sul
  * tipo del parametro della funzione, che è l'enum `ticket_status` prima della
- * 0245 di R3 e `text` dopo. Un cast esplicito legherebbe il codice a uno dei
+ * 0245 (R3) e `text` dopo. Un cast esplicito legherebbe il codice a uno dei
  * due schemi, e dopo R3 si deve poter scendere a R2 (deploy-log, «R3»). Il
  * valore viene da un elenco chiuso, e si controlla.
  */
@@ -71,7 +71,7 @@ export function ticketRoleIn(roles: readonly TicketRole[]): SQL {
   const wanted = new Set(roles);
   const legacy = [...new Set([...wanted].map((r) => (r === "triaged" ? "open" : r)))];
   if (legacy.length === 0) return sql`false`;
-  // `legacy_status::text`: regge l'enum di oggi e il text dopo la 0245 di R3.
+  // `legacy_status::text`: regge l'enum di prima della 0245 e il text di dopo.
   const inStates = sql`${tickets.statusId} in (select "id" from "project_statuses" where "legacy_status"::text = any(array[${sql.join(
     legacy.map((r) => sql`${r}`),
     sql`, `,

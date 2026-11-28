@@ -2,15 +2,15 @@ import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
 import { projectStatuses, tickets } from "./schema.js";
-import { legacyTicketStatus, seedRepository, startTestDb, type TestDb } from "./testing.js";
+import { seedRepository, startTestDb, type TestDb } from "./testing.js";
 import { roleLiteral, roleUpdate, statusIdForRole, ticketStatusSql, type TicketRole } from "./ticket-status.js";
 
-// Gli stati senza l'enum (blocco T del ritiro del web vecchio, R0). Il test
-// d'accordo: per ogni ruolo che uno scrittore assegna, da ogni stato di
-// partenza, lo scrittore VECCHIO (`UPDATE … SET status = ruolo`, il trigger
-// fa il resto) e quello NUOVO (`status_id = statusIdForRole(ruolo)`) danno lo
-// stesso stato del progetto, la stessa colonna enum (ancora tenuta dal
-// trigger) e lo stesso `status` mostrato (prima la colonna, ora il derivato).
+// Gli stati senza l'enum (blocco T del ritiro del web vecchio, R0; la colonna
+// se n'è andata con la 0245, R3). Il test d'accordo: per ogni ruolo che uno
+// scrittore assegna, da ogni stato di partenza, il riferimento VECCHIO
+// (calcolato: `stubwise_status_for_legacy`, com'era lo scrittore dell'enum) e
+// quello NUOVO (`roleUpdate`) danno lo stesso stato del progetto e lo stesso
+// `status` mostrato (prima la colonna, ora il derivato).
 
 let testDb: TestDb;
 let db: Db;
@@ -60,8 +60,7 @@ async function ticketIn(conn: Db, projectId: string, statusId: string): Promise<
 
 async function observed(conn: Db, id: string) {
   const [row] = await conn
-    .select({ statusId: tickets.statusId, derived: ticketStatusSql, column: legacyTicketStatus.status })
-    // La stessa riga: `legacyTicketStatus` è la tabella `tickets` vista con la sola colonna enum.
+    .select({ statusId: tickets.statusId, derived: ticketStatusSql })
     .from(tickets)
     .where(eq(tickets.id, id));
   return row!;
@@ -103,21 +102,18 @@ async function differencesIn(project: { projectId: string; statuses: Status[] })
     if (now.statusId !== old.statusId) differences.push(`${label}: stato ${old.statusId} → ${now.statusId}`);
     // Lo status MOSTRATO: prima era la colonna, ora è il derivato.
     if (now.derived !== old.column) differences.push(`${label}: mostrato ${old.column} → ${now.derived}`);
-    // La colonna enum, ancora tenuta dal trigger.
-    if (now.column !== old.column) differences.push(`${label}: colonna ${old.column} → ${now.column}`);
   }
   return differences;
 }
 
-describe("statusIdForRole contro lo scrittore vecchio dell'enum", () => {
-  it("stati di default: per ogni ruolo da ogni stato di partenza, stesso stato, stessa colonna enum, stesso status mostrato", async () => {
+describe("roleUpdate contro lo scrittore vecchio dell'enum (calcolato)", () => {
+  it("stati di default: per ogni ruolo da ogni stato di partenza, stesso stato e stesso status mostrato", async () => {
     // L'UNICA differenza, voluta: una task in «In review» a cui la pipeline dà
     // `in_progress` (un fix rilanciato) resta in «In review» in entrambi i
     // modi, ma lo scrittore vecchio lasciava l'enum a `in_progress`, in
     // contraddizione con lo stato. Ora lo status mostrato è quello dello stato.
     expect(await differencesIn(standard)).toEqual([
       "In review → in_progress: mostrato in_progress → in_review",
-      "In review → in_progress: colonna in_progress → in_review",
     ]);
   });
 
@@ -131,9 +127,7 @@ describe("statusIdForRole contro lo scrittore vecchio dell'enum", () => {
         const label = `${start.name}${triaged ? " (smistato)" : ""}`;
         return [
           `${label} → in_review: mostrato in_review → in_progress`,
-          `${label} → in_review: colonna in_review → in_progress`,
           `${label} → closed: mostrato closed → done`,
-          `${label} → closed: colonna closed → done`,
         ];
       }),
     );
@@ -153,24 +147,6 @@ describe("statusIdForRole contro lo scrittore vecchio dell'enum", () => {
     expect((await observed(db, id)).derived).toBe("open");
   });
 
-  it("uno scrittore VECCHIO (worker non ribuildato, rollback): l'enum che scrive tiene allineato «smistato»", async () => {
-    const todo = standard.statuses.find((s) => s.family === "todo")!;
-    const triagedAt = async (id: string) => (await db.select({ t: tickets.triagedAt }).from(tickets).where(eq(tickets.id, id)))[0]!.t;
-    const id = await ticketIn(db, standard.projectId, todo.id);
-    await db.execute(sql`update tickets set status = 'triaged' where id = ${id}`);
-    expect(await triagedAt(id)).not.toBeNull();
-    expect((await observed(db, id)).derived).toBe("triaged");
-    await db.execute(sql`update tickets set status = 'open' where id = ${id}`);
-    expect(await triagedAt(id)).toBeNull();
-    expect((await observed(db, id)).derived).toBe("open");
-    // E all'INSERT, senza `status_id`: com'era il createTicket di prima.
-    const [row] = await db.execute<{ id: string }>(
-      sql`insert into tickets (project_id, number, title, type, priority, source, status) values (${standard.projectId}, ${next++}, 't', 'bug', 'medium', 'manual', 'triaged') returning id`,
-    );
-    expect(await triagedAt(row!.id)).not.toBeNull();
-    expect((await observed(db, row!.id)).derived).toBe("triaged");
-  });
-
   it("uno spostamento fra due stati todo senza dire triaged_at toglie il segno, come lo scrittore vecchio", async () => {
     const [inbox, ready] = custom.statuses.filter((s) => s.family === "todo");
     const id = await ticketIn(db, custom.projectId, inbox!.id);
@@ -180,6 +156,5 @@ describe("statusIdForRole contro lo scrittore vecchio dell'enum", () => {
     const now = await observed(db, id);
     expect(now.statusId).toBe(ready!.id);
     expect(now.derived).toBe("open");
-    expect(now.column).toBe("open");
   });
 });

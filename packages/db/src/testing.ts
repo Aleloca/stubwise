@@ -25,10 +25,8 @@ import {
   repositories,
   ticketRepositories,
   tickets,
-  ticketStatus,
   users,
 } from "./schema.js";
-import { pgTable, uuid } from "drizzle-orm/pg-core";
 
 export interface TestDb {
   db: Db;
@@ -218,18 +216,6 @@ export async function seedTicket(
   if (!ticket) throw new Error("insert del ticket di test non ha restituito la riga");
   return { projectId, repositoryId, ticketId: ticket.id };
 }
-
-/**
- * SOLO TEST: la colonna enum `tickets.status`, che nel DB c'è ancora (tenuta
- * dal trigger `tickets_status_sync`) ma non è più nello schema (blocco T, R0).
- * Serve ai test che preparano un ticket «come lo lasciava uno scrittore
- * vecchio» o che verificano che la colonna resti quella di prima. Il codice
- * vero non la usa: lo `status` si deriva con `ticketStatusSql`.
- */
-export const legacyTicketStatus = pgTable("tickets", {
-  id: uuid("id").primaryKey(),
-  status: ticketStatus("status").notNull(),
-});
 
 /**
  * SOLO TEST: i valori di un INSERT di ticket con un ruolo (blocco T, R0), al

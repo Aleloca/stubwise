@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { roleUpdate } from "./ticket-status.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   backlogItems,
@@ -11,7 +12,7 @@ import {
   ticketRepositories,
   tickets,
 } from "./schema.js";
-import { seedRepository, seedTicket, startTestDb, type TestDb, legacyTicketStatus } from "./testing.js";
+import { seedRepository, seedTicket, startTestDb, type TestDb } from "./testing.js";
 
 /**
  * Migrazione 0141 (11 nov 2026, area 4, fetta 4): gli eventi dei progetti nei
@@ -98,9 +99,9 @@ describe("0141 gli eventi dei progetti", () => {
     await t.db.update(tickets).set({ statusId: todoStatus }).where(eq(tickets.id, id));
     await t.db.update(tickets).set({ statusId: closedStatus }).where(eq(tickets.id, id));
     expect(await eventsIn(all, id)).toHaveLength(2);
-    // Lo scrittore vecchio dell'enum (il trigger di sync sposta lo stato vero).
+    // Uno scrittore che dà un ruolo (`roleUpdate`, la pipeline): lo stato vero si sposta.
     const legacy = await newTicket();
-    await t.db.update(legacyTicketStatus).set({ status: "done" }).where(eq(tickets.id, legacy));
+    await t.db.update(tickets).set(roleUpdate("done")).where(eq(tickets.id, legacy));
     expect(await eventsIn(all, legacy)).toHaveLength(1);
   });
 
