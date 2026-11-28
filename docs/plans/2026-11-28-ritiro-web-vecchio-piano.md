@@ -146,7 +146,8 @@ voce di backlog, il job del backlog, il catalogo MCP (`/api/mcp/catalog` e
     ancora la chat del worker (`apps/worker/src/claude-chat`, le letture del
     polso), e lo script delle rotte non guarda il worker: toglierla
     spegnerebbe una lettura della chat.
-  - **I campi Slack nelle risposte restano, inerti, fino a R3**
+  - **I campi Slack nelle risposte restano, inerti, fino a R3** (e in R3
+    escono: vedi sopra, «R3 — le migrazioni, in due passi»)
     (`slackUserId`, `slackDm` delle preferenze, i flag `slack*Set`
     dell'istanza): l'app mobile li legge, e toglierli dagli schemi
     condivisi la farebbe smettere di compilare. Nessuno li scrive più
@@ -170,26 +171,46 @@ voce di backlog, il job del backlog, il catalogo MCP (`/api/mcp/catalog` e
     `mobile` già emessi. I metodi dell'api-client restano, così la mobile
     compila.
 
-### R3 — le migrazioni (due settimane dopo R2, D8; backup prima)
+### R3 — le migrazioni, in due passi (28 nov 2026; backup prima)
 
-- **Slack**: le colonne di `users` (`slack_user_id`, `slack_avatar_url`) e le
-  preferenze DM.
-- **`saved_views`**: la tabella.
-- **Inviti**: `invites.token` diventa un hash, calcolato sul posto (i link
-  già spediti funzionano).
-- **Stati** (blocco T, il passo dei dati):
-  - `tickets_status_sync` si SOSTITUISCE con un trigger che fa le sue due
-    cose senza l'enum: mantenere `closed_at` dalla famiglia, e scegliere lo
-    stato di un ticket che cambia progetto dal ruolo dello stato di prima;
-  - `DROP COLUMN tickets.status`;
-  - `project_statuses.legacy_status` da enum a `text` con `CHECK` sugli
-    stessi valori (resta il ruolo dello stato per la pipeline);
-  - `stubwise_legacy_family` e `stubwise_status_for_legacy` ricreate con
-    parametri `text`;
-  - infine `DROP TYPE ticket_status`.
-- Ogni `DROP` in uno statement a sé; nessun `ADD VALUE`.
-- **Rollback**: dopo R3 si scende al massimo a R2, perché il codice di prima
-  di R0 nomina la colonna. Per questo R3 aspetta.
+Le «due settimane dopo R2» di D8 sono superate: il maintainer ha deciso di
+rilasciare R1, R2 e R3 lo stesso giorno, col backup prima di R3. R3 si
+divide in due PR, perché il codice di R2 nomina le colonne Slack a ogni
+richiesta autenticata: toglierle insieme al resto avrebbe tolto anche il
+rollback a R2.
+
+**R3** (`feat/taglio-r3-pulizia`, con dentro `feat/taglio-r3-stati` di 79):
+- **0245, stati** (blocco T, il passo dei dati):
+    - `tickets_status_sync` si SOSTITUISCE con un trigger che fa le sue due
+      cose senza l'enum: mantenere `closed_at` dalla famiglia, e scegliere lo
+      stato di un ticket che cambia progetto dal ruolo dello stato di prima;
+    - `DROP COLUMN tickets.status`;
+    - `project_statuses.legacy_status` da enum a `text` con `CHECK` sugli
+      stessi valori (resta il ruolo dello stato per la pipeline);
+    - `stubwise_legacy_family` e `stubwise_status_for_legacy` ricreate con
+      parametri `text`;
+    - infine `DROP TYPE ticket_status`.
+- **0246**: via le consegne `slack_dm`/`slack_update` e la tabella
+  `saved_views`; `invites.token` (e le due tabelle figlie) diventa un hash,
+  calcolato sul posto (i link già spediti funzionano). Le colonne Slack ed
+  `external_ref` restano.
+- **Codice**: niente più Slack nelle risposte e negli schemi (escono i campi
+  che R2 teneva inerti), l'avatar è solo la foto caricata. Si rompono, ed è
+  accettato: la mobile (D5) e il Mac installato, fino al pacchetto firmato
+  che il maintainer costruisce una volta, dopo R3.
+- **Rollback**: fino a R2. Con R2 gli inviti in sospeso non si aprono (R2
+  cerca il token in chiaro).
+
+**R3b** (`feat/taglio-r3b`), lo stesso giorno, DOPO la verifica di R3 in
+produzione, con un backup nuovo prima:
+- **0247**: via le colonne Slack di `users`, `invites` e `instance_settings`,
+  `external_ref` delle consegne, e l'enum `delivery_channel` ricreato con i
+  soli `webhook` e `push`.
+- **Rollback**: fino a R3. Sotto R3 solo col backup.
+
+Ogni `DROP` in uno statement a sé; nessun `ADD VALUE`. Le migrazioni vanno in
+fondo al journal, di numero e di `when` (drizzle applica per `when`): lo
+controlla il test del journal in `migration-0245.test.ts`.
 
 ## 1.2 Il blocco T: `tickets.status` fuori dal codice
 
@@ -374,9 +395,11 @@ Le voci già note:
 6. **R2**, la pulizia del server dall'elenco dello script: `server`,
    `worker`, `caddy`. Rollback: le immagini di prima.
 7. La guida riscritta (D6), subito dopo R1.
-8. **R3**, due settimane dopo R2, con il backup: le colonne Slack,
-   `saved_views`, l'hash degli inviti, e il passo dei dati del blocco T
-   (trigger sostituito, colonna, enum). Rollback: solo fino a R2.
+8. **R3**, lo stesso giorno di R2 (decisione del 28 nov 2026), col backup:
+   il passo dei dati del blocco T (0245), le consegne Slack, `saved_views`
+   e l'hash degli inviti (0246). Rollback: fino a R2.
+9. **R3b**, dopo la verifica di R3, con un backup nuovo: le colonne Slack e
+   l'enum dei canali (0247). Rollback: fino a R3.
 
 R0 e la suite E2E sono indipendenti e possono andare in parallelo. R2 dopo
 R1, perché le rotte del web servono finché il web è acceso.
