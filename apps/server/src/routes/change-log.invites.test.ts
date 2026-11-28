@@ -6,6 +6,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { inviteIdOf } from "../services/admin-people.js";
+import { hashInviteToken } from "../services/invite-token.js";
 import { seedUsers } from "../test/fixtures.js";
 
 /** Area 9, F2, Task 5: il registro su inviti e primo avvio. Mai il token in una voce. */
@@ -43,22 +44,22 @@ describe("il registro: gli inviti", () => {
     expect(created.statusCode).toBe(201);
     const token = (created.json() as { token: string }).token;
     const [c] = await ofType("invite.created");
-    expect(c).toMatchObject({ actorUserId: adminId, subjectKind: "invite", subjectId: inviteIdOf(token) });
+    expect(c).toMatchObject({ actorUserId: adminId, subjectKind: "invite", subjectId: inviteIdOf(hashInviteToken(token)) });
     expect(c!.data).toMatchObject({ object: { type: "invite", label: email }, params: { instanceRole: "User", projects: [expect.stringMatching(/ · Developer$/)] } });
     // Revocato dalla rotta vecchia.
     expect((await app.inject({ method: "DELETE", url: `/api/auth/invites/${token}`, headers: { cookie: adminCookie } })).statusCode).toBe(204);
     const [r1] = await ofType("invite.revoked");
-    expect(r1).toMatchObject({ subjectId: inviteIdOf(token) });
+    expect(r1).toMatchObject({ subjectId: inviteIdOf(hashInviteToken(token)) });
     // Revocato dalla rotta nuova, con l'id opaco.
     const second = (await app.inject({ method: "POST", url: "/api/auth/invites", headers: { cookie: adminCookie }, payload: { email: `two-${randomUUID().slice(0, 6)}@acme.com` } })).json() as { token: string };
-    expect((await app.inject({ method: "DELETE", url: `/api/admin/invites/${inviteIdOf(second.token)}`, headers: { cookie: adminCookie } })).statusCode).toBe(204);
-    expect((await ofType("invite.revoked")).map((e) => e.subjectId)).toContain(inviteIdOf(second.token));
+    expect((await app.inject({ method: "DELETE", url: `/api/admin/invites/${inviteIdOf(hashInviteToken(second.token))}`, headers: { cookie: adminCookie } })).statusCode).toBe(204);
+    expect((await ofType("invite.revoked")).map((e) => e.subjectId)).toContain(inviteIdOf(hashInviteToken(second.token)));
     // Accettato: l'attore è chi entra.
     const third = (await app.inject({ method: "POST", url: "/api/auth/invites", headers: { cookie: adminCookie }, payload: { email: `three-${randomUUID().slice(0, 6)}@acme.com` } })).json() as { token: string };
     const reg = await app.inject({ method: "POST", url: "/api/auth/register", payload: { token: third.token, password: "una-password-lunga-123" }, remoteAddress: fromNewIp() });
     expect(reg.statusCode).toBe(201);
     const [a] = await ofType("invite.accepted");
-    expect(a).toMatchObject({ actorUserId: (reg.json() as { user: { id: string } }).user.id, subjectId: inviteIdOf(third.token) });
+    expect(a).toMatchObject({ actorUserId: (reg.json() as { user: { id: string } }).user.id, subjectId: inviteIdOf(hashInviteToken(third.token)) });
     const all = JSON.stringify(await db.select().from(changeLog));
     for (const t of [token, second.token, third.token]) expect(all).not.toContain(t);
   });
