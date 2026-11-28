@@ -7934,8 +7934,11 @@ deploy o di un rollback che la tocca.
   spariscono le azioni `savedViews.*`, quelle di Slack e del gruppo (e), e
   `mail.message`, `mail.rejections`, `docs.projectHighlights`,
   `docs.semanticSearch`, `tickets.history`, `tickets.questions`,
-  `me.unregisterDevice`. I 12 tool dedicati dell'MCP, le 2 rotte dei Docs
-  di prodotto e la cassaforte non si toccano.
+  `me.unregisterDevice`. Non si toccano: le 12 rotte dei tool dedicati
+  dell'MCP (D10: restano, dichiarate `config.mcp.owner: "mcp"`, #151), le 2
+  dei Docs di prodotto e la cassaforte. Lo script delle rotte
+  (`apps/server/scripts/route-callers.ts`) su R2 dà 12 «dell'MCP» e 2 senza
+  chiamanti (i Docs di prodotto), e conta il worker fra i chiamanti.
   **Resta `GET /api/projects/pulse`**: la legge la chat del worker (le
   letture del polso), oltre alla mobile.
   **I campi Slack nelle risposte restano, inerti, fino a R3**
