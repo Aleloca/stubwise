@@ -7417,7 +7417,8 @@ deploy o di un rollback che la tocca.
   **Controllo dopo il deploy**:
   ```sh
   curl -sI https://<istanza>/app/vault/ | grep -iE "content-security-policy|cross-origin-opener|cache-control"
-  # una sola CSP, con default-src 'none' e trusted-types stubwise-vault-worker; COOP same-origin; no-store
+  # una sola CSP, con default-src 'none' e trusted-types stubwise-vault-worker;
+  # COOP noopener-allow-popups (NON same-origin: seconda revisione, I-1); no-store
   ```
   Poi, con la console aperta (nessuna violazione della CSP né dei Trusted
   Types), su un'istanza di prova: un full admin da `/app/vault/#/setup`
@@ -7427,8 +7428,14 @@ deploy o di un rollback che la tocca.
   `#/passkeys` aggiunge una seconda passkey (due tocchi); dal Mac, «Pair
   this Mac» fino al ritorno all'app. Da disconnessi, `/app/vault/#/setup`
   porta al login e poi torna lì.
-  **Rollback**: sicuro, scendere caddy non lascia dati. Un Mac col
-  pacchetto nuovo resta senza pagina di associazione finché non si risale.
+  In Chromium, `pnpm --filter @stubwise/desktop verify:vault-isolation` prova
+  che uno script dell'app non governa la pagina a sé (aperta o seguita).
+  **Rollback**: scendere caddy non lascia dati, ma è sicuro SOLO se nessun
+  pacchetto per Mac nuovo (quello che apre `/app/vault/#/pair`) è già stato
+  distribuito. Se lo è, scendendo quei Mac non si associano più finché non
+  si risale (il caddy vecchio non ha `/app/vault/`): o si risale presto, o
+  prima di scendere si ridistribuisce il pacchetto per Mac precedente (che
+  apre `/vault-pair` del web vecchio, ancora lì).
 
 - **«La cassaforte nella nuova app nel browser» (28 nov 2026)**: branch
   `feat/cassaforte-browser` (con dentro `feat/vault-session-tag`). Design
