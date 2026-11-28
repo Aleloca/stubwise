@@ -5852,7 +5852,11 @@
       "askBuild": "Ask a maintainer to build it.",
       "setupPrIs": "Setup PR: {{url}}",
       "setupPrIs_open": "Setup PR, open: {{url}}",
-      "setupPrIs_merged": "Setup PR, merged: {{url}}"
+      "setupPrIs_merged": "Setup PR, merged: {{url}}",
+      "htmlView": "Interactive graph",
+      "htmlFrame": "Interactive graph of {{name}}",
+      "expand": "Expand",
+      "collapse": "Close"
     },
     "chat": {
       "title": "Ask the docs",
