@@ -363,9 +363,21 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
     condivisioni, 10 cambi password. Oltre, la chiave si richiude e serve la
     passkey. Una pagina ostile può parlare al worker da sé: i tetti ne
     limitano durata e numero, non la possibilità.
+  - **Conferma, rifiuto e rimozione di un lettore vogliono un tocco NUOVO
+    della passkey** (revisione finale, punto 3, come il Touch ID di M5 sul
+    desktop): la pagina rifà la cerimonia (`freshPresence` in
+    `vaultBrowser/unlock.ts`), e il worker accetta l'operazione solo con
+    quell'asserzione, che fa verificare al server, e con la PRF appena
+    ricevuta, che deve aprire un sigillo della propria chiave. La PRF si
+    azzera subito: vale per quell'operazione sola. Senza, `presence_required`
+    e nessuna chiamata. Chi aggiunge un'azione che dà accesso a un'altra
+    persona la metta qui, non fra quelle coperte dalla sola cassaforte aperta.
   - **La chiusura arriva al server**: il worker chiama `POST
     /api/vault/lock` (m-3, best-effort), che azzera `vaultUnlockedAt` della
-    sola sessione che chiama. Le rotte `config.reauth: "vault"` vogliono uno
+    sola sessione che chiama. Vale per TUTTA la sessione del cookie, che le
+    schede della stessa persona condividono: chiudere in una scheda toglie lo
+    sblocco anche alle rotte della cassaforte delle altre (che lo
+    richiedono; Show e Copy delle altre schede non ne dipendono). Le rotte `config.reauth: "vault"` vogliono uno
     sblocco recente, non un login (I-3); togliere un Mac vuole la
     riconferma normale (m-2), perché è un passo della procedura qui sotto.
   - **Lo stato nella barra non è un segnale fidato** (m-B4): lo specchio
