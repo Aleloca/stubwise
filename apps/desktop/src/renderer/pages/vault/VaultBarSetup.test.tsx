@@ -43,7 +43,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function barWith(state: "no_key" | "inactive", personId: string) {
+async function barWith(state: "no_key" | "inactive" | "locked" | "disabled", personId: string) {
   bar.state = state;
   bar.admin = personId === "p-roberta";
   renderWithData(<VaultBar />, { personId });
@@ -80,5 +80,13 @@ describe("la barra porta alla pagina della cassaforte", () => {
     await barWith("no_key", "p-laura");
     fireEvent.click(await screen.findByRole("button", { name: "Open in the browser" }));
     expect(assign).toHaveBeenCalledWith("/app/#/vault-setup");
+  });
+
+  it("Mac senza Touch ID o con la cassaforte solo dal browser: «Open in the browser» apre la cassaforte della nuova app", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    vi.stubEnv("VITE_STUBWISE_TARGET", "electron");
+    await barWith("locked", "p-laura");
+    fireEvent.click(await screen.findByRole("button", { name: "Open in the browser" }));
+    expect(assign).toHaveBeenCalledWith("/app/#/vault");
   });
 });

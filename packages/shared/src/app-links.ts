@@ -64,7 +64,11 @@ export type AppTarget =
   /** Le pagine fuori dall'app vera e propria (link d'accesso dalle email, ritorno di Google). */
   | { to: "resetPassword"; token: string }
   | { to: "emailChange"; token: string }
-  | { to: "desktopGoogle"; search: Record<string, string> };
+  | { to: "desktopGoogle"; search: Record<string, string> }
+  /** La cassaforte (`#/vault`), la sua pagina di configurazione e l'associazione del Mac (fase 2, solo build web). */
+  | { to: "vault" }
+  | { to: "vaultSetup" }
+  | { to: "vaultPair"; state: string };
 
 const seg = (value: string) => encodeURIComponent(value);
 const query = (params: Record<string, string>) => {
@@ -132,6 +136,12 @@ export function appRoute(target: AppTarget): string {
       return `/email-change/${seg(target.token)}`;
     case "desktopGoogle":
       return `/desktop-google${query(target.search)}`;
+    case "vault":
+      return "/vault";
+    case "vaultSetup":
+      return "/vault-setup";
+    case "vaultPair":
+      return `/vault-pair${query({ state: target.state })}`;
   }
 }
 

@@ -36,6 +36,7 @@ const TARGETS: AppTarget[] = [
   { to: "preferences", section: "security" },
   { to: "preferences", section: "account" },
   { to: "preferences", section: "notifications" },
+  { to: "vault" },
 ];
 
 /**
@@ -56,6 +57,9 @@ const OUTSIDE: { target: AppTarget; routerPath: string }[] = [
   { target: { to: "resetPassword", token: "t" }, routerPath: "/reset-password/$token" },
   { target: { to: "emailChange", token: "t" }, routerPath: "/email-change/$token" },
   { target: { to: "desktopGoogle", search: { outcome: "ok", state: "s" } }, routerPath: "/desktop-google" },
+  // La fase 2 della cassaforte: pagine dell'ingresso, solo nella build web.
+  { target: { to: "vaultSetup" }, routerPath: "/vault-setup" },
+  { target: { to: "vaultPair", state: "s" }, routerPath: "/vault-pair" },
   { target: { to: "preferences", section: "account", search: { google: "ok" } }, routerPath: "/preferences/$section" },
 ];
 
@@ -80,6 +84,7 @@ describe("i link del server (app-links) e la grammatica del router", () => {
       home: true, task: true, requests: true, project: true, projectMembers: true, docs: true, productPage: true,
       server: true, adminServer: true, release: true, pullRequest: true, chatMessage: true, automation: true,
       preferences: true, resetPassword: true, emailChange: true, desktopGoogle: true,
+      vault: true, vaultSetup: true, vaultPair: true,
     };
     expect([...covered].sort()).toEqual(Object.keys(all).sort());
   });

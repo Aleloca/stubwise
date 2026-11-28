@@ -44,6 +44,15 @@ describe("i link della nuova app (app-links)", () => {
 });
 
 describe("revisione dei link: codici vuoti e slug riservati", () => {
+  it("la cassaforte: la pagina, la configurazione e l'associazione del Mac (fase 2)", () => {
+    expect(appPath({ to: "vault" })).toBe("/app/#/vault");
+    expect(appPath({ to: "vaultSetup" })).toBe("/app/#/vault-setup");
+    expect(appPath({ to: "vaultPair", state: "c3Rh-dGU_" })).toBe("/app/#/vault-pair?state=c3Rh-dGU_");
+    expect(appUrl("https://stubwise.example/", { to: "vaultPair", state: "a b" })).toBe(
+      "https://stubwise.example/app/#/vault-pair?state=a+b",
+    );
+  });
+
   it("M3: un codice di progetto vuoto porta alla Home, mai a /p//…", () => {
     expect(appPath({ to: "docs", projectCode: "" })).toBe("/app/#/home");
     expect(appPath({ to: "release", projectCode: "", releaseCode: "X-V1" })).toBe("/app/#/home");

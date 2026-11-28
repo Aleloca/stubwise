@@ -1,3 +1,4 @@
+import { appPath, appRoute } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PairingDialog } from "./PairingDialog";
@@ -46,9 +47,13 @@ export function useOpenVault() {
   return { open, pending: unlock.isPending };
 }
 
-/** Il browser con la passkey (D-1a): nell'app lo apre il main; il prototipo lo dice e basta. */
+/**
+ * Il browser con la passkey (D-1a): nell'app lo apre il main, sulla
+ * cassaforte della nuova app nel browser (non più `/credentials` del web
+ * vecchio); il prototipo lo dice e basta. L'indirizzo dall'helper dei link.
+ */
 export function openVaultInBrowser(): void {
-  if (isAppBuild()) openInWeb("/credentials");
+  if (isAppBuild()) openInWeb(appPath({ to: "vault" }));
 }
 
 /**
@@ -57,8 +62,8 @@ export function openVaultInBrowser(): void {
  * browser (la stessa pagina della nuova app, non il web vecchio).
  */
 export function openVaultSetup(): void {
-  if (isWebAppBuild()) window.location.hash = "#/vault-setup";
-  else if (isAppBuild()) openInWeb("/app/#/vault-setup");
+  if (isWebAppBuild()) window.location.hash = `#${appRoute({ to: "vaultSetup" })}`;
+  else if (isAppBuild()) openInWeb(appPath({ to: "vaultSetup" }));
 }
 
 export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
