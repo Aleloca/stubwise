@@ -8,8 +8,7 @@ import {
   projects,
   ticketEvents,
   ticketFollowers,
-  tickets,
-} from "@stubwise/db";
+  tickets, ticketStatusSql, ticketColumns } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { addDepartmentMember, seedBacklogItem, seedDepartment, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { stalledTaskViewSchema, taskViewSchema } from "@stubwise/shared";
@@ -101,7 +100,7 @@ describe("POST /api/tasks", () => {
     const task = await createTask({ statusId: inProgress, size: "L", requestId: itemId, type: "activity" });
     expect(task).toMatchObject({ statusId: inProgress, size: "L", requestId: itemId, type: "activity" });
     const [row] = await testDb.db
-      .select({ effort: tickets.effort, status: tickets.status, type: tickets.type })
+      .select({ effort: tickets.effort, status: ticketStatusSql, type: tickets.type })
       .from(tickets)
       .where(eq(tickets.id, task.id));
     expect(row).toEqual({ effort: 4, status: "in_progress", type: "task" });
@@ -111,7 +110,7 @@ describe("POST /api/tasks", () => {
 
   it("uno stato di un altro progetto → 400 e nessun ticket", async () => {
     const other = (await seedRepository(testDb.db)).projectId;
-    const before = (await testDb.db.select().from(tickets)).length;
+    const before = (await testDb.db.select(ticketColumns).from(tickets)).length;
     const res = await send("POST", "/api/tasks", {
       projectId,
       title: "x",
@@ -119,16 +118,16 @@ describe("POST /api/tasks", () => {
       statusId: await statusId(other, "To do"),
     });
     expect(res.statusCode).toBe(400);
-    expect((await testDb.db.select().from(tickets)).length).toBe(before);
+    expect((await testDb.db.select(ticketColumns).from(tickets)).length).toBe(before);
   });
 
   it("un Viewer senza tickets.create → 403 e nessun ticket", async () => {
     const { projectId: pid } = await seedRepository(testDb.db);
     await addMember(app, pid, users.memberId, "viewer");
-    const before = (await testDb.db.select().from(tickets)).length;
+    const before = (await testDb.db.select(ticketColumns).from(tickets)).length;
     const res = await send("POST", "/api/tasks", { projectId: pid, title: "x", type: "bug" });
     expect(res.statusCode).toBe(403);
-    expect((await testDb.db.select().from(tickets)).length).toBe(before);
+    expect((await testDb.db.select(ticketColumns).from(tickets)).length).toBe(before);
   });
 });
 
@@ -139,7 +138,7 @@ describe("PATCH /api/tasks/:ticketId", () => {
     const res = await send("PATCH", `/api/tasks/${task.id}`, { statusId: inReview });
     expect(res.statusCode).toBe(200);
     expect(taskViewSchema.parse(res.json()).statusId).toBe(inReview);
-    const [row] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, task.id));
+    const [row] = await testDb.db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, task.id));
     expect(row!.status).toBe("in_review");
     const events = await testDb.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, task.id));
     expect(events).toHaveLength(1);

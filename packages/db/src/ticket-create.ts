@@ -1,9 +1,15 @@
+import { ticketColumns, type TicketRole } from "./ticket-status.js";
 import type { TicketPriority, TicketSource, TicketType } from "@stubwise/shared";
 import { eq, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
 import { projects, tickets } from "./schema.js";
 
-export type Ticket = typeof tickets.$inferSelect;
+/**
+ * Un ticket come lo legge il codice: le colonne più lo `status` DERIVATO
+ * (`ticketStatusSql`; la colonna enum non è più nello schema, blocco T).
+ * Si legge con `ticketColumns`: `.select(ticketColumns)`, `.returning(ticketColumns)`.
+ */
+export type Ticket = typeof tickets.$inferSelect & { status: TicketRole };
 
 /**
  * Lanciato da {@link createTicket} quando il progetto bersaglio indicato non
@@ -114,7 +120,7 @@ export async function createTicket(db: Db | Parameters<Parameters<Db["transactio
         ...(input.plannedWeek !== undefined ? { plannedWeek: input.plannedWeek } : {}),
         ...(input.automationRunId ? { automationRunId: input.automationRunId } : {}),
       })
-      .returning();
+      .returning(ticketColumns);
 
     if (!ticket) {
       throw new Error("L'insert del ticket non ha restituito la riga creata");

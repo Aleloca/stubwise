@@ -1,5 +1,5 @@
-import { agentQuestions, agentRuns, aiModelSettings, agentSessions, aiJobs, aiProviders, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, prCorrections, prReviewJobs, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, users, type Db } from "@stubwise/db";
-import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { agentQuestions, agentRuns, aiModelSettings, agentSessions, aiJobs, aiProviders, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, prCorrections, prReviewJobs, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, users, type Db, roleUpdate, ticketColumns, type TicketRole } from "@stubwise/db";
+import { seedGitAccount, startTestDb, type TestDb, roleInsert } from "@stubwise/db/testing";
 import type { GitProvider } from "@stubwise/git";
 import type { PublishOpts } from "@stubwise/notifications";
 import type { AgentQuestionAnswer } from "@stubwise/shared";
@@ -160,7 +160,7 @@ type Ticket = typeof tickets.$inferSelect;
 async function createTicket(
   db: Db,
   fixture: Pick<Fixture, "projectId">,
-  overrides: Partial<typeof tickets.$inferInsert> = {},
+  { status, ...overrides }: Partial<typeof tickets.$inferInsert> & { status?: TicketRole } = {},
 ): Promise<Ticket> {
   const [ticket] = await db
     .insert(tickets)
@@ -172,9 +172,10 @@ async function createTicket(
       type: "bug",
       priority: "high",
       source: "sdk_error",
+      ...(status ? roleInsert(fixture.projectId, status) : {}),
       ...overrides,
     })
-    .returning();
+    .returning(ticketColumns);
   if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
   return ticket;
 }
@@ -779,7 +780,7 @@ describe("runFix", () => {
     expect(pr.body).toContain("Generated automatically by Stubwise AI");
 
     // Ticket in review, job chiuso con la PR.
-    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    const [after] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticket.id));
     expect(after?.status).toBe("in_review");
     // AUDIT: la transizione del worker lascia un evento con actor NULL — non
     // c'è nessun umano dietro una transizione della pipeline.
@@ -1186,7 +1187,7 @@ describe("runFix", () => {
     const branches = await git(["branch", "--list", `stubwise/ticket-${ticket.number}`], fixture.upstreamDir);
     expect(branches).toBe("");
     // Il ticket non cambia stato.
-    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    const [after] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticket.id));
     expect(after?.status).toBe("open");
   });
 
@@ -1326,7 +1327,7 @@ describe("runFix", () => {
       script: async () => {
         // Una PERSONA sposta lo stato durante la pausa: la pipeline non lo
         // aveva toccato, quindi non ha niente da «rimettere».
-        await db.update(tickets).set({ status: "in_progress" }).where(eq(tickets.id, ticket.id));
+        await db.update(tickets).set({ ...roleUpdate("in_progress") }).where(eq(tickets.id, ticket.id));
         throw new AgentRunCancelledError(stopper!.id, "lavoro a metà", 600_000);
       },
     });
@@ -1348,7 +1349,7 @@ describe("runFix", () => {
     expect(jobAfter.status).toBe("skipped");
     expect(jobAfter.error).toBeNull();
     expect(jobAfter.log).toContain("lavoro a metà");
-    const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    const [ticketAfter] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticket.id));
     expect(ticketAfter!.status).toBe("in_progress");
     // Nessuna transizione scritta dalla pipeline sul percorso dell'annullamento.
     expect(await db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, ticket.id))).toEqual([]);
@@ -1603,7 +1604,7 @@ describe("runFix", () => {
     expect(ticketComments[0]?.body).toContain("PIANO PROPOSTO: cambia - in + in app.js");
     // Prefisso del commento nella lingua d'istanza (default 'en').
     expect(ticketComments[0]?.body).toMatch(/awaiting approval/i);
-    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    const [after] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticket.id));
     expect(after?.status).toBe("in_progress");
     // AUDIT anche sulla transizione del piano: la timeline deve vedere quando
     // il ticket è entrato in lavorazione, non solo quando è uscito.
@@ -1841,7 +1842,7 @@ describe("runFix", () => {
     const branch = `stubwise/ticket-${ticket.number}`;
     const files = await git(["ls-tree", "-r", "--name-only", branch], fixture.upstreamDir);
     expect(files).toContain("app.js");
-    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    const [after] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticket.id));
     expect(after?.status).toBe("in_review");
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.status).toBe("pr_opened");
@@ -3304,7 +3305,7 @@ async function createMultiTicket(db: Db, projectId: string, number = 7): Promise
       priority: "high",
       source: "manual",
     })
-    .returning();
+    .returning(ticketColumns);
   if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
   return ticket;
 }
@@ -3357,7 +3358,7 @@ describe("runFix — multi-repository (Fase 3)", () => {
     expect(rows[0]?.prState).toBe("open");
     expect(rows[0]?.prUrl).toBe("https://github.com/acme/r0/pull/1");
     expect(rows[0]?.branch).toBe(`stubwise/ticket-${ticket.number}`);
-    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    const [after] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticket.id));
     expect(after?.status).toBe("in_review");
     // Il branch è davvero atterrato sull'upstream del repo.
     const branch = `stubwise/ticket-${ticket.number}`;
@@ -3448,7 +3449,7 @@ describe("runFix — multi-repository (Fase 3)", () => {
     const branch = `stubwise/ticket-${ticket.number}`;
     expect(await git(["branch", "--list", branch], repoA.upstreamDir)).toContain(branch);
     expect(await git(["branch", "--list", branch], repoB.upstreamDir)).toContain(branch);
-    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    const [after] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticket.id));
     expect(after?.status).toBe("in_review");
   });
 
@@ -3513,7 +3514,7 @@ describe("runFix — multi-repository (Fase 3)", () => {
     expect(jobAfter.error).toContain("500 da GitHub sul 2° repo");
 
     // Il ticket NON transita a in_review (resta nello stato pre-fix).
-    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    const [after] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticket.id));
     expect(after?.status).not.toBe("in_review");
     expect(after?.status).not.toBe("done");
 

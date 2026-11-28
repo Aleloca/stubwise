@@ -1,5 +1,5 @@
 import { registerPersonMask } from "../services/people-known.js";
-import { projects, serverAnalyses, serverCommands, serverEpisodes, serverFixes, serverOperationApprovals, servers, tickets, users, type Db } from "@stubwise/db";
+import { projects, serverAnalyses, serverCommands, serverEpisodes, serverFixes, serverOperationApprovals, servers, tickets, users, type Db, ticketStatusSql } from "@stubwise/db";
 import { aiBudgetState, attributionContext, cancelServerCommands } from "@stubwise/notifications";
 import { serverCommandViewSchema, serverFixViewSchema, serverTaskViewSchema, validateServerPlan, type ServerFixView, type ServerTaskView } from "@stubwise/shared";
 import { createHash } from "node:crypto";
@@ -224,7 +224,7 @@ export async function serverFixRoutes(instance: FastifyInstance): Promise<void> 
       const fix = await fixOf(request.params.ticketId);
       if (!fix) return apiError(reply, 404, "not_found", "This task did not come from a server");
       const [server] = await app.db.select().from(servers).where(eq(servers.id, fix.serverId));
-      const [ticket] = await app.db.select({ status: tickets.status, projectCode: projects.code }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, fix.taskId));
+      const [ticket] = await app.db.select({ status: ticketStatusSql, projectCode: projects.code }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, fix.taskId));
       const visible = server ? await canViewServer(app.db, user, server.id) : false;
       const inProject = server ? (await attributionContext(app.db, server.id)).serverProjects.some((p) => p.projectId === fix.projectId) : false;
       const [analysis] = fix.analysisId ? await app.db.select().from(serverAnalyses).where(eq(serverAnalyses.id, fix.analysisId)) : [];

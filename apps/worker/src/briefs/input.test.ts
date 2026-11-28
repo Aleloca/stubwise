@@ -7,9 +7,8 @@ import {
   ticketEvents,
   tickets,
   users,
-  type Db,
-} from "@stubwise/db";
-import { deleteAllProjects, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+  type Db, ticketColumns } from "@stubwise/db";
+import { deleteAllProjects, seedRepository, startTestDb, type TestDb, roleInsert } from "@stubwise/db/testing";
 import { afterEach, afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   BRIEF_INPUT_MAX_CHARS,
@@ -87,10 +86,10 @@ describe("collectBriefInput", () => {
         type: "bug",
         priority: "medium",
         source: "manual",
-        status: "done",
+        ...roleInsert(projectId, "done"),
         createdAt: new Date("2026-09-01T10:00:00Z"),
       })
-      .returning();
+      .returning(ticketColumns);
     await db.insert(ticketEvents).values({
       ticketId: ticket!.id,
       actorId: null,
@@ -121,9 +120,9 @@ describe("collectBriefInput", () => {
         type: "bug",
         priority: "medium",
         source: "manual",
-        status: "in_progress",
+        ...roleInsert(projectId, "in_progress"),
       })
-      .returning();
+      .returning(ticketColumns);
     const [job] = await db
       .insert(aiJobs)
       .values({ ticketId: ticket!.id, status: "awaiting_input" })
@@ -169,9 +168,9 @@ describe("collectBriefInput", () => {
         type: "bug",
         priority: "medium",
         source: "manual",
-        status: "in_progress",
+        ...roleInsert(projectId, "in_progress"),
       })
-      .returning();
+      .returning(ticketColumns);
     await db.insert(aiJobs).values({ ticketId: ticket!.id, status: "fixing" });
 
     const input = await collectBriefInput(db, projectId, PERIOD);

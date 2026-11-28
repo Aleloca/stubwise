@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { agentSessionEvents, issueChatToolToken, projects, projectStatuses, tickets } from "@stubwise/db";
+import { agentSessionEvents, issueChatToolToken, projects, projectStatuses, tickets, roleUpdate, ticketColumns } from "@stubwise/db";
 import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
@@ -39,7 +39,7 @@ describe("l'aside del lavoro fermo, a lettura", () => {
     const hidden = await seedTicket(t.db, { number: 7 });
     for (const u of [author, reader]) await addMember(app, shared.projectId, u.id, "developer");
     await addMember(app, hidden.projectId, author.id, "developer");
-    await t.db.update(tickets).set({ status: "done" }).where(eq(tickets.id, shared.ticketId));
+    await t.db.update(tickets).set({ ...roleUpdate("done") }).where(eq(tickets.id, shared.ticketId));
     const res = await app.inject({ method: "POST", url: "/api/claude/conversations", headers: { cookie: author.headers.cookie }, payload: {} });
     const sid = (res.json() as { id: string }).id;
     await t.db.insert(agentSessionEvents).values({
@@ -107,7 +107,7 @@ describe("l'aside del lavoro fermo, a lettura", () => {
     await t.db.update(projects).set({ stallActiveDays: 5 }).where(eq(projects.id, projectId));
     const [active] = await t.db.select({ id: projectStatuses.id }).from(projectStatuses).where(and(eq(projectStatuses.projectId, projectId), eq(projectStatuses.family, "active"))).limit(1);
     const mk = async (number: number, daysAgo: number) => {
-      const [row] = await t.db.insert(tickets).values({ projectId, number, title: `T${number}`, type: "bug", priority: "medium", source: "manual", assigneeId: author.id, statusId: active!.id }).returning();
+      const [row] = await t.db.insert(tickets).values({ projectId, number, title: `T${number}`, type: "bug", priority: "medium", source: "manual", assigneeId: author.id, statusId: active!.id }).returning(ticketColumns);
       await t.db.update(tickets).set({ updatedAt: sql`now() - make_interval(days => ${daysAgo}::int)` }).where(eq(tickets.id, row!.id));
       return row!.id;
     };

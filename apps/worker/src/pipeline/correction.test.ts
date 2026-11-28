@@ -18,9 +18,8 @@ import {
   tickets,
   type Db,
   gitIdentities,
-  users,
-} from "@stubwise/db";
-import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+  users, ticketColumns } from "@stubwise/db";
+import { seedGitAccount, startTestDb, type TestDb, roleInsert } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
 import {
   correctionManualTrigger,
@@ -200,9 +199,9 @@ async function makeFixture(
       type: "bug",
       priority: "high",
       source: "manual",
-      status: "in_review",
+      ...roleInsert(project!.id, "in_review"),
     })
-    .returning();
+    .returning(ticketColumns);
   await testDb.db.insert(ticketRepositories).values({
     ticketId: ticket!.id,
     repositoryId: repository!.id,
@@ -405,7 +404,7 @@ describe("runCorrection", () => {
     expect(ticketComments.map((c) => c.body).join("\n")).toContain(`Corrections pushed to the pull request: ${PR_URL}`);
     expect(ticketComments.map((c) => c.body).join("\n")).toContain("Aggiunto il test.");
     // Il ticket resta in review: una correzione non cambia lo stato.
-    const [ticketAfter] = await testDb.db.select().from(tickets).where(eq(tickets.id, f.ticket.id));
+    const [ticketAfter] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, f.ticket.id));
     expect(ticketAfter!.status).toBe("in_review");
     // Review riaccodata sulla head NUOVA, sha completo.
     const [pending] = await testDb.db.select().from(prReviewJobs).where(eq(prReviewJobs.repositoryId, f.repositoryId));
@@ -603,7 +602,7 @@ describe("runCorrection", () => {
     const f = await makeFixture();
     await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
     const { job, correctionId } = await seedCorrection(f, { reviewId: await seedReview(f) });
-    const [before] = await testDb.db.select().from(tickets).where(eq(tickets.id, f.ticket.id));
+    const [before] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, f.ticket.id));
     const runner = new FakeAgentRunner({
       script: async (opts: AgentRunOptions) => {
         await writeFile(join(opts.cwd, mirrorSlug(f.repoUrl), "app.test.js"), "// a metà\n");
@@ -633,7 +632,7 @@ describe("runCorrection", () => {
       ].join(" "),
     ]);
     expect((await testDb.db.select().from(prReviewJobs)).map((r) => r.headSha)).toEqual([f.prSha]);
-    const [after] = await testDb.db.select().from(tickets).where(eq(tickets.id, f.ticket.id));
+    const [after] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, f.ticket.id));
     expect(after!.status).toBe(before!.status);
   });
 

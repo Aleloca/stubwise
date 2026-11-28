@@ -18,9 +18,8 @@ import {
   tickets,
   users,
   type Db,
-  type EmbeddingProvider,
-} from "@stubwise/db";
-import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
+  type EmbeddingProvider, ticketStatusSql } from "@stubwise/db";
+import { deleteAllProjects, startTestDb, type TestDb, roleInsert } from "@stubwise/db/testing";
 import type { BacklogIntakePayload } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -115,7 +114,7 @@ async function createTicket(
       body: opts.body,
       type: "feature",
       priority: "medium",
-      status: opts.status ?? "open",
+      ...roleInsert(projectId, opts.status ?? "open"),
       source: "manual",
     })
     .returning({ id: tickets.id, number: tickets.number });
@@ -217,7 +216,7 @@ describe("runIntake — nuova voce", () => {
     expect(item!.similarToId).toBeNull();
     expect(item!.suggested).toBeNull(); // metadati DIRETTI, non in suggested
 
-    const [closed] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticket.id));
+    const [closed] = await db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, ticket.id));
     expect(closed!.status).toBe("closed");
 
     // AUDIT: anche la chiusura verso il backlog è una transizione di stato, e
@@ -461,7 +460,7 @@ describe("runIntake — merge (dedup sopra soglia)", () => {
     expect(items[0]!.embedding).toEqual(vecA);
 
     // Ticket chiuso + collegato alla voce esistente.
-    const [closed] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticket.id));
+    const [closed] = await db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, ticket.id));
     expect(closed!.status).toBe("closed");
     const [link] = await db
       .select()
@@ -590,7 +589,7 @@ describe("runIntake — fail-safe e no-op", () => {
     );
     // Fail-safe: nessuna voce, ticket ancora aperto.
     expect(await db.select().from(backlogItems)).toHaveLength(0);
-    const [t] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticket.id));
+    const [t] = await db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, ticket.id));
     expect(t!.status).toBe("open");
   });
 
@@ -654,7 +653,7 @@ describe("runIntake — scelta dell'account", () => {
 
     expect(vi.mocked(runner.run).mock.calls.map(([o]) => o.provider?.id)).toEqual(["acc-1", "acc-2"]);
     expect(await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId))).toHaveLength(1);
-    const [t] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticket.id));
+    const [t] = await db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, ticket.id));
     expect(t!.status).toBe("closed");
   });
 
@@ -676,7 +675,7 @@ describe("runIntake — scelta dell'account", () => {
     expect(runner.run).not.toHaveBeenCalled();
     expect(embed).not.toHaveBeenCalled();
     expect(await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId))).toHaveLength(0);
-    const [t] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticket.id));
+    const [t] = await db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, ticket.id));
     expect(t!.status).toBe("open");
   });
 });

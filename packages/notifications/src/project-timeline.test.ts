@@ -9,10 +9,9 @@ import {
   ticketEvents,
   tickets,
   users,
-  type Db,
-} from "@stubwise/db";
+  type Db, ticketColumns } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb, roleInsert } from "@stubwise/db/testing";
 import { buildProjectTimeline } from "./project-timeline.js";
 
 /**
@@ -73,10 +72,10 @@ describe("buildProjectTimeline", () => {
         type: "bug",
         priority: "medium",
         source: "manual",
-        status: "done",
+        ...roleInsert(projectId, "done"),
         createdAt: ago(20),
       })
-      .returning();
+      .returning(ticketColumns);
     // L'evento di chiusura nella forma che scrive `recordTicketStatusChange`
     // (kind `status_changed`, `actor_id` null = sistema), datato a mano: qui
     // conta DOVE la timeline lo colloca, non chi l'ha scritto.
@@ -233,7 +232,7 @@ describe("buildProjectTimeline", () => {
         source: "manual",
         createdAt: ago(9),
       })
-      .returning();
+      .returning(ticketColumns);
     await db.insert(aiJobs).values({
       ticketId: ticket!.id,
       status: "pr_opened",

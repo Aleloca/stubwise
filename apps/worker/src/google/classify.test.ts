@@ -17,7 +17,7 @@ import {
   type Db,
   type EmailProposalRow,
 } from "@stubwise/db";
-import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb, roleInsert } from "@stubwise/db/testing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
@@ -191,7 +191,7 @@ async function seedTicket(
       body: "corpo",
       type: "task",
       priority: "medium",
-      status: input.status ?? "open",
+      ...roleInsert(projectId, input.status ?? "open"),
       source: "manual",
     })
     .returning({ id: tickets.id });
