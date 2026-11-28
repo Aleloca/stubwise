@@ -145,6 +145,32 @@ Il catalogo MCP (`/api/mcp/catalog`) è dell'MCP e resta.
 - **La mobile di oggi** smette di funzionare dove legge le rotte tolte (D5).
 - **Ordine**: `server` e `worker`, poi `caddy` se il renderer perde frasi.
 - **Rollback**: le immagini di prima. Sicuro, nessun dato toccato.
+- **Com'è andato** (28 nov 2026, branch `feat/taglio-r2`):
+  - **`GET /api/projects/pulse` RESTA**: esce dal gruppo (e). La legge
+    ancora la chat del worker (`apps/worker/src/claude-chat`, le letture del
+    polso), e lo script delle rotte non guarda il worker: toglierla
+    spegnerebbe una lettura della chat.
+  - **I campi Slack nelle risposte restano, inerti, fino a R3**
+    (`slackUserId`, `slackDm` delle preferenze, i flag `slack*Set`
+    dell'istanza): l'app mobile li legge, e toglierli dagli schemi
+    condivisi la farebbe smettere di compilare. Nessuno li scrive più
+    (le richieste non li accettano); escono con le colonne in R3.
+  - Le consegne `slack_*` rimaste in coda le chiude il poller come
+    `skipped`, `channel_not_implemented`.
+  - **Le 9 rotte della sola mobile** tolte anch'esse (D4): `POST
+    /api/auth/mobile-login`, `PUT /api/me/devices`, `POST
+    /api/me/devices/delete`, `GET /api/me/mail/:source/:id`, `GET
+    /api/me/mail/rejections`, `GET /api/projects/:projectId/docs/highlights`,
+    `GET /api/search/docs-semantic`, `GET /api/tickets/:id/history`, `GET
+    /api/tickets/:id/questions`. Il catalogo MCP si restringe, ed è voluto:
+    spariscono `mail.message`, `mail.rejections`, `docs.projectHighlights`,
+    `docs.semanticSearch`, `tickets.history`, `tickets.questions`,
+    `me.unregisterDevice`.
+  - **Effetto sulla mobile (D5, accettato)**: niente login, niente
+    registrazioni push nuove. Le push ai telefoni già registrati
+    continuano, e reset e cambio della password revocano ancora i PAT
+    `mobile` già emessi. I metodi dell'api-client restano, così la mobile
+    compila.
 
 ### R3 — le migrazioni (due settimane dopo R2, D8; backup prima)
 
