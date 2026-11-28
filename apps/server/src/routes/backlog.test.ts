@@ -11,8 +11,7 @@ import {
   backlogJobs,
   backlogRefineSessions,
   projects,
-  tickets,
-} from "@stubwise/db";
+  tickets, ticketColumns } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { deleteAllProjects, seedRepository as seedRepositoryRaw, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
@@ -915,7 +914,7 @@ describe("POST /api/backlog/:id/convert", () => {
     expect(body.ticketNumber).toBe(1);
 
     const [ticket] = await testDb.db
-      .select()
+      .select(ticketColumns)
       .from(tickets)
       .where(eq(tickets.id, body.ticketId));
     expect(ticket!.type).toBe("task");
@@ -983,7 +982,7 @@ describe("POST /api/backlog/:id/convert", () => {
       headers: { cookie: adminCookie },
     });
     const body = res.json() as { ticketId: string };
-    const [ticket] = await testDb.db.select().from(tickets).where(eq(tickets.id, body.ticketId));
+    const [ticket] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, body.ticketId));
     expect(ticket!.priority).toBe("medium");
   });
 

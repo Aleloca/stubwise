@@ -6,6 +6,7 @@ import type { MailThreadDetail as ServerThread, MailThreadItem, MailThreadMessag
 import type * as Fake from "../../api";
 import type { MailAddress, MailboxView, MailMessageView, MailSearchHit, MailThreadFilters, MailThreadRow } from "../../types";
 import { appClient, session } from "./client";
+import { authedDataUrl } from "./transport";
 import { myAccounts, requestSync, syncStateOf, whenSynced } from "./google";
 import { splitThreadKey, threadKey } from "./mailKeys";
 import { mailClaudeDraftFunctions } from "./mailClaudeDraft";
@@ -376,7 +377,23 @@ async function setRead(key: string, read: boolean): Promise<void> {
 const markRead: Mail["markRead"] = (key) => setRead(key, true);
 const markUnread: Mail["markUnread"] = (key) => setRead(key, false);
 
+/** I raster che il proxy del server dà (design §4): un `data:` d'altro tipo non entra nel frame. */
+const RASTER_DATA_URL = /^data:image\/(png|jpeg|gif|webp|avif);base64,/;
+
+/**
+ * L'immagine remota `n` di un messaggio, dal proxy del server (design
+ * `docs/plans/2026-11-28-proxy-immagini-posta-design.md`, §6): i byte col
+ * cookie nel browser, dal main col token sul Mac (`authedDataUrl`), come
+ * `data:` che il frame mette in `src`. `email_triage` è lo spazio di id dei
+ * messaggi, come per `original`. Non riuscita (404, 422, rete) → `null`.
+ */
+const getMessageImage: Mail["getMessageImage"] = async (messageId, n) => {
+  const data = await authedDataUrl(appClient().mail.imagePath("email_triage", messageId, n));
+  return data && RASTER_DATA_URL.test(data) ? data : null;
+};
+
 export const mailFunctions: Partial<Mail> = {
+  getMessageImage,
   ...mailProposalFunctions,
   ...mailDraftFunctions,
   ...mailSendFunctions,

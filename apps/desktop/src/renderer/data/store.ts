@@ -278,6 +278,7 @@ export type ApiFnName =
   | "listTimeline"
   | "listDecisionLog"
   | "getLatestBrief"
+  | "mail.getMessageImage"
   | "getBrief"
   | "searchHistory.listRecentResults"
   | "searchHistory.rememberResult"

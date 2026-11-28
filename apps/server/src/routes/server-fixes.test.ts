@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { environmentServers, projectEnvironments, projectMembers, projects, roles, serverCommands, serverFixes, serverMetrics, serverOperationApprovals, servers, tickets } from "@stubwise/db";
+import { environmentServers, projectEnvironments, projectMembers, projects, roles, serverCommands, serverFixes, serverMetrics, serverOperationApprovals, servers, tickets, roleUpdate } from "@stubwise/db";
 import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { issueServerCommand } from "@stubwise/notifications";
 import { addMember, createUserWithPat, seedUsers, type SeededUsers } from "../test/fixtures.js";
@@ -233,7 +233,7 @@ describe("la sezione Server della task (GET /api/tasks/:id/server, richiesta del
     expect((await section(s.ticketId, s.operA.headers)).json().startBlock).toBe("busy");
     await testDb.db.update(serverFixes).set({ status: "none" }).where(eq(serverFixes.id, s.fix.id));
     // Task chiusa.
-    await testDb.db.update(tickets).set({ status: "done" }).where(eq(tickets.id, s.ticketId));
+    await testDb.db.update(tickets).set({ ...roleUpdate("done") }).where(eq(tickets.id, s.ticketId));
     expect((await section(s.ticketId, s.operA.headers)).json().startBlock).toBe("closed");
   });
 

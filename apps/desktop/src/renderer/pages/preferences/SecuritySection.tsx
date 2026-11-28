@@ -15,6 +15,8 @@ import {
 } from "../../data/queries";
 import { useReauth } from "../../layout/useReauth";
 import { MacsPart } from "../vault/MacsPart";
+import { VaultPasskeyAction } from "../vault/setup/VaultPasskeyAction";
+import { isWebAppBuild } from "../../platform/vaultBridge";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { isAppBuild, isDesktopApp } from "../../data/build";
@@ -663,6 +665,8 @@ function PasskeyRow({ passkey: k, removable }: { passkey: Passkey; removable: bo
           </span>
         )}
         <span className="num ml-auto shrink-0 text-sm text-ink-muted">{meta}</span>
+        {/* Fase 2 della cassaforte (design §10): solo nella build web. */}
+        {!editing && isWebAppBuild() && <VaultPasskeyAction passkeyId={k.id} name={k.name} />}
         {!editing && (
           <button
             ref={renameButton}

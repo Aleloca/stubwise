@@ -81,19 +81,23 @@ export function parseInertHtml(html: string): Document {
  */
 export function TrustedMailFrame({
   html,
-  images,
+  loaded,
   ...rest
-}: { html: string; images: boolean } & Omit<IframeHTMLAttributes<HTMLIFrameElement>, "srcDoc">) {
+}: {
+  html: string;
+  /** Le immagini che il proxy ha portato per «Show images» (`data:` per posizione), o `null`. */
+  loaded: ReadonlyMap<number, string> | null;
+} & Omit<IframeHTMLAttributes<HTMLIFrameElement>, "srcDoc">) {
   const ref = useRef<HTMLIFrameElement>(null);
   useLayoutEffect(() => {
     const frame = ref.current;
     if (!frame) return;
-    const doc = mailDocument(html, images);
+    const doc = mailDocument(html, loaded);
     try {
       frame.srcdoc = trusted(doc, { kind: "exact", value: doc }) as string;
     } catch {
       frame.removeAttribute("srcdoc");
     }
-  }, [html, images]);
+  }, [html, loaded]);
   return <iframe ref={ref} {...rest} />;
 }

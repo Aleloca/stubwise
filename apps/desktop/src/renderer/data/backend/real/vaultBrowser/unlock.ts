@@ -1,6 +1,6 @@
 import type { PasskeyAuthenticationOptions } from "@stubwise/shared";
 import { request, stashPrf } from "./client";
-import type { Presence } from "./core";
+import type { CoreRequest, Presence } from "./core";
 import { ceremony } from "./webauthn";
 
 // Lo sblocco della cassaforte nella build web (revisione di sicurezza I-1):
@@ -11,11 +11,12 @@ import { ceremony } from "./webauthn";
 // 3. persona e sessione si ricontrollano (M-3), poi lo sblocco con la
 //    risposta senza PRF: il worker verifica, apre il sigillo con la PRF
 //    ricevuta e tiene la chiave. Altrimenti il worker la azzera.
-// La prima chiave, l'attivazione e il recupero sono la fase 2: qui no.
+// La prima chiave, l'attivazione, il recupero e l'associazione (fase 2)
+// stanno in `setup.ts`, con la stessa cerimonia.
 
 export type UnlockOutcome = { ok: true } | { ok: false; code: string };
 
-type Who = () => { personId: string | null; sessionTag: string };
+export type Who = () => { personId: string | null; sessionTag: string };
 
 /**
  * La cerimonia, fino alla PRF nel worker: le opzioni dal worker
@@ -23,14 +24,15 @@ type Who = () => { personId: string | null; sessionTag: string };
  * transfer), poi il ricontrollo di persona e sessione (M-3; se non regge, il
  * worker azzera la PRF).
  */
-async function touchPasskey(
+export async function touchPasskey(
   who: Who,
+  prepare: Extract<CoreRequest, { t: "prepare" }> = { t: "prepare" },
 ): Promise<{ ok: true; personId: string; sessionTag: string; presence: Presence } | { ok: false; code: string }> {
   const before = who();
   if (!before.personId) return { ok: false, code: "unauthenticated" };
   const prepared = await request<
     { ok: true; options: PasskeyAuthenticationOptions; onlyCredentialIds: string[] } | { ok: false; code: string }
-  >({ t: "prepare" });
+  >(prepare);
   if (!prepared.ok) return prepared;
   const outcome = await ceremony(prepared.options, stashPrf);
   if (!outcome.ok) return outcome;

@@ -55,7 +55,7 @@ describe("la politica stubwise-html", () => {
   it("TrustedMailFrame: nel srcdoc solo l'HTML bonificato (niente script né gestori)", async () => {
     const { TrustedMailFrame } = await import("./trustedHtml");
     const { container } = render(
-      <TrustedMailFrame html={'<p onclick="x()">ciao</p><script>evil()</script>'} images={false} title="m" sandbox="" />,
+      <TrustedMailFrame html={'<p onclick="x()">ciao</p><script>evil()</script>'} loaded={null} title="m" sandbox="" />,
     );
     const doc = container.querySelector("iframe")!.getAttribute("srcdoc") ?? (container.querySelector("iframe") as HTMLIFrameElement).srcdoc;
     expect(doc).toContain("<p>ciao</p>");

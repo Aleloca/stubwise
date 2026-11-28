@@ -11,7 +11,7 @@ import {
   ticketRepositories,
   tickets,
 } from "./schema.js";
-import { seedRepository, seedTicket, startTestDb, type TestDb } from "./testing.js";
+import { seedRepository, seedTicket, startTestDb, type TestDb, legacyTicketStatus } from "./testing.js";
 
 /**
  * Migrazione 0141 (11 nov 2026, area 4, fetta 4): gli eventi dei progetti nei
@@ -100,7 +100,7 @@ describe("0141 gli eventi dei progetti", () => {
     expect(await eventsIn(all, id)).toHaveLength(2);
     // Lo scrittore vecchio dell'enum (il trigger di sync sposta lo stato vero).
     const legacy = await newTicket();
-    await t.db.update(tickets).set({ status: "done" }).where(eq(tickets.id, legacy));
+    await t.db.update(legacyTicketStatus).set({ status: "done" }).where(eq(tickets.id, legacy));
     expect(await eventsIn(all, legacy)).toHaveLength(1);
   });
 

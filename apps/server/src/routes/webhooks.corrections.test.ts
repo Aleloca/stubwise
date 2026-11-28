@@ -17,11 +17,10 @@ import {
   ticketEvents,
   ticketRepositories,
   tickets,
-  users,
-} from "@stubwise/db";
+  users, roleUpdate, ticketStatusSql } from "@stubwise/db";
 import { t as translate } from "@stubwise/i18n";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { startTestDb, roleInsert } from "@stubwise/db/testing";
 import { BitbucketProvider, GitHubProvider, GitProviderError, type RepositoryPermission } from "@stubwise/git";
 import { enqueueCorrection } from "@stubwise/notifications";
 import { signReviewBody, type PrComment } from "@stubwise/shared";
@@ -179,7 +178,7 @@ async function seedFixture(
       title: "Ticket con PR",
       type: "bug",
       priority: "medium",
-      status: "in_review",
+      ...roleInsert(project!.id, "in_review"),
       source: "manual",
     })
     .returning({ id: tickets.id });
@@ -1359,7 +1358,7 @@ describe("chiusura della PR", () => {
   }
 
   async function ticketStatusOf(ticketId: string) {
-    const [row] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticketId));
+    const [row] = await testDb.db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, ticketId));
     return row!.status;
   }
 
@@ -1503,7 +1502,7 @@ describe("chiusura della PR", () => {
 
   it("lo stato della riga PR si scrive anche quando il ticket non è più in review", async () => {
     const fx = await seedFixture();
-    await testDb.db.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, fx.ticketId));
+    await testDb.db.update(tickets).set({ ...roleUpdate("triaged") }).where(eq(tickets.id, fx.ticketId));
 
     const res = await postClosed(fx, githubClosed(false));
 
@@ -1526,7 +1525,7 @@ describe("chiusura della PR", () => {
       .from(comments)
       .where(and(eq(comments.ticketId, fx.ticketId), eq(comments.authorType, "system")));
     expect(systemComments).toHaveLength(1);
-    const [ticket] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, fx.ticketId));
+    const [ticket] = await testDb.db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, fx.ticketId));
     expect(ticket!.status).toBe("done");
   });
 
@@ -1540,7 +1539,7 @@ describe("chiusura della PR", () => {
     const res = await postClosed(fx, githubClosed(true));
 
     expect(res.statusCode).toBe(204);
-    const [ticket] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, fx.ticketId));
+    const [ticket] = await testDb.db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, fx.ticketId));
     expect(ticket!.status).toBe("done");
     const jobs = await testDb.db.select({ status: aiJobs.status }).from(aiJobs).where(eq(aiJobs.ticketId, fx.ticketId));
     expect(jobs.map((j) => j.status)).toEqual(["pr_merged"]);
@@ -1557,12 +1556,12 @@ describe("chiusura della PR", () => {
     // Primo arrivo completo, poi il ticket torna in review (merge parziale
     // simulato): la riconsegna rifà il gate ma non riscrive il commento.
     await postClosed(fx, githubClosed(true));
-    await testDb.db.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, fx.ticketId));
+    await testDb.db.update(tickets).set({ ...roleUpdate("in_review") }).where(eq(tickets.id, fx.ticketId));
     await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "pr_opened" });
 
     await postClosed(fx, githubClosed(true));
 
-    const [ticket] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, fx.ticketId));
+    const [ticket] = await testDb.db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, fx.ticketId));
     expect(ticket!.status).toBe("done");
     const jobs = await testDb.db.select({ status: aiJobs.status }).from(aiJobs).where(eq(aiJobs.ticketId, fx.ticketId));
     expect(jobs.map((j) => j.status)).toEqual(["pr_merged"]);
@@ -1591,7 +1590,7 @@ describe("chiusura della PR", () => {
       .from(ticketRepositories)
       .where(eq(ticketRepositories.ticketId, fx.ticketId));
     expect(row).toEqual({ prState: "open", prUrl: "https://github.com/acme/repo/pull/50" });
-    const [ticket] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, fx.ticketId));
+    const [ticket] = await testDb.db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, fx.ticketId));
     expect(ticket!.status).toBe("in_review");
     const jobs = await testDb.db.select({ status: aiJobs.status }).from(aiJobs).where(eq(aiJobs.ticketId, fx.ticketId));
     expect(jobs.map((j) => j.status)).toEqual(["pr_opened"]);
@@ -1612,7 +1611,7 @@ describe("chiusura della PR", () => {
       .from(ticketRepositories)
       .where(eq(ticketRepositories.ticketId, fx.ticketId));
     expect(row!.prState).toBe("closed_unmerged");
-    const [ticket] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, fx.ticketId));
+    const [ticket] = await testDb.db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, fx.ticketId));
     expect(ticket!.status).toBe("triaged");
   });
 
@@ -1839,7 +1838,7 @@ describe("PR riaperta (I2)", () => {
 
   it("una PR chiusa e riaperta torna `open`, e il bottone delle correzioni non risponde più `pr_not_open`", async () => {
     const fx = await seedFixture({ prState: "closed_unmerged" });
-    await testDb.db.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, fx.ticketId));
+    await testDb.db.update(tickets).set({ ...roleUpdate("triaged") }).where(eq(tickets.id, fx.ticketId));
     // Premessa: chiusa, il bottone la rifiuta.
     const before = await app.inject({
       method: "POST",
@@ -1855,7 +1854,7 @@ describe("PR riaperta (I2)", () => {
     expect(res.statusCode).toBe(204);
     expect(await prStateOf(fx.ticketId)).toBe("open");
     // Lo stato del ticket non si tocca.
-    const [ticket] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, fx.ticketId));
+    const [ticket] = await testDb.db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, fx.ticketId));
     expect(ticket!.status).toBe("triaged");
     const after = await app.inject({
       method: "POST",

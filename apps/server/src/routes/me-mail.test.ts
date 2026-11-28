@@ -20,7 +20,8 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { addMember, fullSessionCookie, seedUsers } from "../test/fixtures.js";
-import type { MailOriginalClient } from "./me-mail.js";
+import type { ImageFetchResult } from "../mail-images/fetch.js";
+import { MAX_IMAGE_BODY_CHARS, type MailOriginalClient } from "./me-mail.js";
 
 /**
  * PAGINA POSTA (fase 6, Task 12; fase 6b, Task 8): `GET /api/me/mail` (lista
@@ -2321,5 +2322,157 @@ describe("GET /api/me/mail/threads — la classificazione nuova (area 6, F2, tas
       messages: { classification: { projectIds: string[]; uncertainProjectIds: string[] } }[];
     };
     expect(detail.messages[0]!.classification).toMatchObject({ projectIds: [mine], uncertainProjectIds: [] });
+  });
+});
+
+// Le immagini delle email passano dal nostro server (design
+// `docs/plans/2026-11-28-proxy-immagini-posta-design.md`): per POSIZIONE,
+// mai per URL, solo dalla cache del corpo, solo per chi può leggere l'email.
+describe("GET /api/me/mail/:source/:id/images/:n — il proxy delle immagini", () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+  const asked: string[] = [];
+  let outcome: ImageFetchResult = { ok: true, contentType: "image/png", bytes: PNG };
+  let blocker: (() => Promise<void>) | null = null;
+  let appImages: FastifyInstance;
+  let cookie: string;
+  let admin: string;
+
+  beforeAll(async () => {
+    appImages = buildApp({
+      db,
+      sessionSecret: SESSION_SECRET,
+      encryptionKey: ENCRYPTION_KEY.toString("base64"),
+      mailImageFetcher: async (url) => {
+        asked.push(url);
+        if (blocker) await blocker();
+        return outcome;
+      },
+    });
+    cookie = await fullSessionCookie(appImages, memberId);
+    admin = await fullSessionCookie(appImages, adminId);
+  }, 60_000);
+  afterAll(async () => {
+    await appImages.close();
+  });
+  beforeEach(() => {
+    asked.length = 0;
+    outcome = { ok: true, contentType: "image/png", bytes: PNG };
+  });
+
+  const HTML = '<p>Ciao</p><img src="https://a.example/logo.png?u=1&amp;t=2"><img src="data:image/png;base64,AAAA"><img src="https://b.example/x.jpg">';
+
+  /** Un messaggio del member col corpo in cache. */
+  async function seedCached(html: string | null = HTML): Promise<{ proposalId: string; messageId: string }> {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject();
+    const messageId = await seedEmail(accountId);
+    const proposalId = await seedProposal(messageId, projectId);
+    if (html !== null) await db.insert(emailBodies).values({ emailMessageId: messageId, bodyHtml: html });
+    return { proposalId, messageId };
+  }
+  const image = (id: string, n: number | string, c = cookie) =>
+    appImages.inject({ method: "GET", url: `/api/me/mail/email/${id}/images/${n}`, headers: { cookie: c } });
+
+  it("per posizione: l'n-esima immagine remota del corpo sanificato, coi suoi header", async () => {
+    const { proposalId } = await seedCached();
+    const res = await image(proposalId, 0);
+    expect(res.statusCode).toBe(200);
+    expect(asked).toEqual(["https://a.example/logo.png?u=1&t=2"]);
+    expect(res.rawPayload.equals(PNG)).toBe(true);
+    expect(res.headers["content-type"]).toBe("image/png");
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    expect(res.headers["content-security-policy"]).toBe("default-src 'none'; sandbox");
+    expect(res.headers["cross-origin-resource-policy"]).toBe("same-origin");
+    expect(res.headers["referrer-policy"]).toBe("no-referrer");
+    // Revisione M6: niente in cache, né nel browser né in mezzo.
+    expect(res.headers["cache-control"]).toBe("no-store");
+    expect(String(res.headers["content-disposition"])).toMatch(/^inline/);
+    // La seconda remota è la posizione 1: l'immagine inline non conta.
+    await image(proposalId, 1);
+    expect(asked.at(-1)).toBe("https://b.example/x.jpg");
+  });
+
+  it("una posizione fuori dall'elenco, un corpo non in cache, un messaggio di un altro: 404, senza richiesta", async () => {
+    const { proposalId } = await seedCached();
+    expect((await image(proposalId, 2)).statusCode).toBe(404);
+    const { proposalId: uncached } = await seedCached(null);
+    expect((await image(uncached, 0)).statusCode).toBe(404);
+    expect((await image(randomUUID(), 0)).statusCode).toBe(404);
+    expect(asked).toEqual([]);
+  });
+
+  it("mailbox_owner: un full admin su un messaggio non suo → 404, senza richiesta", async () => {
+    const { proposalId } = await seedCached();
+    const res = await image(proposalId, 0, admin);
+    expect(res.statusCode).toBe(404);
+    expect(asked).toEqual([]);
+  });
+
+  it("una posizione non numerica o enorme è 400", async () => {
+    const { proposalId } = await seedCached();
+    expect((await image(proposalId, "x")).statusCode).toBe(400);
+    expect((await image(proposalId, -1)).statusCode).toBe(400);
+    expect((await image(proposalId, 100000)).statusCode).toBe(400);
+  });
+
+  it("qualunque rifiuto del fetch è lo stesso 422 image_unavailable, senza dettaglio", async () => {
+    const { proposalId } = await seedCached();
+    for (const reason of ["address", "timeout", "not_image", "too_large"] as const) {
+      outcome = { ok: false, reason };
+      const res = await image(proposalId, 0);
+      expect([res.statusCode, res.json().code]).toEqual([422, "image_unavailable"]);
+      expect(res.body).not.toContain(reason);
+      expect(res.body).not.toContain("a.example");
+    }
+  });
+
+  it("I3: la lista degli URL si memoizza per messaggio (il corpo è immutabile): la seconda richiesta non risanifica", async () => {
+    const { proposalId, messageId } = await seedCached();
+    await image(proposalId, 0);
+    // Cambiare la riga sotto (non succede mai: il corpo è immutabile) lo dimostra.
+    await db.update(emailBodies).set({ bodyHtml: '<img src="https://changed.example/z.png">' }).where(eq(emailBodies.emailMessageId, messageId));
+    await image(proposalId, 0);
+    expect(asked).toEqual(["https://a.example/logo.png?u=1&t=2", "https://a.example/logo.png?u=1&t=2"]);
+  });
+
+  it("I3: un corpo oltre il tetto non offre immagini: /original senza data-image, la rotta 404 senza fetch", async () => {
+    const huge = `<p>${"x".repeat(MAX_IMAGE_BODY_CHARS)}</p>${HTML}`;
+    const { proposalId } = await seedCached(huge);
+    const original = await appImages.inject({ method: "GET", url: `/api/me/mail/email/${proposalId}/original`, headers: { cookie } });
+    expect(original.statusCode).toBe(200);
+    expect(original.json().bodyHtml).not.toContain("data-image=");
+    expect((await image(proposalId, 0)).statusCode).toBe(404);
+    expect(asked).toEqual([]);
+  });
+
+  it("I2: al più 4 immagini in volo per persona; la quinta insieme è 429", async () => {
+    const { proposalId } = await seedCached();
+    const gates: (() => void)[] = [];
+    const previous = outcome;
+    blocker = () => new Promise<void>((go) => gates.push(go));
+    const flight = Array.from({ length: 4 }, () => image(proposalId, 0));
+    await new Promise((r) => setTimeout(r, 50));
+    const fifth = await image(proposalId, 0);
+    expect(fifth.statusCode).toBe(429);
+    blocker = null;
+    while (gates.length) gates.shift()!();
+    expect((await Promise.all(flight)).map((r) => r.statusCode)).toEqual([200, 200, 200, 200]);
+    outcome = previous;
+  });
+
+  it("il rate limit: 120 al minuto per persona, poi 429", async () => {
+    const { proposalId } = await seedCached();
+    let last = 0;
+    for (let i = 0; i < 121; i++) last = (await image(proposalId, 0)).statusCode;
+    expect(last).toBe(429);
+  });
+
+  it("/original numera le immagini remote con data-image, nello stesso ordine della rotta", async () => {
+    const { proposalId } = await seedCached();
+    const res = await appImages.inject({ method: "GET", url: `/api/me/mail/email/${proposalId}/original`, headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    const html = res.json().bodyHtml as string;
+    expect([...html.matchAll(/data-image="(\d+)"/g)].map((m) => m[1])).toEqual(["0", "1"]);
+    expect(html).not.toMatch(/\ssrc="https?:/);
   });
 });

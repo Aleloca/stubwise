@@ -14,7 +14,7 @@ import { PEOPLE } from "../../data/seed/people";
 import { renderRoute } from "../../test/renderRoute";
 import { closeGoogleAccount } from "../drive/GoogleAccountCard";
 import { MAIL_TWO_UP_QUERY } from "./MailPage";
-import { neutralize, revealImages, scrubTree } from "./UntrustedHtmlFrame";
+import { MAX_FRAME_IMAGES, imagePositions, neutralize, scrubTree, withLoadedImages } from "./UntrustedHtmlFrame";
 
 // La pagina della Posta (Task 7, shape mail.md): filtri nell'indirizzo,
 // contenuti estremi (Review Focus 5), proposte condivise e cambio di persona
@@ -191,7 +191,12 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
       within(p).getByText("Remote images are blocked to protect your privacy."),
     ).toBeInTheDocument();
     await userEvent.click(within(p).getByRole("button", { name: "Show images" }));
-    expect(doc()).toContain('src="https://cdn.fieradigitale.example/banner.jpg"');
+    // Le immagini arrivano dal NOSTRO server (nel prototipo un segnaposto), come data:;
+    // l'indirizzo del mittente non entra mai in src, e la CSP resta img-src data:.
+    await waitFor(() => expect(doc()).toMatch(/<img[^>]*\ssrc="data:image\/png;base64,/));
+    expect(doc()).not.toMatch(/\ssrc="https?:/i);
+    expect(doc()).toMatch(/img-src data:;/);
+    expect(doc()).not.toMatch(/https: http:/);
     expect(doc()).not.toMatch(/<script/i);
     expect(within(p).queryByRole("button", { name: "Show images" })).toBeNull();
     // «Show text» torna al testo pulito.
@@ -205,11 +210,13 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     const p = await pane(thread);
     await userEvent.click(within(p).getAllByRole("button", { name: "Show original" })[0]!);
     await userEvent.click(within(p).getByRole("button", { name: "Show images" }));
-    expect(
-      within(p)
-        .getByTitle(/Original message/)
-        .getAttribute("srcdoc"),
-    ).toMatch(/\ssrc="https:\/\/cdn\./);
+    await waitFor(() =>
+      expect(
+        within(p)
+          .getByTitle(/Original message/)
+          .getAttribute("srcdoc"),
+      ).toMatch(/\ssrc="data:image\/png/),
+    );
     await userEvent.click(within(p).getAllByRole("button", { name: "Show text" })[0]!);
     await userEvent.click(within(p).getAllByRole("button", { name: "Show original" })[0]!);
     expect(within(p).getByRole("button", { name: "Show images" })).toBeInTheDocument();
@@ -234,9 +241,9 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     );
     expect(html).not.toMatch(/\ssrcset=|\ssrc=https/);
     expect(blockedImages).toBe(3);
-    const shown = revealImages(html);
-    expect(shown).toContain('src="https://a.example/u.gif"');
-    expect(shown).toContain('srcset="https://a.example/1x.png 1x');
+    // «Show images» non riporta MAI un indirizzo del mittente: restano parcheggiati.
+    const shown = withLoadedImages(html, new Map([[0, "data:image/png;base64,AA"]]));
+    expect(shown).not.toMatch(/\ssrc="https|\ssrcset=/);
   });
 
   it("neutralize su DOM: niente gestori nascosti nelle virgolette, niente javascript: in nessuna forma", () => {
@@ -300,10 +307,9 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     expect(doc.querySelector("table")!.getAttribute("data-background")).toBe(
       "https://a.example/t.png",
     );
-    const shown = new DOMParser().parseFromString(revealImages(html), "text/html");
-    expect(shown.querySelector("table")!.getAttribute("background")).toBe(
-      "https://a.example/t.png",
-    );
+    const shown = new DOMParser().parseFromString(withLoadedImages(html, new Map()), "text/html");
+    // Un'immagine di fondo non passa dal proxy (il server non la lascia): resta parcheggiata.
+    expect(shown.querySelector("table")!.getAttribute("background")).toBeNull();
   });
 
   it("neutralize: le immagini di image-set() si contano, anche fra url() e stringhe", () => {
@@ -348,14 +354,28 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     expect(old.getAttribute("data-xlink-href")).toBe("https://a.example/x.png");
   });
 
-  it("neutralize/revealImages: nessuno script né gestore, le immagini tornano solo coi loro indirizzi", () => {
+  it("neutralize/withLoadedImages: nessuno script né gestore; in src entra solo un data: raster, e solo sulle data-image", () => {
     const { html, blockedImages } = neutralize(
-      '<script>x()</script><img src="https://a.example/p.gif" onerror="x()"><img src="data:image/png;base64,AA"><a href="javascript:x()">y</a>',
+      '<script>x()</script><img data-image="0" src="https://a.example/p.gif" onerror="x()"><img src="data:image/png;base64,AA"><img data-image="1" data-src="https://b.example/q.png"><a href="javascript:x()">y</a>',
     );
     expect(blockedImages).toBe(1);
     expect(html).not.toMatch(/script|onerror|javascript:/i);
     expect(html).toContain('src="data:image/png;base64,AA"');
-    expect(revealImages(html)).toContain('src="https://a.example/p.gif"');
+    expect(imagePositions(html)).toEqual([0, 1]);
+    const shown = withLoadedImages(
+      html,
+      new Map([
+        [0, "data:image/gif;base64,R0lG"],
+        [1, "data:image/svg+xml;base64,PHN2Zz4="],
+      ]),
+    );
+    const doc = new DOMParser().parseFromString(shown, "text/html");
+    const [first, , third] = Array.from(doc.querySelectorAll("img"));
+    expect(first!.getAttribute("src")).toBe("data:image/gif;base64,R0lG");
+    // Un SVG non entra, nemmeno come data:.
+    expect(third!.getAttribute("src")).toBeNull();
+    expect(shown).not.toMatch(/\ssrc="https/);
+    expect(MAX_FRAME_IMAGES).toBe(50);
   });
 });
 

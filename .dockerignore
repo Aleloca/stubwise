@@ -15,4 +15,5 @@
 # Output locali dell'app desktop (electron-vite, build web, pacchetti).
 apps/desktop/out
 apps/desktop/dist-web
+apps/desktop/dist-vault
 apps/desktop/release

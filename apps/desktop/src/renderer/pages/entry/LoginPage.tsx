@@ -1,7 +1,7 @@
 import { landingSearch } from "../../data/integration";
 import { isAppBuild } from "../../data/build";
-import { Navigate, useNavigate } from "@tanstack/react-router";
-import { useRef, useState, type FormEvent } from "react";
+import { Navigate, useNavigate, useSearch } from "@tanstack/react-router";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useEntryGate,
@@ -18,6 +18,7 @@ import { BusyLabel, EntryColumn, EntryField, EntryHeading, ErrorLine, textButton
 import { isDesktopApp } from "../../platform/desktopSession";
 import { DesktopEntry } from "./DesktopEntry";
 import { SecondFactorStep } from "./SecondFactorStep";
+import { vaultReturn } from "./vaultReturn";
 
 /** La password di ogni persona del seme e il codice fisso, mostrati nel riquadro del prototipo. */
 const PROTOTYPE_PASSWORD = "stubwise";
@@ -42,14 +43,29 @@ function WebLoginPage() {
   // Dentro, ma con un passo ancora da mostrare (i codici di backup quasi finiti).
   const [finishing, setFinishing] = useState(false);
   const navigate = useNavigate();
+  // I-2: il ritorno alla pagina a sé della cassaforte, da un elenco chiuso
+  // (`vaultReturn`); con una navigazione completa, perché è un altro documento.
+  const search = useSearch({ strict: false }) as { next?: unknown; state?: unknown };
+  const back = vaultReturn(
+    typeof search.next === "string" ? search.next : undefined,
+    typeof search.state === "string" ? search.state : undefined,
+  );
+  const inside = stage === "in" && !finishing;
 
-  if (stage === "in" && !finishing) return <Navigate to="/home" search={landingSearch()} replace />;
+  useEffect(() => {
+    if (inside && back) window.location.assign(back);
+  }, [inside, back]);
+
+  if (inside) return back ? null : <Navigate to="/home" search={landingSearch()} replace />;
 
   return (
     <EntryColumn>
       <LoginSteps
         onFinishing={setFinishing}
-        onDone={() => void navigate({ to: "/home", search: landingSearch(), replace: true })}
+        onDone={() => {
+          if (back) window.location.assign(back);
+          else void navigate({ to: "/home", search: landingSearch(), replace: true });
+        }}
       />
     </EntryColumn>
   );
