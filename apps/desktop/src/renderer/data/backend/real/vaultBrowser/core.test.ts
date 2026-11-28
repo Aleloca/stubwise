@@ -114,6 +114,15 @@ async function openCore(core: VaultCore) {
   return { buffer, out: await core.handle({ t: "unlock", assertion, credentialId: CRED, personId: ME, sessionTag: TAG }) };
 }
 
+/**
+ * Una presenza fresca (punto 3 della revisione finale): una PRF nello stash,
+ * come dopo una cerimonia, e l'asserzione che il worker manda alla verifica.
+ */
+async function touch(core: VaultCore, buffer: ArrayBuffer = prf.slice().buffer) {
+  await core.handle({ t: "stash", prf: buffer });
+  return { assertion, credentialId: CRED };
+}
+
 describe("il cuore della cassaforte nel worker", () => {
   let core: VaultCore;
   beforeEach(async () => {
@@ -521,7 +530,8 @@ describe("condividi e togli un lettore, nel worker", () => {
   });
 
   it("togli: con la prova, solo a cassaforte aperta", async () => {
-    const remove = () => core.handle({ t: "removeReader", id: C1, readerId: OTHER_USER, personId: ME, sessionTag: TAG });
+    const remove = async () =>
+      core.handle({ t: "removeReader", id: C1, readerId: OTHER_USER, personId: ME, sessionTag: TAG, presence: await touch(core) });
     expect(await remove()).toEqual({ ok: false, code: "vault_locked" });
     await openCore(core);
     expect(await remove()).toEqual({ ok: true });
@@ -582,9 +592,9 @@ describe("chi aspetta, conferma e rifiuta, nel worker", () => {
   });
 
   it("conferma: chiusa niente; aperta, ricifra per la chiave della persona le copie che si aprono, con la prova; l'esito in conteggi", async () => {
-    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "vault_locked" });
+    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG, presence: await touch(core) })).toEqual({ ok: false, code: "vault_locked" });
     await openCore(core);
-    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG })).toEqual({
+    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG, presence: await touch(core) })).toEqual({
       ok: true,
       saved: 1,
       keyChanged: 0,
@@ -605,21 +615,70 @@ describe("chi aspetta, conferma e rifiuta, nel worker", () => {
     routes[`POST /api/vault/pending/${OTHER_KEY}/confirm`] = () => ({
       body: { personKeyId: OTHER_KEY, status: "pending", saved: [], skipped: [{ credentialId: C1, reason: "key_changed" }, { credentialId: C2, reason: "not_allowed" }] },
     });
-    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG })).toMatchObject({ ok: true, saved: 0, keyChanged: 1, notAllowed: 1 });
+    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG, presence: await touch(core) })).toMatchObject({ ok: true, saved: 0, keyChanged: 1, notAllowed: 1 });
     routes["GET /api/vault/pending"] = () => ({ body: { items: [] } });
     const before = challenges.length;
-    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "not_pending" });
+    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG, presence: await touch(core) })).toEqual({ ok: false, code: "not_pending" });
     expect(challenges.length).toBe(before);
   });
 
   it("rifiuta: con la prova, solo a cassaforte aperta e con la sessione dell'apertura", async () => {
-    const reject = () => core.handle({ t: "reject", keyId: OTHER_KEY, personId: ME, sessionTag: TAG });
+    const reject = async () => core.handle({ t: "reject", keyId: OTHER_KEY, personId: ME, sessionTag: TAG, presence: await touch(core) });
     expect(await reject()).toEqual({ ok: false, code: "vault_locked" });
     await openCore(core);
     expect(await reject()).toEqual({ ok: true });
     expect(calls.find((c) => c.path === `/api/vault/pending/${OTHER_KEY}/reject`)!.body).toEqual({ actorProof: challenges[0] });
     serverTag = "srv-tag-2";
     expect(await reject()).toEqual({ ok: false, code: "vault_locked" });
+  });
+
+  it("punto 3: senza una presenza fresca niente conferma, rifiuto né rimozione, e nessuna chiamata", async () => {
+    await openCore(core);
+    const before = calls.length;
+    for (const req of [
+      { t: "confirm" as const, keyId: OTHER_KEY, personId: ME, sessionTag: TAG },
+      { t: "reject" as const, keyId: OTHER_KEY, personId: ME, sessionTag: TAG },
+      { t: "removeReader" as const, id: C1, readerId: OTHER_USER, personId: ME, sessionTag: TAG },
+    ]) {
+      expect(await core.handle(req as never)).toEqual({ ok: false, code: "presence_required" });
+    }
+    expect(calls.length).toBe(before);
+  });
+
+  it("punto 3: la presenza vale per UNA operazione: la PRF si consuma, la verifica la fa il server", async () => {
+    await openCore(core);
+    const presence = await touch(core);
+    expect(await core.handle({ t: "reject", keyId: OTHER_KEY, personId: ME, sessionTag: TAG, presence })).toEqual({ ok: true });
+    const verifies = calls.filter((c) => c.path.endsWith("/passkey/verify")).length;
+    expect(verifies).toBe(2);
+    // La stessa asserzione, senza una PRF nuova: niente.
+    expect(await core.handle({ t: "reject", keyId: OTHER_KEY, personId: ME, sessionTag: TAG, presence })).toEqual({ ok: false, code: "no_prf" });
+    expect(calls.filter((c) => c.path.endsWith("/reject")).length).toBe(1);
+  });
+
+  it("punto 3: una PRF che non apre la propria chiave ferma l'operazione (e si azzera)", async () => {
+    await openCore(core);
+    const wrong = crypto.getRandomValues(new Uint8Array(32)).buffer;
+    const presence = await touch(core, wrong);
+    expect(await core.handle({ t: "reject", keyId: OTHER_KEY, personId: ME, sessionTag: TAG, presence })).toEqual({ ok: false, code: "open_failed" });
+    expect(new Uint8Array(wrong).every((b) => b === 0)).toBe(true);
+    expect(calls.some((c) => c.path.endsWith("/reject"))).toBe(false);
+  });
+
+  it("minor: una conferma in cui nessuna copia si apre si ferma prima della prova (`nothing_opened`)", async () => {
+    await openCore(core);
+    routes["GET /api/vault/pending"] = () => {
+      const body = pendingBody();
+      body.items[0]!.credentials = body.items[0]!.credentials.filter((c) => c.id === C2);
+      return { body };
+    };
+    const before = challenges.length;
+    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG, presence: await touch(core) })).toEqual({
+      ok: false,
+      code: "nothing_opened",
+    });
+    expect(challenges.length).toBe(before);
+    expect(calls.some((c) => c.path.endsWith("/confirm"))).toBe(false);
   });
 });
 

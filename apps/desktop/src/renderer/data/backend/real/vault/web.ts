@@ -18,7 +18,7 @@ import {
   shareInWorker,
 } from "../vaultBrowser/credentials";
 import * as key from "../vaultBrowser/key";
-import { unlockInBrowser } from "../vaultBrowser/unlock";
+import { freshPresence, unlockInBrowser } from "../vaultBrowser/unlock";
 import * as liveVaultReads from "../vaultReads";
 import { setVaultTransport } from "../vaultReads";
 import { listMacsOf, removeMacOf } from "../vaultMacsOf";
@@ -61,7 +61,9 @@ onSessionStarted(() => {
  */
 const listPending: typeof Fake.vault.listPending = async () => {
   const out = await pendingInWorker();
-  if (!out.ok) return [];
+  // Un errore è un errore: la pagina lo dice, invece di «nessuno aspetta».
+  // (I conteggi di `vaultReads` lo intercettano da sé.)
+  if (!out.ok) throw new Error(out.code);
   const people = await appClient()
     .people.list()
     .catch(() => []);
@@ -160,22 +162,33 @@ const share: typeof Fake.vault.share = async (id, target) => {
   );
 };
 
+/**
+ * Revisione finale, punto 3 (come M5 del desktop, che chiede un Touch ID):
+ * togliere un lettore, confermare e rifiutare una chiave vogliono un tocco
+ * NUOVO della passkey, che vale per quell'operazione sola.
+ */
 const removeReader: typeof Fake.vault.removeReader = async (id, readerId) => {
   const w = who();
   if (!w.personId) return { ok: false, code: "unauthenticated" };
-  return removeReaderInWorker(id, readerId, w.personId, w.sessionTag);
+  const touched = await freshPresence(who);
+  if (!touched.ok) return { ok: false, code: touched.code };
+  return removeReaderInWorker(id, readerId, w.personId, w.sessionTag, touched.presence);
 };
 
 const confirm: typeof Fake.vault.confirm = async (keyId) => {
   const w = who();
   if (!w.personId) return { ok: false, code: "unauthenticated" };
-  return confirmInWorker(keyId, w.personId, w.sessionTag);
+  const touched = await freshPresence(who);
+  if (!touched.ok) return { ok: false, code: touched.code };
+  return confirmInWorker(keyId, w.personId, w.sessionTag, touched.presence);
 };
 
 const reject: typeof Fake.vault.reject = async (keyId) => {
   const w = who();
   if (!w.personId) return { ok: false, code: "unauthenticated" };
-  return rejectInWorker(keyId, w.personId, w.sessionTag);
+  const touched = await freshPresence(who);
+  if (!touched.ok) return { ok: false, code: touched.code };
+  return rejectInWorker(keyId, w.personId, w.sessionTag, touched.presence);
 };
 
 export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vault", {

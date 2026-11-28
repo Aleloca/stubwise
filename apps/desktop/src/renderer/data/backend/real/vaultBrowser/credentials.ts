@@ -1,4 +1,5 @@
 import { request } from "./client";
+import type { Presence } from "./core";
 
 // Le operazioni sulle password nella build web (design §6, §10; revisione
 // I-1): la crittografia la fa il worker.
@@ -55,8 +56,9 @@ export function removeReaderInWorker(
   readerId: string,
   personId: string,
   sessionTag: string,
+  presence: Presence,
 ): Promise<{ ok: true } | { ok: false; code: string }> {
-  return request({ t: "removeReader", id, readerId, personId, sessionTag });
+  return request({ t: "removeReader", id, readerId, personId, sessionTag, presence });
 }
 
 export type PendingItem = {
@@ -78,11 +80,16 @@ export type ConfirmOutcome =
   | { ok: true; saved: number; keyChanged: number; notAllowed: number; unopenable: number }
   | { ok: false; code: string };
 
-export function confirmInWorker(keyId: string, personId: string, sessionTag: string): Promise<ConfirmOutcome> {
-  return request<ConfirmOutcome>({ t: "confirm", keyId, personId, sessionTag });
+export function confirmInWorker(keyId: string, personId: string, sessionTag: string, presence: Presence): Promise<ConfirmOutcome> {
+  return request<ConfirmOutcome>({ t: "confirm", keyId, personId, sessionTag, presence });
 }
 
-export function rejectInWorker(keyId: string, personId: string, sessionTag: string): Promise<{ ok: true } | { ok: false; code: string }> {
-  return request({ t: "reject", keyId, personId, sessionTag });
+export function rejectInWorker(
+  keyId: string,
+  personId: string,
+  sessionTag: string,
+  presence: Presence,
+): Promise<{ ok: true } | { ok: false; code: string }> {
+  return request({ t: "reject", keyId, personId, sessionTag, presence });
 }
 

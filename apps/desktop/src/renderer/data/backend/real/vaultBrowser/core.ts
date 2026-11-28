@@ -97,18 +97,28 @@ export type CoreRequest =
   | { t: "setPassword"; id: string; password: string; personId: string; sessionTag: string }
   /** A una persona o a un ruolo: la chiave della voce ricifrata per chi entra, con la prova. */
   | { t: "share"; id: string; target: { userId: string } | { roleId: string }; personId: string; sessionTag: string }
-  | { t: "removeReader"; id: string; readerId: string; personId: string; sessionTag: string }
+  | { t: "removeReader"; id: string; readerId: string; personId: string; sessionTag: string; presence?: Presence }
   /** Chi aspetta che io confermi: una lettura, senza la chiave; alla pagina senza le copie. */
   | { t: "pending" }
   /** Conferma una chiave di persona: le proprie copie ricifrate per lei, con la prova. */
-  | { t: "confirm"; keyId: string; personId: string; sessionTag: string }
-  | { t: "reject"; keyId: string; personId: string; sessionTag: string }
+  | { t: "confirm"; keyId: string; personId: string; sessionTag: string; presence?: Presence }
+  | { t: "reject"; keyId: string; personId: string; sessionTag: string; presence?: Presence }
   /** La PRF ricevuta non serve più (M-3, sessione cambiata): si azzera. */
   | { t: "discard" }
   | { t: "touch" }
   | { t: "lock"; reason: LockReason }
   | { t: "status" }
   | { t: "serverStatus" };
+
+/**
+ * Una presenza fresca (revisione finale, punto 3, come M5 del desktop):
+ * conferma, rifiuto e rimozione di un lettore vogliono una NUOVA asserzione
+ * della passkey, non solo la cassaforte aperta. La pagina rifà la cerimonia
+ * (la PRF nello `stash`), e qui la si verifica col server, si apre un sigillo
+ * della propria chiave con quella PRF e la si azzera: vale per
+ * quell'operazione sola.
+ */
+export type Presence = { assertion: unknown; credentialId: string };
 
 export type CoreEvent =
   | { t: "state"; state: "open"; closesAt: number }
@@ -352,6 +362,27 @@ export class VaultCore {
     return true;
   }
 
+  /** La presenza fresca: `null` se regge, altrimenti l'esito da restituire. La PRF si consuma sempre. */
+  private async present(presence: Presence): Promise<{ ok: false; code: string } | null> {
+    const prf = this.takeStash();
+    if (!prf) return { ok: false, code: "no_prf" };
+    try {
+      await this.http("POST", "/api/me/security/reauth/passkey/verify", { response: presence.assertion });
+      const mine = await this.http<VaultMyKeyResponse>("GET", "/api/vault/keys/mine");
+      if (!this.key || mine.id !== this.key.personKeyId) return { ok: false, code: "stale_key" };
+      const seal = mine.seals.find((s) => s.credentialIdB64url === presence.credentialId);
+      if (!seal) return { ok: false, code: "no_seal" };
+      try {
+        await openPrivateKey(prf, seal.sealedPrivateKey, mine.publicKey);
+      } catch {
+        return { ok: false, code: "open_failed" };
+      }
+      return null;
+    } finally {
+      wipe(prf);
+    }
+  }
+
   /** La prova della propria chiave: una per azione (il server la consuma). */
   private async prove(privateKey: CryptoKey, personKeyId: string): Promise<VaultActorProof> {
     const challenge = vaultActorChallengeResponseSchema.safeParse(await this.http("POST", "/api/vault/actor-challenge", {}));
@@ -437,6 +468,10 @@ export class VaultCore {
         unopenable += 1;
       }
     }
+    // Copie da aprire c'erano, e nessuna si è aperta: niente da salvare, e
+    // niente prova bruciata. (Una persona senza credenziali in attesa si
+    // conferma comunque: la sua chiave passa a «confermata».)
+    if (person.credentials.length > 0 && copies.length === 0) return { ok: false as const, code: "nothing_opened" };
     const result = vaultConfirmResponseSchema.safeParse(
       await this.http("POST", `/api/vault/pending/${seg(keyId)}/confirm`, {
         copies,
@@ -574,8 +609,11 @@ export class VaultCore {
         return this.share(req.id, req.target, k);
       }
       case "removeReader": {
+        if (!req.presence) return { ok: false, code: "presence_required" };
         const k = await this.live(req.personId, req.sessionTag);
         if (!k) return { ok: false, code: "vault_locked" };
+        const absent = await this.present(req.presence);
+        if (absent) return absent;
         await this.http("DELETE", `/api/credentials/${seg(req.id)}/readers/${seg(req.readerId)}`, {
           actorProof: await this.prove(k.privateKey, k.personKeyId),
         });
@@ -600,13 +638,19 @@ export class VaultCore {
         };
       }
       case "confirm": {
+        if (!req.presence) return { ok: false, code: "presence_required" };
         const k = await this.live(req.personId, req.sessionTag);
         if (!k) return { ok: false, code: "vault_locked" };
+        const absent = await this.present(req.presence);
+        if (absent) return absent;
         return this.confirm(req.keyId, k);
       }
       case "reject": {
+        if (!req.presence) return { ok: false, code: "presence_required" };
         const k = await this.live(req.personId, req.sessionTag);
         if (!k) return { ok: false, code: "vault_locked" };
+        const absent = await this.present(req.presence);
+        if (absent) return absent;
         await this.http("POST", `/api/vault/pending/${seg(req.keyId)}/reject`, {
           actorProof: await this.prove(k.privateKey, k.personKeyId),
         });

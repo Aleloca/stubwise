@@ -170,4 +170,31 @@ describe("la pagina non vede il segreto", () => {
     expect(await pending).toEqual({ ok: false, code: "session" });
     expect(toWorker.map((w) => w.msg.req.t)).toEqual(["prepare", "stash", "discard"]);
   });
+
+  it("punto 3: una presenza fresca rifà la cerimonia, mette la PRF nello stash per transfer e NON apre la cassaforte", async () => {
+    await import("./primitives");
+    const client = await import("./client");
+    client.__setWorkerForTests(new FakeWorker() as unknown as Worker);
+    const { freshPresence } = await import("./unlock");
+    const out = await freshPresence(() => ({ personId: "p-ada", sessionTag: "t" }));
+    expect(out).toMatchObject({ ok: true, presence: { credentialId: CRED } });
+    expect(toWorker.map((w) => w.msg.req.t)).toEqual(["prepare", "stash"]);
+    expect(toWorker[1]!.transfer).toHaveLength(1);
+  });
+
+  it("punto 3: cambiata la sessione durante la cerimonia, la presenza non vale e la PRF si azzera nel worker", async () => {
+    await import("./primitives");
+    const client = await import("./client");
+    client.__setWorkerForTests(new FakeWorker() as unknown as Worker);
+    const { freshPresence } = await import("./unlock");
+    let tag = "t1";
+    const out = await freshPresence(() => {
+      const w = { personId: "p-ada", sessionTag: tag };
+      tag = "t2";
+      return w;
+    });
+    expect(out).toEqual({ ok: false, code: "session" });
+    expect(toWorker.map((w) => w.msg.req.t)).toEqual(["prepare", "stash", "discard"]);
+  });
 });
+

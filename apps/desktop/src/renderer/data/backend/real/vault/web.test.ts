@@ -1,5 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// La cerimonia della passkey ha i suoi test (`vaultBrowser/page.test.ts`):
+// qui la presenza fresca di conferma, rifiuto e rimozione è un doppio.
+const presence = vi.hoisted(() => ({
+  next: { ok: true, presence: { assertion: { id: "cred" }, credentialId: "cred" } } as
+    | { ok: true; presence: { assertion: unknown; credentialId: string } }
+    | { ok: false; code: string },
+  calls: 0,
+}));
+vi.mock("../vaultBrowser/unlock", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../vaultBrowser/unlock")>()),
+  freshPresence: async () => {
+    presence.calls += 1;
+    return presence.next;
+  },
+}));
+
 // La cassaforte della build web (design §5, §8, §9; revisione I-1): la barra
 // dagli esiti del worker; la sessione persa e «Esci» la chiudono; Show e Copy
 // passano dal worker, coi rifiuti nella forma del desktop.
@@ -30,6 +46,8 @@ beforeEach(async () => {
   vi.stubEnv("VITE_STUBWISE_TARGET", "web");
   toWorker = [];
   replies = {};
+  presence.calls = 0;
+  presence.next = { ok: true, presence: { assertion: { id: "cred" }, credentialId: "cred" } };
   server = {
     activated: true,
     myKey: { id: "11111111-1111-4111-8111-111111111111", status: "confirmed", createdAt: "2026-11-01T00:00:00.000Z" },
@@ -143,7 +161,8 @@ describe("la cassaforte della build web", () => {
     const { vault, session } = await load();
     session.personId = "p-ada";
     expect(await vault.removeReader("c-1", "u-bea")).toEqual({ ok: true });
-    expect(toWorker.at(-1)).toMatchObject({ t: "removeReader", id: "c-1", readerId: "u-bea", personId: "p-ada" });
+    expect(toWorker.at(-1)).toMatchObject({ t: "removeReader", id: "c-1", readerId: "u-bea", personId: "p-ada", presence: { credentialId: "cred" } });
+    expect(presence.calls).toBe(1);
     session.personId = null;
   });
 
@@ -178,8 +197,9 @@ describe("la cassaforte della build web", () => {
       },
     ]);
     expect(toWorker.at(-1)).toEqual({ t: "pending" });
+    // Un errore di rete è un errore (la pagina lo dice), non «nessuno aspetta».
     replies.pending = { ok: false, code: "network" };
-    expect(await vault.listPending()).toEqual([]);
+    await expect(vault.listPending()).rejects.toThrow("network");
   });
 
   it("conferma e rifiuta: al worker, con persona e sessione", async () => {
@@ -187,11 +207,17 @@ describe("la cassaforte della build web", () => {
     session.personId = "p-ada";
     replies.confirm = { ok: true, saved: 2, keyChanged: 0, notAllowed: 0, unopenable: 1 };
     expect(await vault.confirm("k-bea")).toEqual({ ok: true, saved: 2, keyChanged: 0, notAllowed: 0, unopenable: 1 });
-    expect(toWorker.at(-1)).toMatchObject({ t: "confirm", keyId: "k-bea", personId: "p-ada" });
+    expect(toWorker.at(-1)).toMatchObject({ t: "confirm", keyId: "k-bea", personId: "p-ada", presence: { credentialId: "cred" } });
     expect(await vault.reject("k-bea")).toEqual({ ok: true });
     expect(toWorker.at(-1)).toMatchObject({ t: "reject", keyId: "k-bea", personId: "p-ada" });
     replies.reject = { ok: false, code: "vault_locked" };
     expect(await vault.reject("k-bea")).toEqual({ ok: false, code: "vault_locked" });
+    expect(presence.calls).toBe(3);
+    // Senza il tocco della passkey il worker non riceve niente.
+    presence.next = { ok: false, code: "passkey_failed" };
+    const before = toWorker.length;
+    expect(await vault.confirm("k-bea")).toEqual({ ok: false, code: "passkey_failed" });
+    expect(toWorker.length).toBe(before);
     session.personId = null;
   });
 });

@@ -1,5 +1,6 @@
 import type { PasskeyAuthenticationOptions } from "@stubwise/shared";
 import { request, stashPrf } from "./client";
+import type { Presence } from "./core";
 import { ceremony } from "./webauthn";
 
 // Lo sblocco della cassaforte nella build web (revisione di sicurezza I-1):
@@ -14,7 +15,17 @@ import { ceremony } from "./webauthn";
 
 export type UnlockOutcome = { ok: true } | { ok: false; code: string };
 
-export async function unlockInBrowser(who: () => { personId: string | null; sessionTag: string }): Promise<UnlockOutcome> {
+type Who = () => { personId: string | null; sessionTag: string };
+
+/**
+ * La cerimonia, fino alla PRF nel worker: le opzioni dal worker
+ * (`prepare`), la passkey (`webauthn.ts`, la PRF nello `stash` per
+ * transfer), poi il ricontrollo di persona e sessione (M-3; se non regge, il
+ * worker azzera la PRF).
+ */
+async function touchPasskey(
+  who: Who,
+): Promise<{ ok: true; personId: string; sessionTag: string; presence: Presence } | { ok: false; code: string }> {
   const before = who();
   if (!before.personId) return { ok: false, code: "unauthenticated" };
   const prepared = await request<
@@ -30,13 +41,31 @@ export async function unlockInBrowser(who: () => { personId: string | null; sess
     void request({ t: "discard" });
     return { ok: false, code: "session" };
   }
-  return request<UnlockOutcome>(
-    {
-      t: "unlock",
-      assertion: outcome.assertion,
-      credentialId: outcome.credentialId,
-      personId: before.personId,
-      sessionTag: before.sessionTag,
-    },
-  );
+  return {
+    ok: true,
+    personId: before.personId,
+    sessionTag: before.sessionTag,
+    presence: { assertion: outcome.assertion, credentialId: outcome.credentialId },
+  };
+}
+
+export async function unlockInBrowser(who: Who): Promise<UnlockOutcome> {
+  const touched = await touchPasskey(who);
+  if (!touched.ok) return touched;
+  return request<UnlockOutcome>({
+    t: "unlock",
+    ...touched.presence,
+    personId: touched.personId,
+    sessionTag: touched.sessionTag,
+  });
+}
+
+/**
+ * Revisione finale, punto 3 (come M5 del desktop): una presenza FRESCA per
+ * conferma, rifiuto e rimozione di un lettore. La stessa cerimonia, ma la PRF
+ * nel worker vale per quell'operazione sola: non riapre la cassaforte.
+ */
+export async function freshPresence(who: Who): Promise<{ ok: true; presence: Presence } | { ok: false; code: string }> {
+  const touched = await touchPasskey(who);
+  return touched.ok ? { ok: true, presence: touched.presence } : touched;
 }
