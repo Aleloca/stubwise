@@ -9,8 +9,7 @@ import {
   repositories,
   ticketRepositories,
   tickets,
-  type Db,
-} from "@stubwise/db";
+  type Db, ticketStatusSql } from "@stubwise/db";
 import {
   getProvider,
   MergeNotAllowedError,
@@ -456,7 +455,7 @@ export async function listReleaseQueue(
   const candidateTicketIds = [...new Set(externalCandidates.map((c) => c.ticketId!))];
   const candidateTickets = candidateTicketIds.length > 0
     ? await db
-        .select({ id: tickets.id, number: tickets.number, title: tickets.title, status: tickets.status })
+        .select({ id: tickets.id, number: tickets.number, title: tickets.title, status: ticketStatusSql })
         .from(tickets)
         .where(inArray(tickets.id, candidateTicketIds))
     : [];

@@ -2,7 +2,7 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { automations, projects, repositories, tickets, users, widgets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb, roleInsert } from "@stubwise/db/testing";
 import { projectPermissionsOfUser } from "@stubwise/notifications";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -120,8 +120,8 @@ describe("area 9, F6: le primitive escludono l'archiviato", () => {
     await testDb.db.update(projects).set({ name: `${word} aperto` }).where(eq(projects.id, open));
     const n = Math.floor(Math.random() * 1_000_000);
     await testDb.db.insert(tickets).values([
-      { projectId: archived, number: 1, title: `${word} task chiusa`, type: "bug", priority: "medium", status: "triaged", source: "manual" },
-      { projectId: open, number: 1, title: `${word} task aperta`, type: "bug", priority: "medium", status: "triaged", source: "manual" },
+      { projectId: archived, number: 1, title: `${word} task chiusa`, type: "bug", priority: "medium", ...roleInsert(archived, "triaged"), source: "manual" },
+      { projectId: open, number: 1, title: `${word} task aperta`, type: "bug", priority: "medium", ...roleInsert(open, "triaged"), source: "manual" },
     ]);
     await testDb.db.insert(automations).values([
       { code: `AR${n}-A1`, seq: n, name: `${word} auto chiusa`, projectId: archived, ownerId: adminId, status: "active", activeSince: new Date() },

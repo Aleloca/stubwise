@@ -205,12 +205,15 @@ describe("Credentials — la voce della colonna", () => {
     expect(within(bar()).getByText("Activate it in the browser.")).toBeInTheDocument();
   });
 
-  // Review M10: nella build web (l'app servita su /app, senza il ponte del
-  // desktop) cifrare non si può: niente «New credential», e la barra dice
-  // come si apre la cassaforte dal browser.
+  // Review M10, poi la cassaforte nel browser (fase 1): nella build web (l'app
+  // servita su /app, senza il ponte del desktop) cifra il worker della
+  // scheda, quindi «New credential» c'è come nella build Electron; la barra
+  // dice come si apre la cassaforte dal browser.
   describe("M10: la build web", () => {
     beforeEach(() => {
       vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+      // Il target del build (design della cassaforte nel browser §4), mai il ponte a runtime.
+      vi.stubEnv("VITE_STUBWISE_TARGET", "web");
       // Nella build «app» chi guarda è la persona della sessione del livello dati.
       setSessionPersonId("p-laura");
     });
@@ -219,13 +222,13 @@ describe("Credentials — la voce della colonna", () => {
       vi.unstubAllGlobals();
     });
 
-    it("niente «New credential» nella sezione", async () => {
+    it("«New credential» c'è anche nella build web (cifra il worker della scheda)", async () => {
       await openSection("p-laura");
-      expect(screen.queryByRole("button", { name: "New credential" })).toBeNull();
+      expect(screen.getByRole("button", { name: "New credential" })).toBeInTheDocument();
     });
 
-    it("con il ponte del desktop «New credential» c'è", async () => {
-      vi.stubGlobal("stubwise", { vault: { create: vi.fn() } });
+    it("nella build Electron «New credential» c'è (lo decide il target, non il ponte)", async () => {
+      vi.stubEnv("VITE_STUBWISE_TARGET", "electron");
       await openSection("p-laura");
       expect(screen.getByRole("button", { name: "New credential" })).toBeInTheDocument();
     });
@@ -243,13 +246,83 @@ describe("Credentials — la voce della colonna", () => {
       );
       await waitFor(() => expect(bar().dataset.vaultBar).toBe("unsupported"));
       expect(
-        within(bar()).getByText(
-          "In the browser, the vault opens on Stubwise's web pages, with your passkey.",
+        within(bar()).getByText("In the browser, the vault opens on the Vault page, with your passkey."),
+      ).toBeInTheDocument();
+      // Fase 2: la pagina della cassaforte della nuova app (dall'helper dei link), non il web vecchio.
+      const assign = vi.spyOn(window.location, "assign").mockImplementation(() => undefined);
+      await userEvent.click(within(bar()).getByRole("button", { name: "Open the vault page" }));
+      expect(assign).toHaveBeenCalledWith("/#/vault");
+      assign.mockRestore();
+    });
+
+    // Cassaforte nel browser, design §9: gli stati della barra della build web.
+    const barAs = (state: string) =>
+      act(() =>
+        lastQueryClient().setQueryData(queryKeys.vaultStatus("p-laura"), {
+          state,
+          touchId: false,
+          macFingerprint: null,
+          ownFingerprint: null,
+          pairing: null,
+        }),
+      );
+
+    it("§9: chiusa · «Open with passkey»; aperta · si chiude dopo 15 minuti, e il limite del browser", async () => {
+      await openSection("p-laura");
+      barAs("locked");
+      await waitFor(() => expect(bar().dataset.vaultBar).toBe("locked"));
+      expect(within(bar()).getByRole("button", { name: "Open with passkey" })).toBeInTheDocument();
+      expect(within(bar()).queryByRole("button", { name: "Open with Touch ID" })).toBeNull();
+      barAs("open");
+      await waitFor(() => expect(bar().dataset.vaultBar).toBe("open"));
+      expect(within(bar()).getByText("Open · closes after 15 minutes without use")).toBeInTheDocument();
+      expect(
+        within(bar()).getByText("In the browser, sleep and screen lock close it when you come back."),
+      ).toBeInTheDocument();
+    });
+
+    // Design §6 (I3): nel browser Show resta finché Hide, ma la password
+    // sparisce quando la scheda va in secondo piano e a `pagehide`.
+    const showAruba = async () => {
+      const user = userEvent.setup();
+      await openSection("p-laura");
+      await user.click(
+        within(row(VAULT_IDS.ARUBA)).getByRole("button", { name: "Show the password of Aruba hosting" }),
+      );
+      await waitFor(() => expect(row(VAULT_IDS.ARUBA).textContent).toContain("Kx4!pa-77Wq"));
+    };
+
+    it("§6: in secondo piano la password mostrata sparisce", async () => {
+      await showAruba();
+      const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+      act(() => void document.dispatchEvent(new Event("visibilitychange")));
+      visibility.mockRestore();
+      expect(row(VAULT_IDS.ARUBA).textContent).not.toContain("Kx4!pa");
+    });
+
+    it("§6: a `pagehide` la password mostrata sparisce", async () => {
+      await showAruba();
+      act(() => void window.dispatchEvent(new Event("pagehide")));
+      expect(row(VAULT_IDS.ARUBA).textContent).not.toContain("Kx4!pa");
+    });
+
+    it("§6: Copy dice la frase onesta del browser sugli appunti", async () => {
+      const user = userEvent.setup();
+      await openSection("p-laura");
+      await user.click(within(row(VAULT_IDS.CLOUDFLARE)).getByRole("button", { name: "Copy the password of Cloudflare" }));
+      expect(
+        await screen.findByText(
+          "Copied. Clears from your clipboard in 30 seconds when this tab is in front. Your system's clipboard history may keep it.",
         ),
       ).toBeInTheDocument();
-      expect(
-        within(bar()).getByRole("button", { name: "Open the vault page" }),
-      ).toBeInTheDocument();
+    });
+
+    it("§9: una passkey senza PRF lo dice, con «Try another passkey»", async () => {
+      await openSection("p-laura");
+      barAs("passkey_unsupported");
+      await waitFor(() => expect(bar().dataset.vaultBar).toBe("passkey_unsupported"));
+      expect(within(bar()).getByText(/This passkey can't open the vault/)).toBeInTheDocument();
+      expect(within(bar()).getByRole("button", { name: "Try another passkey" })).toBeInTheDocument();
     });
   });
 });

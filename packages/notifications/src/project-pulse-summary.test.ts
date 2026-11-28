@@ -9,7 +9,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb, type TestDb, roleInsert } from "@stubwise/db/testing";
 import { PRESET_ROLES, type ProjectPermission } from "@stubwise/shared";
 import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -104,7 +104,7 @@ describe("summarizeProject", () => {
         type: opts.type ?? "bug",
         priority: opts.priority ?? "medium",
         source: "manual",
-        ...(opts.status ? { status: opts.status } : {}),
+        ...(opts.status ? roleInsert(projectId, opts.status) : {}),
       })
       .returning({ id: tickets.id });
     const ticketId = row!.id;

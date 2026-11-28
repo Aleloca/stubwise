@@ -23,8 +23,7 @@ import {
   serverMetrics,
   servers,
   ticketRepositories,
-  tickets,
-} from "@stubwise/db";
+  tickets, roleUpdate } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedRepositoryInProject, seedTicket, startTestDb } from "@stubwise/db/testing";
 import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
@@ -802,7 +801,7 @@ describe("GET /api/release-queue", () => {
 
   it("un ticket di review già 'done': candidato scartato SENZA chiamare il provider per lui (filtro economico)", async () => {
     const { ticketId, repositoryId, prNumber } = await seedExternalPr({ prNumber: 203 });
-    await testDb.db.update(tickets).set({ status: "done" }).where(eq(tickets.id, ticketId));
+    await testDb.db.update(tickets).set({ ...roleUpdate("done") }).where(eq(tickets.id, ticketId));
     const detailUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}`;
     const calledForThisPr: string[] = [];
     vi.stubGlobal(
@@ -1607,7 +1606,7 @@ describe("area 8, F1, S10: la Home «Rilasci»", () => {
 
     const open = await failedRelease(projectId, repositoryId);
     const { ticketId: closedFix } = await seedTicket(testDb.db, { projectId, repositoryId, number: 50 });
-    await testDb.db.update(tickets).set({ status: "done" }).where(eq(tickets.id, closedFix));
+    await testDb.db.update(tickets).set({ ...roleUpdate("done") }).where(eq(tickets.id, closedFix));
     const repaired = await failedRelease(projectId, repositoryId, { fixTicketId: closedFix });
 
     expect(await blocksOf(lead.headers)).toContain("releases");

@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { TrustedSvg } from "../../../platform/trustedHtml";
 import { safeWireframeSvg } from "../safeWireframe";
 import { useTranslation } from "react-i18next";
 import {
@@ -182,11 +183,11 @@ function Block({ doc, depth, block: b }: { doc: ExportDoc; depth: number; block:
       return (
         <figure className="print-sketch">
           {safeWireframeSvg(b.svg) !== null ? (
-            <div
+            <TrustedSvg
               role="img"
               aria-label={b.label ? t("productDocs.wireframe.exportLabel") : t("productDocs.wireframe.kind")}
-              // Ripulito prima di entrare nel documento (M3 della revisione di sicurezza).
-              dangerouslySetInnerHTML={{ __html: safeWireframeSvg(b.svg)! }}
+              // Ripulito prima di entrare nel documento (M3), e ricontrollato dalla politica `stubwise-html` (I-4).
+              svg={safeWireframeSvg(b.svg)!}
             />
           ) : (
             <p>{t("productDocs.wireframe.gone")}</p>

@@ -7390,6 +7390,28 @@ deploy o di un rollback che la tocca.
   elenchi più e che il loro dettaglio dica `ignored` (o `handed`).
   **Rollback**: sicuro, nessun dato toccato; scendendo, le 6 tornano visibili
   come prima.
+- **«Brief passati e risultati recenti nella ⌘K» (28 nov 2026)**: branch
+  `feat/ritiro-buchi-minori`, ritiro del web vecchio (inventario §1.6),
+  decisioni del maintainer del 27 nov. Nella nuova app (`/app`):
+  - qualunque brief del progetto si apre nel pannello di lettura
+    (`GET /api/briefs/:id`), con «Brief of <data> · not the latest» e il link
+    all'ultimo. `briefHeadline` passa da `@stubwise/notifications` a
+    `@stubwise/shared` (ri-esportata, nessun import cambia);
+  - la ⌘K a query vuota mostra i risultati aperti di recente
+    (`/api/search/history`): ✕ e ⌘⌫ per togliere una voce, «Clear all» senza
+    conferma. Si ricordano task, progetti e pagine Docs aperti dalla ⌘K, mai
+    la posta. Le voci registrate dal web vecchio non si mostrano.
+  **Server**: nessuna rotta nuova né migrazione (lo spostamento di
+  `briefHeadline` non cambia il comportamento). **Ordine**: `caddy` (e il
+  `server`/`worker` solo se si vuole il codice di `shared` allineato, senza
+  effetti). **Rollback**: sicuro.
+  **Dopo la revisione (28 nov 2026)**: la nuova app ricostruisce l'indirizzo
+  di un recente da tipo e oggetto (mai dalla `route` salvata), quindi si
+  aprono anche le voci scritte dal web vecchio; il web vecchio apre una
+  `route` `#/…` scritta dalla nuova app in `/app/`. Va quindi ribuildato
+  **anche il web vecchio** (`caddy`, che lo serve). Togliere un recente è
+  ottimistico. `latestWeeklyBrief` usa `briefSummaryText` di `shared`: il
+  `server` va ribuildato (nessun cambio di comportamento).
 
 - **«Indurimento di sicurezza dell'origine» (27 nov 2026)**: branch
   `fix/sicurezza-origine`. Il modello di minaccia («un XSS più un tocco
@@ -7409,8 +7431,9 @@ deploy o di un rollback che la tocca.
     `new Function` all'avvio (`@stubwise/shared/csp`, primo import dei due
     `main.tsx`). Provato in locale su `caddy:2-alpine` coi bundle veri:
     `caddy validate`, header serviti, Chromium senza violazioni su `/`,
-    `/app/` e `/guide/`, e la ricerca della guida funzionante. Trusted Types
-    su `/app` sono **rimandati** (vedi l'invariante).
+    `/app/` e `/guide/`, e la ricerca della guida funzionante. I Trusted
+    Types su `/app` arrivano con la voce «La cassaforte nella nuova app nel
+    browser», qui sotto.
   - **I6, lo sblocco della cassaforte non è una riconferma**: migrazione
     **0238** (`sessions.vault_unlocked_at`, nullable). Le rotte della
     cassaforte dichiarano `config.reauth: "vault"`.
@@ -7461,6 +7484,136 @@ deploy o di un rollback che la tocca.
   ```
   La colonna della 0238 può restare (il codice vecchio non la nomina).
   Scendendo, lo sblocco torna a rinnovare la riconferma.
+- **«La cassaforte nel browser, fase 2» (28 nov 2026)**: branch
+  `feat/cassaforte-browser-fase2`, sopra `feat/cassaforte-browser` (la voce
+  qui sotto va deployata prima, o insieme). Design
+  `docs/plans/2026-11-27-cassaforte-browser-design.md` §10 (I7), più la
+  revisione di sicurezza della fase 2 (I-1, I-2 e i Minor): quello che oggi
+  fa solo il web vecchio, per poterlo ritirare.
+  - **La pagina a sé della cassaforte (`/app/vault/`, bundle di caddy)**: un
+    documento suo (`vault.html`, buildato a sé in `/srv/vault`), con la sua
+    CSP stretta (`VAULT_PAGE_CSP` di `scripts/caddy-csp.mjs`: `default-src
+    'none'`… `base-uri 'none'`, Trusted Types del solo worker), COOP e
+    `no-store`. Dentro solo il worker della cassaforte e quattro pagine:
+    `#/setup` (attivare col kit, creare o ricreare la propria chiave,
+    rigenerare il kit), `#/recover` (il recupero col kit, con una presenza
+    fresca per ogni conferma e il kit che scade dopo 10 minuti),
+    `#/pair?state=…` (sigillare un Mac), `#/passkeys` («Use for the vault»).
+    La riconferma la fa la pagina stessa (una passkey senza PRF, o il codice
+    che il worker inoltra a `POST /reauth`). Senza sessione manda al login
+    dell'app con `next` in elenco chiuso, e ritorna.
+  - **La nuova app (`/app`)**: la barra («Create your key», «Activate the
+    vault») e «Use for the vault» in Preferenze → Security portano alla
+    pagina a sé con una navigazione completa; il login legge `next`.
+  - **L'app per Mac**: «Pair this Mac» apre `<istanza>/app/vault/#/pair`
+    invece di `/vault-pair` del web vecchio; «Open in the browser» apre
+    `/app/vault/#/setup` («nessuna chiave», «non attiva») o `/app/#/vault`
+    (gli altri stati), mai più il web vecchio.
+  - **Server**: niente. Le tracce del §10 c'erano già: `vault_key_created`,
+    `vault_seal_added` (I7) e `vault_device_sealed`, ognuna col suo
+    `security.alert`.
+  **Deploy**: ribuildare **`caddy`** (il Dockerfile builda e controlla anche
+  `dist-vault`). Nessuna migrazione, nessuna env, nessun `notification_kind`
+  nuovo. **Ordine**: caddy PRIMA di distribuire un pacchetto per Mac nuovo.
+  Un Mac nuovo contro un caddy vecchio apre `/app/vault/`, che lì non c'è
+  (il fallback di `/app` dà l'app, non la pagina): l'associazione non parte
+  finché caddy non è aggiornato. I Mac vecchi aprono ancora `/vault-pair` del
+  web vecchio, che finché c'è funziona.
+  ⚠️ **Al ritiro del web vecchio**: `/vault-pair?state=…` deve diventare un
+  redirect a `/app/vault/#/pair?state=…` (lo state passa nel frammento),
+  altrimenti un Mac non aggiornato non si associa più. ⚠️ **Con R1** (l'app
+  alla radice): la pagina diventa `/vault/` cambiando `APP_ENTRY`, la `base`
+  di `apps/desktop/vite.vault.config.ts` e il blocco Caddy.
+  **Controllo dopo il deploy**:
+  ```sh
+  curl -sI https://<istanza>/app/vault/ | grep -iE "content-security-policy|cross-origin-opener|cache-control"
+  # una sola CSP, con default-src 'none' e trusted-types stubwise-vault-worker;
+  # COOP noopener-allow-popups (NON same-origin: seconda revisione, I-1); no-store
+  ```
+  Poi, con la console aperta (nessuna violazione della CSP né dei Trusted
+  Types), su un'istanza di prova: un full admin da `/app/vault/#/setup`
+  attiva la cassaforte (il kit una volta, la passkey, la riconferma), crea la
+  chiave, rigenera il kit e da `#/recover` usa il kit per confermare una
+  persona in attesa; un'altra persona crea la propria chiave e da
+  `#/passkeys` aggiunge una seconda passkey (due tocchi); dal Mac, «Pair
+  this Mac» fino al ritorno all'app. Da disconnessi, `/app/vault/#/setup`
+  porta al login e poi torna lì.
+  In Chromium, `pnpm --filter @stubwise/desktop verify:vault-isolation` prova
+  che uno script dell'app non governa la pagina a sé (aperta o seguita).
+  **Rollback**: scendere caddy non lascia dati, ma è sicuro SOLO se nessun
+  pacchetto per Mac nuovo (quello che apre `/app/vault/#/pair`) è già stato
+  distribuito. Se lo è, scendendo quei Mac non si associano più finché non
+  si risale (il caddy vecchio non ha `/app/vault/`): o si risale presto, o
+  prima di scendere si ridistribuisce il pacchetto per Mac precedente (che
+  apre `/vault-pair` del web vecchio, ancora lì).
+
+- **«La cassaforte nella nuova app nel browser» (28 nov 2026)**: branch
+  `feat/cassaforte-browser` (con dentro `feat/vault-session-tag`). Design
+  `docs/plans/2026-11-27-cassaforte-browser-design.md`, tre revisioni di
+  sicurezza più quella finale; le regole stanno in `docs/invariants/vault.md`
+  («La cassaforte nella nuova app nel browser»). Rispetto a main:
+  - **La nuova app (`/app`, bundle di caddy)**: la fase 1 della cassaforte
+    nel browser. Sblocco con la passkey (PRF), Show, Copy, crea, cambia,
+    condividi e togli, chi aspetta, conferma e rifiuta. Chiave, rete e
+    crittografia stanno in un Dedicated Worker; nella pagina resta la sola
+    cerimonia della passkey, con le primitive catturate e i prototipi
+    congelati al boot. Tetti per sblocco: 15 minuti d'inattività, 60 dallo
+    sblocco, 30 reveal, 10 condivisioni, 10 cambi password. Conferma,
+    rifiuto e rimozione di un lettore vogliono un tocco nuovo della passkey.
+    L'HTML della pagina passa da un solo modulo, con la sua politica dei
+    Trusted Types. Il desktop (Electron) non cambia comportamento.
+  - **Server**:
+    - **`sessionTag` in `GET /api/auth/me`**: un'etichetta opaca della
+      sessione del cookie, un HMAC dell'id della sessione con una
+      sottochiave HKDF della chiave di cifratura (`info`
+      `stubwise:session-tag:v1`), mai l'id. `null` per un PAT; campo
+      additivo e opzionale. Il worker la confronta, e se cambia richiude.
+    - **`config.reauth: "vault"` vuole SOLO uno sblocco recente** da una
+      sessione del browser (`vaultUnlockedAt`): un login non basta più.
+      Senza, **403 `vault_unlock_required`**, e il client deve sbloccare,
+      non riconfermare; il web vecchio, su quel codice, apre il dialogo
+      dello sblocco e ripete la richiesta. Restano su `vault` le rotte
+      della chiave aperta: `keys`, `keys/:id/seals`, `recovery-key` e il
+      sigillo di un Mac. Passano a `reauth: true` l'attivazione, il
+      recupero col kit (`recovery/challenge`, `pending`, `confirm/:id`) e
+      togliere un Mac (`DELETE /api/vault/device-seals/:id`, e da un full
+      admin `DELETE /api/vault/users/:userId/device-seals/:id`), perché
+      chi chiama può non avere una chiave da sbloccare, o è un passo della
+      procedura d'incidente. Il PAT desktop non cambia.
+    - **Rotta nuova `POST /api/vault/lock`**: azzera `vaultUnlockedAt`
+      della sessione del cookie (204, idempotente; da un PAT nessun
+      effetto). La chiama il worker a ogni chiusura, best-effort.
+  - **Caddy**: su `/app` un secondo campo CSP, `require-trusted-types-for
+    'script'; trusted-types stubwise-vault-worker stubwise-html;
+    worker-src 'self'`; su tutto il sito 403 a ogni richiesta con
+    `Service-Worker: script`.
+  **Deploy**: ribuildare **`server`** e **`caddy`**; il worker non cambia.
+  Nessuna migrazione, nessuna env, nessun `notification_kind` nuovo.
+  **Ordine**: indifferente.
+  - Server prima: il web vecchio riceve `vault_unlock_required` sulle rotte
+    della chiave e, finché non arriva il caddy nuovo, mostra un errore al
+    posto del dialogo, per i minuti del deploy.
+  - Caddy prima: la nuova app trova un server senza `sessionTag` (il worker
+    lo tratta come «nessuna etichetta», confronta solo l'utente) e senza
+    `/api/vault/lock` (best-effort, un 404 non conta).
+  **Controllo dopo il deploy**:
+  ```sh
+  curl -sI https://<istanza>/app/ | grep -i trusted-types
+  curl -s -o /dev/null -w "%{http_code}\n" -H "Service-Worker: script" https://<istanza>/app/   # 403
+  curl -s -o /dev/null -w "%{http_code}\n" https://<istanza>/app/                                # 200
+  ```
+  In `/app`, con la console aperta: nessuna violazione della CSP né dei
+  Trusted Types su posta (l'originale di un'email con «Show images»), uno
+  schizzo in una doc di prodotto, la stampa, il QR della configurazione del
+  TOTP e un incolla HTML in una doc di prodotto. Poi la cassaforte: apri,
+  Show, crea, condividi e conferma; la conferma chiede la passkey anche a
+  cassaforte aperta. Nel web vecchio, subito dopo un login e senza
+  sbloccare, un'azione che scrive un sigillo deve aprire «Sblocca la
+  cassaforte».
+  **Rollback**: sicuro, server e caddy in qualunque ordine: nessun dato
+  nuovo, e i client vecchi non leggono `sessionTag` né chiamano `/lock`.
+  Scendendo, un login fresco torna ad aprire le rotte della chiave per 10
+  minuti, e togliere un Mac dal browser torna a volere lo sblocco.
 
 - **«Nuova app: impostazioni di progetto, polso, design e piano» (27 nov
   2026)**: branch `feat/impostazioni-progetto`, ritiro del web vecchio
@@ -7487,6 +7640,29 @@ deploy o di un rollback che la tocca.
   un ticket con un design attivo torna a scrivere il corpo (cioè il design),
   come prima; i testi già salvati su `origin_content` restano e «Remove
   design» li riporta.
+
+- **«Le immagini delle email passano dal nostro server» (28 nov 2026)**:
+  branch `feat/proxy-immagini-posta`, design
+  `docs/plans/2026-11-28-proxy-immagini-posta-design.md`. Nella nuova app (nel
+  browser e sul Mac) «Show images» funziona: le immagini remote si chiedono
+  al server per posizione (`GET /api/me/mail/:source/:id/images/:n`), che le
+  scarica col modulo `apps/server/src/mail-images/` (difese SSRF, solo
+  raster, mai SVG, 5 MB, 8 s, UA generico; DNS con c-ares, al più 8
+  richieste esterne e 4 per persona) e le restituisce coi suoi header
+  (`no-store`).
+  `/original` numera le immagini (`data-image`). La CSP del frame si stringe
+  (`img-src data:` sempre), quella di `/app` e del Mac non cambia. Il web
+  vecchio resta com'è (carica dal mittente) fino al ritiro; sulle descrizioni
+  del calendario il bottone sparisce.
+  **Ordine**: prima `server` (healthy), poi `caddy`. L'app Mac si
+  ricostruisce a mano. Nessuna migrazione né env.
+  **Controllo dopo il deploy**: aprire nella nuova app un'email con
+  immagini, «Show original», «Show images». Le immagini compaiono, e nella
+  scheda Network partono solo richieste a `/api/me/mail/…/images/n`, nessuna
+  verso il mittente.
+  **Rollback**: sicuro. Un renderer nuovo con un server vecchio non trova
+  `data-image`, e le immagini restano spente come prima; un renderer vecchio
+  ignora l'attributo.
 
 - **«I link portano alla nuova app» (27 nov 2026)**: rami
   `feat/link-nuova-app` e `feat/link-go-routes`, che si appoggia al primo.
@@ -7556,13 +7732,96 @@ deploy o di un rollback che la tocca.
   file d'ambiente saltava), e senza `replaced`/`skipped` l'esito dell'import
   conta tutto come nuovo, nessuna riga saltata.
 
+- **«Stati senza enum», R0 del ritiro del web vecchio (28 nov 2026)**: ramo
+  `feat/stati-senza-enum`, blocco T del piano
+  `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md`. Nessuno legge o
+  scrive più la colonna enum `tickets.status`: gli scrittori danno un RUOLO
+  con `roleUpdate` (`status_id` dalla regola di 0108,
+  `stubwise_status_for_legacy`), i lettori usano lo status DERIVATO
+  (`ticketStatusSql`, `stubwise_ticket_status(status_id, triaged_at)`), e il
+  `PATCH /api/tickets/:id` traduce lo `status` ricevuto in un ruolo. Le
+  risposte dell'API hanno ancora `status`, derivato. La colonna resta nel DB,
+  tenuta dal trigger `tickets_status_sync`, per un rollback e per R3.
+  - **Migrazione `0240_tickets_triaged_at`** (additiva): `tickets.triaged_at`,
+    la funzione `stubwise_ticket_status` e il trigger `tickets_triaged_reset`.
+    «Smistato» non è uno stato del progetto: vive in `triaged_at`, che il
+    trigger azzera quando il ticket esce dalla famiglia todo (rientrando in
+    todo è `open`). Il backfill mette `triaged_at = updated_at` sui ticket
+    oggi `triaged`. Il trigger riallinea l'enum al derivato quando cambia
+    `triaged_at`, così per uno scrittore nuovo la colonna resta quella di
+    prima. E tiene allineato uno scrittore VECCHIO, che scrive l'enum senza
+    toccare `triaged_at` (il worker nella finestra fra i due rebuild, o un
+    rollback del server): `triaged` mette il segno, `open` lo toglie, anche
+    all'INSERT. Uno spostamento fra due stati todo che non dice `triaged_at`
+    toglie il segno, come faceva lo scrittore vecchio.
+  - **L'eccezione voluta, l'unica del test d'accordo**
+    (`packages/db/src/ticket-status.test.ts`): una task in «In review» a cui
+    la pipeline dà `in_progress` (un fix rilanciato) resta in «In review»
+    come prima, ma lo status mostrato (app, mobile, MCP) ora è `in_review`.
+    Prima era `in_progress`, perché l'enum restava quello scritto, in
+    contraddizione con la board. Di conseguenza in quel caso non nasce più
+    un evento `status_changed`: gli eventi degli scrittori di sistema dicono
+    lo stato RAGGIUNTO, non il ruolo chiesto.
+  - **Stati personalizzati: vale lo stato RAGGIUNTO** (decisione della
+    revisione, 28 nov 2026). In un progetto senza uno stato con ruolo
+    `in_review`, o con un solo stato chiuso, il ruolo chiesto e lo stato
+    raggiunto divergono: `in_review` finisce nell'unico active e lo status è
+    `in_progress`, `closed` finisce nello stato `done` e lo status è `done`.
+    Prima l'enum diceva il ruolo chiesto, in contraddizione con la board. Il
+    test d'accordo lo prova anche su un insieme di stati personalizzati (due
+    todo, un active, un closed).
+  - **Il webhook della PR chiusa senza merge non guarda più lo status**
+    (conseguenza della decisione sopra): riapre il ticket se sta in uno stato
+    active e ha una PR aperta (il job `pr_opened`, la riga del repository
+    con la PR aperta, o quella che l'evento stesso ha appena chiuso),
+    `awaitingPr` in `routes/webhooks.ts`. Prima chiedeva
+    lo status `in_review`, che nei progetti senza quello stato non c'è mai:
+    lì la PR chiusa lasciava il ticket fermo e il job `pr_opened`. Cambia
+    anche nei progetti di default, ai bordi: un ticket `in_review` senza job
+    `pr_opened` né riga aperta non si riapre più; uno spostato a mano in
+    «In progress» con la PR ancora aperta sì. E un fix rilanciato su una task
+    in review, con la PR vecchia chiusa a metà run, ora riapre la task (prima
+    l'enum diceva `in_progress` e il webhook non faceva nulla): il fix, a
+    fine run, la riporta in review con la PR nuova.
+  - **La guardia**: `status` non è più nello schema drizzle di `tickets`,
+    quindi il compilatore trova ogni uso. L'SQL grezzo lo copre
+    `packages/db/src/ticket-status-guard.test.ts` (sorgenti e script di
+    server e worker, notifiche, db, mcp): ogni `status` nudo in un template
+    che nomina `tickets`, o in un `sql.raw`. Gli usi dichiarati sono il
+    riallineamento dell'enum quando uno stato cambia famiglia
+    (`routes/project-statuses.ts`), che va via con R3, e il testo del prompt
+    di triage, che non è SQL.
+  - **I filtri per status** (`?status=`, gli elenchi del polso, la posta, gli
+    script di backfill) non chiamano la funzione riga per riga: `ticketRoleIn`
+    / `ticketRoleNotIn` scrivono `status_id IN (gli stati di quei ruoli)`, più
+    la condizione su `triaged_at` quando serve distinguere `open` da
+    `triaged`, così usano gli indici su `status_id`. L'indice
+    `tickets_project_id_status_idx` resta finché resta la colonna.
+  **Cosa ribuildare e in che ordine**: prima **`server`** (healthy e
+  migrazione applicata), POI **`worker`**: il worker nomina `triaged_at` e
+  `stubwise_ticket_status`. Nessuna env, nessun passo manuale. Niente
+  riavvii del worker con lavoro dell'agente in corso.
+  **Controllo dopo il deploy**: `select count(*) from tickets where status
+  <> stubwise_ticket_status(status_id, triaged_at);` dà le sole task che
+  l'enum vecchio lasciava incoerenti (il caso «In review» sopra), e non
+  cresce coi ticket nuovi.
+  **Rollback**: sicuro scendere d'immagine su server e worker insieme. La
+  colonna enum è rimasta coerente e il trigger vecchio la tiene. La 0240 non
+  si toglie: `triaged_at` e il trigger restano, e tengono «smistato»
+  allineato a quello che lo scrittore vecchio scrive nell'enum, quindi
+  rimontando il server nuovo lo status derivato è quello giusto. Dopo un
+  rollback i ticket smistati nel frattempo hanno l'enum `triaged`, come
+  prima.
+  ⚠️ La migrazione è la **0240** perché la **0239** è delle workspace
+  (#141), che entra prima. Se l'ordine si invertisse, rinumera chi entra per
+  secondo.
 - **«Il taglio del web vecchio, R1» (28 nov 2026)**: ramo `feat/taglio-r1`,
   piano `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md` §1.1 (R1) e §2.
   ⚠️ **NON si mergia finché i prerequisiti non sono chiusi**: la suite E2E
-  della nuova app verde in CI contro la radice (D3), la fase 2 della
-  cassaforte nel browser (79: creare la chiave, kit e recupero, attivare
-  l'istanza, la conferma dell'accoppiamento del Mac, che oggi fa solo il web
-  vecchio), il blocco P (plugin e tool MCP sulle rotte dell'app), R0 stabile.
+  della nuova app verde in CI contro la radice (D3), il blocco P (plugin e
+  tool MCP sulle rotte dell'app), R0 stabile. La fase 2 della cassaforte nel
+  browser è già in main (la pagina a sé): R1 la sposta da `/app/vault/` a
+  `/vault/`.
   Cosa cambia:
   - **Caddy**: la nuova app alla RADICE (`/srv/app`, CSP stretta, COOP,
     `index.html` `no-store`). `/app` e `/app/*` sono un 308 alla radice PER
@@ -7575,6 +7834,13 @@ deploy o di un rollback che la tocca.
     `/widget/*`, `/monitor/ingest|config` e `/guide` invariati. Il web
     vecchio non si builda né si serve più (`Dockerfile.caddy`, stage
     `static-build`).
+  - **La pagina a sé della cassaforte** passa da `/app/vault/` a `/vault/`
+    (`handle_path /vault/*`, PRIMA del fallback dell'app: la SUA CSP sola,
+    COOP `noopener-allow-popups`, `vault.html` `no-store`; build con `base`
+    da `APP_ENTRY`). Il vecchio `/app/vault/#/…` lo porta a destinazione il
+    308 di `/app/*`; i Mac di prima della fase 2, che aprono
+    `/vault-pair?state=…`, vanno con un 302 a `/vault/#/pair?state=…`.
+    `scripts/caddy-csp.mjs` vuole `--app` e `--vault` (il `--web` non c'è più).
   - **I link nuovi sono `/#/…`** (`APP_ENTRY = "/"`): card, email, push,
     webhook in uscita, MCP, i rimandi `/go`. Il link di reset della password
     (`url` di `POST /api/users/:id/password-reset`) è quello dell'app, e il
@@ -7614,7 +7880,12 @@ deploy o di un rollback che la tocca.
   curl -sI https://<istanza>/app/assets/x.js | grep -i location         # /assets/x.js
   curl -sI https://<istanza>/settings/security | grep -i location       # /#/preferences/security
   curl -sI https://<istanza>/widget.js | grep -ci content-security-policy   # 0
+  curl -sI https://<istanza>/vault/ | grep -iE 'content-security-policy|cross-origin-opener|cache-control'   # UNA CSP (la sua), COOP noopener-allow-popups, no-store
+  curl -sI https://<istanza>/app/vault/ | grep -iE '^HTTP|location'     # 308, Location: /vault/
+  curl -sI 'https://<istanza>/vault-pair?state=x' | grep -i location    # /vault/#/pair?state=x
   ```
+  E in locale, sul bundle che va in produzione:
+  `pnpm --filter @stubwise/desktop verify:vault-isolation`.
   Nel browser: un link vecchio (`/app/#/p/<CODICE>/tasks?task=<CODICE-n>`)
   e uno del web vecchio (`/tickets/<id>`) aprono la task nell'app; `/guide`
   mostra il banner; dal Mac nuovo il login dal browser riapre l'app.
@@ -7630,5 +7901,8 @@ deploy o di un rollback che la tocca.
   invece della pagina: un degrado, non un errore, che dura finché non si
   risale. Il Mac nuovo, col caddy di prima, apre `/#/desktop-login` sul web
   vecchio e non riesce a fare il login: si usa il browser, o il Mac di
-  prima, finché non si risale. R2 (la pulizia del server) parte solo
+  prima, finché non si risale. **Durante il rollback non funziona nemmeno
+  l'associazione di un Mac nuovo alla cassaforte**: apre `/vault/#/pair`,
+  che il caddy di prima non serve (la pagina a sé lì è su `/app/vault/`).
+  Il pacchetto per Mac di R1 va quindi distribuito solo con R1 stabile. R2 (la pulizia del server) parte solo
   quando R1 è stabile, perché le rotte del web servono a un rollback.

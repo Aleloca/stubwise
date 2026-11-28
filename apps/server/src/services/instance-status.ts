@@ -18,8 +18,7 @@ import {
   tickets,
   users,
   workerHeartbeats,
-  type Db,
-} from "@stubwise/db";
+  type Db, ticketStatusSql } from "@stubwise/db";
 import { aiBudgetState, CLOSED_TICKET_STATUSES } from "@stubwise/notifications";
 import { type AiBlockView, type InstanceJob, type InstanceStatus } from "@stubwise/shared";
 import { and, desc, eq, gte, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
@@ -177,7 +176,7 @@ export async function instanceStatus(db: Db, viewer: Viewer, now = new Date()): 
       failureSummary: aiJobs.failureSummary,
       ticketTitle: tickets.title,
       ticketNumber: tickets.number,
-      ticketStatus: tickets.status,
+      ticketStatus: ticketStatusSql,
       projectId: tickets.projectId,
     })
     .from(aiJobs)
@@ -412,7 +411,7 @@ export async function instanceStatus(db: Db, viewer: Viewer, now = new Date()): 
  */
 export async function retryFactsOf(db: Db, jobId: string): Promise<(RetryFacts & { ticketId: string; projectId: string; code: string }) | null> {
   const [j] = await db
-    .select({ status: aiJobs.status, correctionId: aiJobs.correctionId, finishedAt: aiJobs.finishedAt, createdAt: aiJobs.createdAt, ticketId: aiJobs.ticketId, ticketStatus: tickets.status, ticketNumber: tickets.number, projectId: tickets.projectId, projectCode: projects.code })
+    .select({ status: aiJobs.status, correctionId: aiJobs.correctionId, finishedAt: aiJobs.finishedAt, createdAt: aiJobs.createdAt, ticketId: aiJobs.ticketId, ticketStatus: ticketStatusSql, ticketNumber: tickets.number, projectId: tickets.projectId, projectCode: projects.code })
     .from(aiJobs)
     .innerJoin(tickets, eq(tickets.id, aiJobs.ticketId))
     .innerJoin(projects, eq(projects.id, tickets.projectId))

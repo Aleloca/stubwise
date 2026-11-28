@@ -3,6 +3,7 @@ import {
   createMilestone,
   deleteMilestone,
   failNext,
+  getBrief,
   getLatestBrief,
   listDecisionLog,
   listMilestones,
@@ -66,6 +67,17 @@ describe("brief e registro decisioni", () => {
     const mine = BRIEFS.filter((b) => b.projectId === "prj-aud").map((b) => b.createdAt);
     expect(latest?.createdAt).toBe([...mine].sort().at(-1));
     expect(await getLatestBrief("prj-glt")).toBeNull();
+  });
+
+  it("getBrief apre anche un brief che non è l'ultimo; di un progetto invisibile, o ignoto: null, niente contenuto", async () => {
+    setSessionPersonId("p-giulia");
+    const old = await getBrief("brief-stw-2026-10-12");
+    expect(old).toMatchObject({ id: "brief-stw-2026-10-12", projectId: "prj-stw", createdAt: "2026-10-12T07:00:00Z" });
+    expect(old?.summary.length).toBeGreaterThan(0);
+    expect(await getBrief("brief-mai-esistito")).toBeNull();
+    // Sara non vede AUD (sopra: la sua cronologia è vuota): il brief di AUD non esce.
+    setSessionPersonId("p-sara");
+    expect(await getBrief("brief-aud-2026-10-12")).toBeNull();
   });
 
   it("nessuna voce del registro viene dall'AI: le sorgenti sono quelle dei fatti", () => {

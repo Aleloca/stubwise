@@ -1,4 +1,4 @@
-import { backlogItems, backlogItemTickets, backlogJobs, calendarEvents, emailMessages, emailProposalRecipients, emailProposals, googleAccounts, meetingNotes, projects, tickets, type Db } from "@stubwise/db";
+import { backlogItems, backlogItemTickets, backlogJobs, calendarEvents, emailMessages, emailProposalRecipients, emailProposals, googleAccounts, meetingNotes, projects, tickets, type Db, ticketStatusSql } from "@stubwise/db";
 import { canSeeMeeting, projectPermissionsOfUser } from "@stubwise/notifications";
 import type { MeetingNote, MeetingSummary, MeetingTask, MeetingTasks } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
@@ -179,7 +179,7 @@ async function tasksOf(db: Db, viewer: Viewer, noteId: string | null, projectId:
   const ticketIds = [...new Set([...sequence.filter((e) => e.kind === "task").map((e) => e.id), ...conversions.map((c) => c.ticketId)])];
   const rows = ticketIds.length
     ? await db
-        .select({ id: tickets.id, number: tickets.number, title: tickets.title, status: tickets.status, dueDate: tickets.dueDate, departmentId: tickets.departmentId, code: projects.code })
+        .select({ id: tickets.id, number: tickets.number, title: tickets.title, status: ticketStatusSql, dueDate: tickets.dueDate, departmentId: tickets.departmentId, code: projects.code })
         .from(tickets)
         .innerJoin(projects, eq(projects.id, tickets.projectId))
         .where(and(inArray(tickets.id, ticketIds), eq(tickets.projectId, projectId), await visibleTasksCondition(db, viewer)))

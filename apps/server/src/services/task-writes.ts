@@ -11,8 +11,7 @@ import {
   ticketFollowers,
   tickets,
   users,
-  type Db,
-} from "@stubwise/db";
+  type Db, ticketColumns } from "@stubwise/db";
 import {
   effortFromSize,
   compareWeeks,
@@ -335,7 +334,7 @@ export async function applyTaskPatch(
   const updates = updatesFor(current, patch);
   if (Object.keys(updates).length === 0) return current;
   const fromWeek = updates.plannedWeek !== undefined ? await effectiveWeekOf(tx, current.id) : null;
-  const [updated] = await tx.update(tickets).set(updates).where(eq(tickets.id, current.id)).returning();
+  const [updated] = await tx.update(tickets).set(updates).where(eq(tickets.id, current.id)).returning(ticketColumns);
   const events: { kind: (typeof ticketEvents.$inferInsert)["kind"]; payload: Record<string, unknown> }[] =
     diffTicketEvents(current, updates).map((e) => ({ kind: e.kind, payload: e.payload as Record<string, unknown> }));
   if (updates.statusId !== undefined && updates.statusId !== current.statusId) {
@@ -438,7 +437,7 @@ export async function updateTask(
   patch: TaskPatch,
   start: ClaudeStartOptions = {},
 ): Promise<TaskWriteResult> {
-  const [current] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+  const [current] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
   if (!current) throw new Error(`task ${ticketId} assente dopo il controllo d'accesso`);
   const invalid = (await validateRefs(db, current.projectId, patch)) ?? (await claudeAssignGuard(db, viewer, current.projectId, patch.assigneeId));
   if (invalid) return { ok: false, error: invalid };
@@ -481,7 +480,7 @@ export async function bulkUpdateTasks(
   const unique = [...new Set(ids)];
   const visible = await visibleTasksCondition(db, viewer);
   const rows = await db
-    .select({ t: tickets, code: projects.code })
+    .select({ t: ticketColumns, code: projects.code })
     .from(tickets)
     .innerJoin(projects, eq(projects.id, tickets.projectId))
     .where(and(inArray(tickets.id, unique), ...(visible ? [visible] : [])));
@@ -577,7 +576,7 @@ export async function planTask(
   // concorrente passerebbe sotto la regola e verrebbe sovrascritta.
   let claudeRun: { ticketId: string; projectId: string } | null = null;
   const outcome = await db.transaction(async (tx): Promise<PlanError | null> => {
-    const [current] = await tx.select().from(tickets).where(eq(tickets.id, ticketId)).for("update");
+    const [current] = await tx.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId)).for("update");
     if (!current) throw new Error(`task ${ticketId} assente dopo il controllo d'accesso`);
     const permissions = (await projectPermissionsFor(tx, viewer, current.projectId)) ?? new Set();
     // Claude (fetta 3e): pianificarlo vuol dire avviare il lavoro, quindi la

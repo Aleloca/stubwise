@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { milestones, projects, tickets } from "@stubwise/db";
 import { eq } from "drizzle-orm";
-import { seedBacklogItem, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { seedBacklogItem, seedRepository, startTestDb, type TestDb, roleInsert } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, seedUsers, type SeededUsers } from "../test/fixtures.js";
 
@@ -32,7 +32,7 @@ const pulses = async (query = "") => {
 };
 let n = 0;
 const insertTasks = (projectId: string, status: "open" | "in_progress" | "done", count = 1) =>
-  t.db.insert(tickets).values(Array.from({ length: count }, () => ({ projectId, number: ++n, title: `T${n}`, type: "task" as const, priority: "medium" as const, status, source: "manual" as const })));
+  t.db.insert(tickets).values(Array.from({ length: count }, () => ({ projectId, number: ++n, title: `T${n}`, type: "task" as const, priority: "medium" as const, ...roleInsert(projectId, status), source: "manual" as const })));
 
 describe("GET /api/projects/pulses (lotto 7, voce 4)", () => {
   it("le aperte per famiglia, il traguardo aperto più vicino, le richieste da trasformare; solo i progetti che chi guarda vede", async () => {

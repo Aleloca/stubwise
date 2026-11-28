@@ -42,3 +42,15 @@ describe("sessionResponseSchema: permessi verso un server più vecchio", () => {
     ]);
   });
 });
+
+describe("sessionResponseSchema.sessionTag (cassaforte nel browser, I-3)", () => {
+  it("una risposta SENZA il campo (server di prima) si legge, e il campo resta assente", () => {
+    const parsed = readerSchema(sessionResponseSchema).parse({ user: utente }) as { sessionTag?: string | null };
+    expect(parsed.sessionTag).toBeUndefined();
+  });
+
+  it("null (un PAT) e una stringa passano così come sono", () => {
+    expect((sessionResponseSchema.parse({ user: utente, sessionTag: null }) as { sessionTag?: string | null }).sessionTag).toBeNull();
+    expect(sessionResponseSchema.parse({ user: utente, sessionTag: "abc" }).sessionTag).toBe("abc");
+  });
+});

@@ -10,6 +10,7 @@ export default tseslint.config(
       "apps/desktop/out/",
       // Build web della nuova app e pacchetti locali (apps/desktop), gitignorati.
       "apps/desktop/dist-web/",
+      "apps/desktop/dist-vault/",
       "apps/desktop/release/",
       "**/node_modules/",
       "**/coverage/",

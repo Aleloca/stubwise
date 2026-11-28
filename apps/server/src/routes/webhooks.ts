@@ -10,7 +10,7 @@ import {
   promotePendingForTicket,
   publishNotification,
 } from "@stubwise/notifications";
-import { and, count, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, exists, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
 import {
@@ -22,13 +22,62 @@ import {
   prReviewJobs,
   prReviews,
   projects,
+  projectStatuses,
   recordTicketStatusChange,
   repoGraphs,
   repositories,
   ticketRepositories,
-  tickets,
-} from "@stubwise/db";
+  tickets, ticketStatusSql, ticketRoleNotIn, roleUpdate } from "@stubwise/db";
 import { STUBWISE_BRANCH_RE, prNumberFromUrl } from "@stubwise/shared";
+
+/**
+ * Il ticket aspetta ancora la PR chiusa da questo evento: sta in uno stato
+ * della famiglia `active` e ha una PR aperta: il job `pr_opened`, la riga di
+ * QUESTO repository ancora aperta, o quella che questo evento ha appena chiuso
+ * (`prClosedNow`, da `markPrRowsClosed`, che gira prima). Non dipende dallo status: in un
+ * progetto senza uno stato «in_review» la task con la PR aperta sta
+ * nell'unico stato active e il suo status è `in_progress` (vale lo stato
+ * raggiunto, revisione di R0, I1).
+ */
+async function awaitingPr(
+  conn: Pick<Db, "select">,
+  ticketId: string,
+  repositoryId: string,
+  prClosedNow: boolean,
+): Promise<boolean> {
+  const [row] = await conn
+    .select({ id: tickets.id })
+    .from(tickets)
+    .innerJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
+    .where(
+      and(
+        eq(tickets.id, ticketId),
+        eq(projectStatuses.family, "active"),
+        or(
+          sql`${prClosedNow}`,
+          exists(
+            conn
+              .select({ one: sql`1` })
+              .from(aiJobs)
+              .where(and(eq(aiJobs.ticketId, tickets.id), eq(aiJobs.status, "pr_opened"))),
+          ),
+          exists(
+            conn
+              .select({ one: sql`1` })
+              .from(ticketRepositories)
+              .where(
+                and(
+                  eq(ticketRepositories.ticketId, tickets.id),
+                  eq(ticketRepositories.repositoryId, repositoryId),
+                  eq(ticketRepositories.prState, "open"),
+                ),
+              ),
+          ),
+        ),
+      ),
+    );
+  return row !== undefined;
+}
 import { getContentLanguage } from "../settings.js";
 import { recordRelease } from "../services/releases.js";
 import { publishPrOpened } from "../services/pr-alerts.js";
@@ -533,7 +582,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           .limit(1);
         if (reviewRow?.ticketId) {
           const [reviewTicket] = await instance.db
-            .select({ id: tickets.id, status: tickets.status, type: tickets.type })
+            .select({ id: tickets.id, status: ticketStatusSql, type: tickets.type })
             .from(tickets)
             .where(eq(tickets.id, reviewRow.ticketId));
           // Si auto-chiude SOLO il ticket di tipo review ancora aperto: il
@@ -554,7 +603,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               // letto fuori serviva solo al fast-path, e l'audit deve dire da
               // dove il ticket è partito davvero.
               const [before] = await tx
-                .select({ status: tickets.status })
+                .select({ status: ticketStatusSql })
                 .from(tickets)
                 .where(eq(tickets.id, reviewTicket.id));
               // Il predicato sullo status rende chiusura+commento atomici: due
@@ -564,14 +613,14 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               // sistema — mai duplicati.
               const updated = await tx
                 .update(tickets)
-                .set({ status: nextStatus })
+                .set(roleUpdate(nextStatus))
                 .where(
                   and(
                     eq(tickets.id, reviewTicket.id),
-                    notInArray(tickets.status, ["done", "closed"]),
+                    ticketRoleNotIn(["done", "closed"]),
                   ),
                 )
-                .returning({ id: tickets.id });
+                .returning({ id: tickets.id, status: ticketStatusSql });
               if (updated.length > 0) {
                 await tx.insert(comments).values({
                   ticketId: reviewTicket.id,
@@ -589,7 +638,9 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
                   await recordTicketStatusChange(tx, {
                     ticketId: reviewTicket.id,
                     from: before.status,
-                    to: nextStatus,
+                    // Lo stato RAGGIUNTO: in un progetto con un solo stato chiuso
+                    // «closed» diventa quello, e l'evento lo dice.
+                    to: updated[0]!.status,
                     actorId: null,
                   });
                 }
@@ -627,7 +678,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       const [ticket] = await instance.db
         .select({
           id: tickets.id,
-          status: tickets.status,
+          status: ticketStatusSql,
           number: tickets.number,
           title: tickets.title,
           // Ancora della notifica job.pr_closed (vedi in fondo al ramo).
@@ -676,7 +727,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           // Due consegne CONCORRENTI dello stesso merge si mettono in fila qui,
           // e la seconda vede il commento che la prima ha committato (sotto).
           const [locked] = await tx
-            .select({ status: tickets.status })
+            .select({ status: ticketStatusSql })
             .from(tickets)
             .where(eq(tickets.id, ticket.id))
             .for("update");
@@ -791,10 +842,14 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           if (!allMerged) return;
 
           const [beforeDone] = await tx
-            .select({ status: tickets.status })
+            .select({ status: ticketStatusSql })
             .from(tickets)
             .where(eq(tickets.id, ticket.id));
-          await tx.update(tickets).set({ status: "done" }).where(eq(tickets.id, ticket.id));
+          const [reached] = await tx
+            .update(tickets)
+            .set(roleUpdate("done"))
+            .where(eq(tickets.id, ticket.id))
+            .returning({ status: ticketStatusSql });
           // Audit della chiusura: è l'evento DATATO su cui si appoggia la
           // timeline di progetto per "ticket chiuso" — `updated_at` direbbe
           // solo quando la riga è cambiata l'ultima volta. actorId null: la
@@ -803,7 +858,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             await recordTicketStatusChange(tx, {
               ticketId: ticket.id,
               from: beforeDone.status,
-              to: "done",
+              to: reached?.status ?? "done",
               actorId: null,
             });
           }
@@ -847,10 +902,11 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       }
 
       // event.kind === "closed_unmerged": riapertura del ticket per QUESTO repo.
-      // Agiamo SOLO se il ticket è ancora in review (la pipeline ci ha appena
-      // aperto la PR). Qualunque altro stato → 204 idempotente: una ri-consegna,
-      // o un ticket già ripreso/concluso a mano, non deve produrre effetti.
-      if (!ticket || ticket.status !== "in_review") return finish();
+      // Agiamo SOLO se il ticket aspetta ancora la PR (stato active e PR
+      // aperta, `awaitingPr`: non lo status, che senza uno stato «in_review»
+      // dice `in_progress`). Altrimenti → 204 idempotente: una ri-consegna, o
+      // un ticket già ripreso/concluso a mano, non deve produrre effetti.
+      if (!ticket || !(await awaitingPr(instance.db, ticket.id, context.repositoryId, closedNowTicketIds.has(ticket.id)))) return finish();
 
       // Job AI riallineato dalla transazione qui sotto: è l'ancora `jobId` della
       // notifica (nessuna riga = nessun job `pr_opened`, l'evento resta legato
@@ -863,20 +919,20 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       // riga e il ticket appartengono alla PR nuova, e non si toccano.
       let stalePr = false;
       // Due consegne CONCORRENTI della stessa chiusura: la seconda, sotto il
-      // lock, trova il ticket non più in review ed esce senza scrivere.
+      // lock, trova il ticket che non aspetta più la PR ed esce senza scrivere.
       let notInReview = false;
       await instance.db.transaction(async (tx) => {
         // ORDINE DEI LOCK, lo stesso del ramo del merge: PRIMA la riga del
         // ticket, POI quella di `ticket_repositories` (vedi lì il perché). Lo
         // stato si RILEGGE sotto il lock: quello letto fuori era il fast-path,
-        // e due consegne concorrenti lo leggono entrambe `in_review` — prima
+        // e due consegne concorrenti lo trovano entrambe in attesa — prima
         // producevano due `comment.prClosed`, due eventi e due notifiche.
         const [locked] = await tx
-          .select({ status: tickets.status })
+          .select({ status: ticketStatusSql })
           .from(tickets)
           .where(eq(tickets.id, ticket.id))
           .for("update");
-        if (locked?.status !== "in_review") {
+        if (!locked || !(await awaitingPr(tx, ticket.id, context.repositoryId, closedNowTicketIds.has(ticket.id)))) {
           notInReview = true;
           return;
         }
@@ -918,13 +974,17 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               ...(row ? [eq(ticketRepositories.id, row.id)] : []),
             ),
           );
-        await tx.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, ticket.id));
+        const [reached] = await tx
+          .update(tickets)
+          .set(roleUpdate("triaged"))
+          .where(eq(tickets.id, ticket.id))
+          .returning({ status: ticketStatusSql });
         // Audit della riapertura. Qui lo stato precedente è certo: è quello
         // riletto sotto il lock poche righe sopra.
         await recordTicketStatusChange(tx, {
           ticketId: ticket.id,
-          from: "in_review",
-          to: "triaged",
+          from: locked.status,
+          to: reached?.status ?? "triaged",
           actorId: null,
         });
         await tx.insert(comments).values({

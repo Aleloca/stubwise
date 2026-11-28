@@ -5,8 +5,7 @@ import {
   projects,
   recordTicketStatusChange,
   tickets,
-  type Db,
-} from "@stubwise/db";
+  type Db, ticketStatusSql, roleUpdate } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import type { AgentSegmentLabel, TicketType } from "@stubwise/shared";
 import { and, desc, eq, ne } from "drizzle-orm";
@@ -214,7 +213,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
   };
 
   const recentTickets = await db
-    .select({ number: tickets.number, title: tickets.title, status: tickets.status })
+    .select({ number: tickets.number, title: tickets.title, status: ticketStatusSql })
     .from(tickets)
     .where(and(eq(tickets.projectId, ticket.projectId), ne(tickets.id, ticket.id)))
     .orderBy(desc(tickets.createdAt))
@@ -493,16 +492,20 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
           }),
         });
         const [before] = await tx
-          .select({ status: tickets.status })
+          .select({ status: ticketStatusSql })
           .from(tickets)
           .where(eq(tickets.id, ticket.id));
-        await tx.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, ticket.id));
+        const [reached] = await tx
+          .update(tickets)
+          .set(roleUpdate("triaged"))
+          .where(eq(tickets.id, ticket.id))
+          .returning({ status: ticketStatusSql });
         // Audit della transizione: actorId null, il triage non è una persona.
         if (before) {
           await recordTicketStatusChange(tx, {
             ticketId: ticket.id,
             from: before.status,
-            to: "triaged",
+            to: reached?.status ?? "triaged",
             actorId: null,
           });
         }
@@ -575,15 +578,19 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
           body: t(lang, "comment.triageDuplicate", { number: target.number, title: target.title }),
         });
         const [before] = await tx
-          .select({ status: tickets.status })
+          .select({ status: ticketStatusSql })
           .from(tickets)
           .where(eq(tickets.id, ticket.id));
-        await tx.update(tickets).set({ status: "closed" }).where(eq(tickets.id, ticket.id));
+        const [reached] = await tx
+          .update(tickets)
+          .set(roleUpdate("closed"))
+          .where(eq(tickets.id, ticket.id))
+          .returning({ status: ticketStatusSql });
         if (before) {
           await recordTicketStatusChange(tx, {
             ticketId: ticket.id,
             from: before.status,
-            to: "closed",
+            to: reached?.status ?? "closed",
             actorId: null,
           });
         }

@@ -1667,6 +1667,13 @@
       "when": 1805068800000,
       "tag": "0239_workspaces",
       "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "7",
+      "when": 1805155200000,
+      "tag": "0240_tickets_triaged_at",
+      "breakpoints": true
     }
   ]
 }

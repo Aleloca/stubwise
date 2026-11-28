@@ -2,10 +2,11 @@ import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import en from "./locales/en.json";
 import it from "./locales/it.json";
+import { LANGUAGE_STORAGE_KEY } from "./storageKey";
 
 export type Language = "en" | "it";
 
-export const LANGUAGE_STORAGE_KEY = "stubwise.language";
+export { LANGUAGE_STORAGE_KEY };
 
 function isLanguage(value: unknown): value is Language {
   return value === "en" || value === "it";
