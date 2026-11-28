@@ -1,4 +1,15 @@
-import { PRF_INPUT, generatePersonKeyPair, openPrivateKey, sealPrivateKey } from "@stubwise/vault-crypto";
+import {
+  PRF_INPUT,
+  decryptPassword,
+  encryptPassword,
+  generatePersonKeyPair,
+  openPrivateKey,
+  parseRecoveryKit,
+  sealPrivateKey,
+  unwrapItemKey,
+  wrapActorChallenge,
+  wrapItemKey,
+} from "@stubwise/vault-crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 import { VaultCore, type CoreEvent } from "./core";
 import { toBase64Url } from "./bytes";
@@ -60,7 +71,8 @@ function setup() {
       calls.push({ method: init.method!, path, body: init.body ? JSON.parse(init.body as string) : undefined });
       const route = routes[`${init.method} ${path}`];
       const out = route ? route() : { status: 404, body: { code: "not_found" } };
-      return new Response(out.status === 204 ? null : JSON.stringify(out.body), { status: out.status ?? 200 });
+      const body = await out.body;
+      return new Response(out.status === 204 ? null : JSON.stringify(body), { status: out.status ?? 200 });
     },
     now: () => clock,
     setTimer: () => null,
@@ -317,5 +329,116 @@ describe("una passkey in più apre la cassaforte (fase 2)", () => {
     await core.handle({ t: "discard" });
     expect(new Uint8Array(a).every((x) => x === 0)).toBe(true);
     expect((await finish()).out).toEqual({ ok: false, code: "no_seal_pending" });
+  });
+});
+
+describe("la rotazione del kit di recupero, nel worker (fase 2)", () => {
+  const LIVE_KEY = "11111111-1111-4111-8111-111111111111";
+  const C1 = "33333333-3333-4333-8333-333333333333";
+  const PROJECT = "66666666-6666-4666-8666-666666666666";
+  const CHALLENGE = "77777777-7777-4777-8777-777777777777";
+  let core: VaultCore;
+  let pair: Awaited<ReturnType<typeof generatePersonKeyPair>>;
+  let ciphertext: string;
+  let missing: unknown[];
+  let rotations: number;
+
+  beforeEach(async () => {
+    core = setup();
+    pair = await generatePersonKeyPair();
+    const sealed = await sealPrivateKey(prf.slice().buffer, pair.privateKeyPkcs8, pair.publicKey);
+    const enc = await encryptPassword(C1, "Kx4!pa-77Wq");
+    ciphertext = enc.ciphertext;
+    const myCopy = await wrapItemKey(enc.itemKey, pair.publicKey, C1, LIVE_KEY);
+    missing = [];
+    rotations = 0;
+    myKey = { id: LIVE_KEY, status: "confirmed", createdAt: "2026-11-01T00:00:00.000Z" };
+    const base = routes["GET /api/vault/status"]!;
+    routes["GET /api/vault/status"] = () => {
+      const out = base() as { body: Record<string, unknown> };
+      return { body: { ...out.body, seals: [{ passkeyId: PASSKEY_ID, credentialIdB64url: CRED }] } };
+    };
+    routes["GET /api/vault/keys/mine"] = () => ({
+      body: { id: LIVE_KEY, publicKey: pair.publicKey, status: "confirmed", seals: [{ passkeyId: PASSKEY_ID, credentialIdB64url: CRED, sealedPrivateKey: sealed }] },
+    });
+    routes["GET /api/vault/recovery-key/preview"] = () => ({
+      body: { personKeyId: LIVE_KEY, credentials: [{ id: C1, projectId: PROJECT, service: "AWS", label: null, wrappedKey: myCopy }], missing },
+    });
+    routes["POST /api/vault/actor-challenge"] = () => ({
+      body: wrapActorChallenge(new Uint8Array(32).fill(7), pair.publicKey, CHALLENGE, LIVE_KEY).then((wrapped) => ({
+        challengeId: CHALLENGE,
+        personKeyId: LIVE_KEY,
+        wrapped,
+        expiresAt: "2026-11-28T10:05:00.000Z",
+      })),
+    });
+    routes["POST /api/vault/recovery-key"] = () => {
+      rotations += 1;
+      return { status: 204, body: null };
+    };
+  });
+
+  async function unlock() {
+    await core.handle({ t: "prepare" });
+    await core.handle({ t: "stash", prf: prf.slice().buffer });
+    expect(await core.handle({ t: "unlock", assertion, credentialId: CRED, personId: ME, sessionTag: TAG })).toEqual({ ok: true });
+  }
+
+  it("il kit nuovo: ogni chiave d'oggetto ricifrata per la sua pubblica, con la prova; il kit nuovo apre la copia", async () => {
+    await unlock();
+    const kit = (await core.handle({ t: "kit", purpose: "rotate" })) as { ok: true; kitText: string };
+    expect(kit.ok).toBe(true);
+    expect(await core.handle({ t: "rotateKit", personId: ME, sessionTag: TAG })).toEqual({ ok: true });
+    const body = calls.find((c) => c.path === "/api/vault/recovery-key")!.body as {
+      recoveryPublicKey: string;
+      copies: { credentialId: string; wrappedKey: string }[];
+      actorProof: { challengeId: string };
+    };
+    expect(body.actorProof.challengeId).toBe(CHALLENGE);
+    expect(body.copies.map((c) => c.credentialId)).toEqual([C1]);
+    const recovery = await parseRecoveryKit(kit.kitText);
+    const itemKey = await unwrapItemKey(body.copies[0]!.wrappedKey, recovery, C1, "recovery");
+    expect(await decryptPassword(C1, ciphertext, itemKey)).toBe("Kx4!pa-77Wq");
+    // Usato: non si ruota due volte con lo stesso kit.
+    expect(await core.handle({ t: "rotateKit", personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "no_kit" });
+  });
+
+  it("una credenziale senza la propria copia: niente kit, e la pagina sa quali", async () => {
+    missing = [{ id: C1, projectId: PROJECT, service: "Senza copia", label: null }];
+    expect(await core.handle({ t: "kit", purpose: "rotate" })).toEqual({
+      ok: false,
+      code: "missing",
+      missing: [{ id: C1, projectId: PROJECT, service: "Senza copia", label: null }],
+    });
+  });
+
+  it("a cassaforte chiusa non ruota, e il kit resta per dopo lo sblocco", async () => {
+    await core.handle({ t: "kit", purpose: "rotate" });
+    expect(await core.handle({ t: "rotateKit", personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "vault_locked" });
+    await unlock();
+    expect(await core.handle({ t: "rotateKit", personId: ME, sessionTag: TAG })).toEqual({ ok: true });
+  });
+
+  it("un kit dell'attivazione non vale per la rotazione", async () => {
+    await unlock();
+    activated = false;
+    await core.handle({ t: "kit", purpose: "activate" });
+    activated = true;
+    expect(await core.handle({ t: "rotateKit", personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "no_kit" });
+    expect(rotations).toBe(0);
+  });
+
+  it("`recipients_changed`: si rilegge l'anteprima e si riprova una volta, con lo stesso kit", async () => {
+    await unlock();
+    routes["POST /api/vault/recovery-key"] = () => {
+      rotations += 1;
+      return rotations === 1 ? { status: 409, body: { code: "recipients_changed" } } : { status: 204, body: null };
+    };
+    await core.handle({ t: "kit", purpose: "rotate" });
+    expect(await core.handle({ t: "rotateKit", personId: ME, sessionTag: TAG })).toEqual({ ok: true });
+    const bodies = calls.filter((c) => c.path === "/api/vault/recovery-key").map((c) => (c.body as { recoveryPublicKey: string }).recoveryPublicKey);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toBe(bodies[1]);
+    expect(calls.filter((c) => c.path === "/api/vault/recovery-key/preview").length).toBeGreaterThanOrEqual(2);
   });
 });

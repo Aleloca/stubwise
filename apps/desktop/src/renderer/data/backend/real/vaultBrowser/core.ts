@@ -4,6 +4,8 @@ import {
   vaultActorChallengeResponseSchema,
   vaultConfirmResponseSchema,
   vaultPendingResponseSchema,
+  vaultRecoveryKeyPreviewSchema,
+  type VaultRecoveryKeyPreview,
   type VaultPendingPerson,
   type CredentialRecipients,
   type CredentialSharePreview,
@@ -132,6 +134,12 @@ export type CoreRequest =
   | { t: "forgetKit" }
   /** Attiva la cassaforte dell'istanza con la pubblica del kit generato qui (full admin, riconferma). */
   | { t: "activate" }
+  /**
+   * Fase 2: il kit nuovo sostituisce il vecchio (full admin, cassaforte
+   * aperta). Ogni chiave d'oggetto si apre con la propria copia e si ricifra
+   * per la pubblica del kit generato qui; al server con la prova.
+   */
+  | { t: "rotateKit"; personId: string; sessionTag: string }
   | { t: "reveal"; id: string; action: "show" | "copy"; personId: string; sessionTag: string }
   /**
    * Una credenziale nuova: non vuole la cassaforte aperta (si cifra con le
@@ -612,6 +620,48 @@ export class VaultCore {
     }
   }
 
+  /** L'anteprima della rotazione, letta con lo schema. */
+  private async rotationPreview(): Promise<VaultRecoveryKeyPreview> {
+    const out = vaultRecoveryKeyPreviewSchema.safeParse(await this.http("GET", "/api/vault/recovery-key/preview"));
+    if (!out.success) throw new HttpError(0, "invalid_response");
+    return out.data;
+  }
+
+  /**
+   * Ricifra per la pubblica nuova ogni chiave d'oggetto, dall'anteprima
+   * FRESCA; una credenziale nata o tolta nel frattempo (409
+   * `recipients_changed`) rilegge e riprova UNA volta.
+   */
+  private async rotate(publicKey: string, k: { privateKey: CryptoKey; personKeyId: string }) {
+    const attempt = async () => {
+      const preview = await this.rotationPreview();
+      if (preview.missing.length > 0) return { ok: false as const, code: "missing", missing: preview.missing };
+      if (preview.personKeyId !== k.personKeyId) return { ok: false as const, code: "stale_key" };
+      const copies: { credentialId: string; wrappedKey: string }[] = [];
+      for (const c of preview.credentials) {
+        let itemKey: CryptoKey;
+        try {
+          itemKey = await unwrapItemKey(c.wrappedKey, k.privateKey, c.id, k.personKeyId);
+        } catch {
+          return { ok: false as const, code: "open_failed" };
+        }
+        copies.push({ credentialId: c.id, wrappedKey: await wrapItemKey(itemKey, publicKey, c.id, "recovery") });
+      }
+      await this.http("POST", "/api/vault/recovery-key", {
+        recoveryPublicKey: publicKey,
+        copies,
+        actorProof: await this.prove(k.privateKey, k.personKeyId),
+      });
+      return { ok: true as const };
+    };
+    try {
+      return await attempt();
+    } catch (error) {
+      if (!(error instanceof HttpError && error.status === 409 && error.code === "recipients_changed")) throw error;
+      return attempt();
+    }
+  }
+
   /** La lista fresca di chi aspetta, letta con lo schema. */
   private async pendingPeople(): Promise<VaultPendingPerson[]> {
     const out = vaultPendingResponseSchema.safeParse(await this.http("GET", "/api/vault/pending"));
@@ -859,6 +909,11 @@ export class VaultCore {
         const status = await this.http<VaultStatusResponse>("GET", "/api/vault/status");
         if (req.purpose === "activate" && status.activated) return { ok: false, code: "vault_already_active" };
         if (req.purpose === "rotate" && !status.activated) return { ok: false, code: "inactive" };
+        if (req.purpose === "rotate") {
+          // Le vuole TUTTE: con una credenziale senza la propria copia, niente kit (la pagina dice quali).
+          const preview = await this.rotationPreview();
+          if (preview.missing.length > 0) return { ok: false, code: "missing", missing: preview.missing };
+        }
         const { publicKey, kitText } = await generateRecoveryKit();
         this.kit = { publicKey, purpose: req.purpose };
         return { ok: true, kitText };
@@ -879,6 +934,15 @@ export class VaultCore {
         }
         this.kit = null;
         return { ok: true };
+      }
+      case "rotateKit": {
+        const kit = this.kit;
+        if (!kit || kit.purpose !== "rotate") return { ok: false, code: "no_kit" };
+        const k = await this.live(req.personId, req.sessionTag);
+        if (!k) return { ok: false, code: "vault_locked" };
+        const out = await this.rotate(kit.publicKey, k);
+        if (out.ok) this.kit = null;
+        return out;
       }
       case "discard":
         this.dropStash();
