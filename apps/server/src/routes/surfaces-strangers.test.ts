@@ -6,6 +6,12 @@ import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
+// Il codice del progetto da un contatore, non a caso: 4 cifre esadecimali a caso
+// su un test per `beforeEach` collidevano su `projects_code_unique` (CI di #150).
+// Il vincolo è `^[A-Z][A-Z0-9]{1,5}$`: lettera più 5 cifre.
+let codeSeq = 0;
+const projectCode = () => String(codeSeq++).padStart(5, "0");
+
 /**
  * Registro, A11 r.1414 (revisione del lotto 2, I2): le superfici del server
  * che il prototipo già copre. Chi guarda non riceve l'id di uno sconosciuto
@@ -63,7 +69,7 @@ describe("le superfici senza gli sconosciuti", () => {
 
   it("i rilasci: chi ha fatto il merge, sconosciuto, è `hidden-1` nell'elenco e nel dettaglio", async () => {
     const { projectId, repositoryId } = await seedRepository(t.db);
-    const code = `S${randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}`;
+    const code = `S${projectCode()}`;
     await t.db.update(projects).set({ code }).where(eq(projects.id, projectId));
     const reader = await createUserWithSession(app, `reader-rl-${randomUUID().slice(0, 6)}@example.com`);
     await addMember(app, projectId, reader.id, "developer");
@@ -83,7 +89,7 @@ describe("le superfici senza gli sconosciuti", () => {
 
   it("il supporto: chi del team ha scritto, sconosciuto, è `hidden-1` nel dettaglio della conversazione", async () => {
     const { projectId } = await seedRepository(t.db);
-    const code = `P${randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}`;
+    const code = `P${projectCode()}`;
     await t.db.update(projects).set({ code }).where(eq(projects.id, projectId));
     const reader = await createUserWithSession(app, `reader-sp-${randomUUID().slice(0, 6)}@example.com`);
     await addMember(app, projectId, reader.id, "developer");

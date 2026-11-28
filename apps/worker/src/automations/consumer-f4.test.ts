@@ -6,6 +6,12 @@ import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { consumeAutomationEvents } from "./consumer.js";
 
+// Il codice del progetto da un contatore, non a caso: 4 cifre esadecimali a caso
+// su un test per `beforeEach` collidevano su `projects_code_unique` (CI di #150).
+// Il vincolo è `^[A-Z][A-Z0-9]{1,5}$`: lettera più 5 cifre.
+let codeSeq = 0;
+const projectCode = () => String(codeSeq++).padStart(5, "0");
+
 /**
  * Il consumatore nella F4 (area 7): le GENERALI ascoltano gli eventi di
  * Stubwise di ogni progetto che il proprietario vede, finché ha
@@ -29,7 +35,7 @@ beforeEach(async () => {
   await t.db.delete(automations);
   await t.db.delete(automationEvents);
   ({ projectId } = await seedRepository(t.db));
-  await t.db.update(projects).set({ code: `G${randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}` }).where(eq(projects.id, projectId));
+  await t.db.update(projects).set({ code: `G${projectCode()}` }).where(eq(projects.id, projectId));
   ownerId = (await t.db.insert(users).values({ email: `o-${randomUUID()}@x.it`, passwordHash: "x", role: "member" }).returning())[0]!.id;
   await t.db.update(users).set({ instanceRoleId: generalRoleId }).where(eq(users.id, ownerId));
 });

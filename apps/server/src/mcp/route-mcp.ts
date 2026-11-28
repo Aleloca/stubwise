@@ -33,6 +33,15 @@ export interface RouteMcpAction {
    * `url`, `[].url`, `items.[].url`. Revisione del lotto 6 (I2).
    */
   redact?: readonly string[];
+  /**
+   * `mcp`: la rotta è superficie PROPRIA dell'MCP (D10, decisione del
+   * maintainer del 28 nov 2026): la servono i tool dedicati di Claude Code
+   * (`packages/mcp`, i comandi del plugin) e l'app non la chiama, per scelta.
+   * Resta anche dopo il ritiro del web vecchio; lo script delle rotte non la
+   * conta fra quelle «senza chiamanti». Elenco chiuso
+   * (`src/mcp/mcp-owned.test.ts`).
+   */
+  owner?: "mcp";
 }
 
 export interface RouteMcpExclusion {

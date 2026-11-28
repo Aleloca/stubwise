@@ -56,7 +56,7 @@ export async function mcpRoutes(instance: FastifyInstance, opts: { collector: Ro
       config: {
         access: { kind: "user" },
         mcp: {
-          action: "mcp.catalog",
+          action: "mcp.catalog", owner: "mcp",
           summary: "L'elenco delle azioni che l'MCP può chiamare su questa istanza, senza gli schemi.",
           effect: "read",
         },
@@ -72,7 +72,7 @@ export async function mcpRoutes(instance: FastifyInstance, opts: { collector: Ro
       config: {
         access: { kind: "user" },
         mcp: {
-          action: "mcp.describe",
+          action: "mcp.describe", owner: "mcp",
           summary: "Una voce del catalogo dell'MCP con gli schemi di parametri, query e corpo.",
           effect: "read",
         },

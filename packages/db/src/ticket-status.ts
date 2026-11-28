@@ -22,7 +22,19 @@ export type TicketRole = "open" | "triaged" | "in_progress" | "in_review" | "don
  * azzera quando il ticket esce da todo.
  */
 export function statusIdForRole(role: TicketRole): SQL<string> {
-  return sql<string>`stubwise_status_for_legacy(${tickets.projectId}, ${role}::"ticket_status", ${tickets.statusId})`;
+  return sql<string>`stubwise_status_for_legacy(${tickets.projectId}, ${roleLiteral(role)}, ${tickets.statusId})`;
+}
+
+/**
+ * Il ruolo come LETTERALE SQL senza tipo (`'done'`): Postgres lo risolve sul
+ * tipo del parametro della funzione, che è l'enum `ticket_status` prima della
+ * 0245 di R3 e `text` dopo. Un cast esplicito legherebbe il codice a uno dei
+ * due schemi, e dopo R3 si deve poter scendere a R2 (deploy-log, «R3»). Il
+ * valore viene da un elenco chiuso, e si controlla.
+ */
+export function roleLiteral(role: TicketRole): SQL {
+  if (!ALL_ROLES.includes(role)) throw new Error(`ruolo sconosciuto: ${String(role)}`);
+  return sql.raw(`'${role}'`);
 }
 
 /**
@@ -59,13 +71,14 @@ export function ticketRoleIn(roles: readonly TicketRole[]): SQL {
   const wanted = new Set(roles);
   const legacy = [...new Set([...wanted].map((r) => (r === "triaged" ? "open" : r)))];
   if (legacy.length === 0) return sql`false`;
-  const inStates = sql`${tickets.statusId} in (select "id" from "project_statuses" where "legacy_status" = any(array[${sql.join(
+  // `legacy_status::text`: regge l'enum di oggi e il text dopo la 0245 di R3.
+  const inStates = sql`${tickets.statusId} in (select "id" from "project_statuses" where "legacy_status"::text = any(array[${sql.join(
     legacy.map((r) => sql`${r}`),
     sql`, `,
-  )}]::"ticket_status"[]))`;
+  )}]::text[]))`;
   if (wanted.has("open") && !wanted.has("triaged")) return sql`(${inStates} and ${tickets.triagedAt} is null)`;
   if (wanted.has("triaged") && !wanted.has("open"))
-    return sql`(${inStates} and (${tickets.triagedAt} is not null or ${tickets.statusId} not in (select "id" from "project_statuses" where "legacy_status" = 'open')))`;
+    return sql`(${inStates} and (${tickets.triagedAt} is not null or ${tickets.statusId} not in (select "id" from "project_statuses" where "legacy_status"::text = 'open')))`;
   return inStates;
 }
 

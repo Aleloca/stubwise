@@ -208,3 +208,49 @@ jobs:
           FILTERS=()
           for p in $PACKAGES; do FILTERS+=(--filter "$p"); done
           pnpm -r --workspace-concurrency=1 "${FILTERS[@]}" test
+
+  e2e:
+    name: E2E (Playwright)
+    # Fissato (9 nov 2026): `ubuntu-latest` è passato a 26.04, dove la nostra
+    # versione di Playwright non installa Chromium («does not support chromium
+    # on ubuntu26.04-x64»). Si torna a `latest` aggiornando Playwright.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Abilita corepack (pnpm)
+        run: corepack enable
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Installa le dipendenze
+        run: pnpm install --frozen-lockfile
+
+      # La suite e2e avvia uno stack reale (server Fastify) contro un Postgres
+      # testcontainer; serve la build dei package di workspace.
+      - name: Build
+        run: pnpm -r build
+
+      - name: Installa il browser Playwright
+        run: pnpm --filter @stubwise/desktop exec playwright install --with-deps chromium
+
+      # La nuova app (D3 del piano del taglio): la build web VERA con le
+      # intestazioni del Caddyfile, contro uno stack vero (Postgres
+      # testcontainers + server, porte sue: 3220 e 5220). Il web vecchio non
+      # c'è più dal ritiro (R1): resta solo questa suite.
+      - name: Esegui i test e2e della nuova app
+        run: pnpm --filter @stubwise/desktop e2e
+
+      - name: Carica il report Playwright in caso di fallimento
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/desktop/playwright-report/
+            apps/desktop/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
