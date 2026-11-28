@@ -1,3 +1,4 @@
+import { openRecentRoute } from "../lib/recent-route";
 import type {
   DocPageKind,
   SearchDocHit,
@@ -319,8 +320,9 @@ export function GlobalSearchPalette({
       title: entry.title,
       subtitle: entry.subtitle,
       // La route dei recenti è una stringa persistita arbitraria (non un literal
-      // di route tipizzato): navighiamo per stringa grezza.
-      navigate: () => void navigate({ to: entry.route as string }),
+      // di route tipizzato): navighiamo per stringa grezza. Una route della
+      // nuova app (`#/p/…`, la stessa riga riaperta da lì) va su `/app/`.
+      navigate: () => openRecentRoute(entry.route, (to) => void navigate({ to })),
       route: entry.route,
       repositoryId: entry.repositoryId ?? undefined,
       clickedAt: entry.clickedAt,

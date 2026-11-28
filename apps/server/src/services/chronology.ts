@@ -4,7 +4,7 @@ import {
   buildProjectTimeline,
   type TimelineViewer,
 } from "@stubwise/notifications";
-import type { ChronologyEvent, ChronologyPage, ProjectTimelineEntry, WeeklyBriefView } from "@stubwise/shared";
+import { briefSummaryText, type ChronologyEvent, type ChronologyPage, type ProjectTimelineEntry, type WeeklyBriefView } from "@stubwise/shared";
 import { and, desc, eq, gte, inArray, lt, min, sql } from "drizzle-orm";
 import { mapLimit } from "./map-limit.js";
 
@@ -242,7 +242,7 @@ export async function latestWeeklyBrief(db: Db, projectId: string): Promise<Week
     .orderBy(desc(projectBriefs.periodEnd), desc(projectBriefs.createdAt))
     .limit(1);
   if (!row) return null;
-  const summary = row.summary ?? Object.values(row.sections ?? {}).join("\n\n");
+  const summary = briefSummaryText(row.sections, row.summary);
   return {
     id: row.id,
     projectId: row.projectId,

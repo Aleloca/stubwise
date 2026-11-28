@@ -7390,6 +7390,28 @@ deploy o di un rollback che la tocca.
   elenchi più e che il loro dettaglio dica `ignored` (o `handed`).
   **Rollback**: sicuro, nessun dato toccato; scendendo, le 6 tornano visibili
   come prima.
+- **«Brief passati e risultati recenti nella ⌘K» (28 nov 2026)**: branch
+  `feat/ritiro-buchi-minori`, ritiro del web vecchio (inventario §1.6),
+  decisioni del maintainer del 27 nov. Nella nuova app (`/app`):
+  - qualunque brief del progetto si apre nel pannello di lettura
+    (`GET /api/briefs/:id`), con «Brief of <data> · not the latest» e il link
+    all'ultimo. `briefHeadline` passa da `@stubwise/notifications` a
+    `@stubwise/shared` (ri-esportata, nessun import cambia);
+  - la ⌘K a query vuota mostra i risultati aperti di recente
+    (`/api/search/history`): ✕ e ⌘⌫ per togliere una voce, «Clear all» senza
+    conferma. Si ricordano task, progetti e pagine Docs aperti dalla ⌘K, mai
+    la posta. Le voci registrate dal web vecchio non si mostrano.
+  **Server**: nessuna rotta nuova né migrazione (lo spostamento di
+  `briefHeadline` non cambia il comportamento). **Ordine**: `caddy` (e il
+  `server`/`worker` solo se si vuole il codice di `shared` allineato, senza
+  effetti). **Rollback**: sicuro.
+  **Dopo la revisione (28 nov 2026)**: la nuova app ricostruisce l'indirizzo
+  di un recente da tipo e oggetto (mai dalla `route` salvata), quindi si
+  aprono anche le voci scritte dal web vecchio; il web vecchio apre una
+  `route` `#/…` scritta dalla nuova app in `/app/`. Va quindi ribuildato
+  **anche il web vecchio** (`caddy`, che lo serve). Togliere un recente è
+  ottimistico. `latestWeeklyBrief` usa `briefSummaryText` di `shared`: il
+  `server` va ribuildato (nessun cambio di comportamento).
 
 - **«Indurimento di sicurezza dell'origine» (27 nov 2026)**: branch
   `fix/sicurezza-origine`. Il modello di minaccia («un XSS più un tocco

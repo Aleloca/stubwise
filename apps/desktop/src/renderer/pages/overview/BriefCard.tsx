@@ -1,7 +1,7 @@
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { useLatestBrief, useProject, useProjectSwitches } from "../../data/queries";
+import { useBrief, useLatestBrief, useProject, useProjectSwitches } from "../../data/queries";
 import { SwitchOffLine } from "../../components/ProjectSwitchOff";
 import type { WeeklyBrief } from "../../data/types";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../layout/useDetailPanel";
@@ -216,9 +216,20 @@ function BriefReader({
   onClose: () => void;
 }) {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   const project = useProject(projectCode).data ?? undefined;
-  const brief = useLatestBrief(project?.id ?? "");
-  const b = brief.data && brief.data.id === briefId ? brief.data : null;
+  // Qualunque brief del progetto, anche non l'ultimo (ritiro del web vecchio):
+  // la card `project.brief` di una settimana fa porta qui. L'ultimo si legge
+  // accanto, per dire se questo lo è e per il link.
+  const brief = useBrief(briefId);
+  const latest = useLatestBrief(project?.id ?? "");
+  const b = brief.data && project && brief.data.projectId === project.id ? brief.data : null;
+  const newer = b && latest.data && latest.data.id !== b.id ? latest.data : null;
+  const openLatest = (id: string) =>
+    void navigate({
+      to: ".",
+      search: (prev: Record<string, unknown>) => ({ ...prev, brief: id }),
+    } as never);
 
   let body;
   if (brief.isError) {
@@ -226,7 +237,8 @@ function BriefReader({
   } else if (!project || brief.data === undefined) {
     body = <PageSkeleton rows={4} />;
   } else if (!b) {
-    // Un brief che non è (più) l'ultimo, o di un altro progetto: si dice, senza inventarlo.
+    // Ignoto, di un progetto che chi guarda non vede, o di un altro progetto:
+    // si dice, senza contenuto e senza inventarlo.
     body = <p className="px-4 py-6 text-md text-ink-muted">{t("overview.brief.gone")}</p>;
   } else {
     body = (
@@ -238,6 +250,18 @@ function BriefReader({
         <div className="-ml-2">
           <CopyBriefButton brief={b} />
         </div>
+        {newer && (
+          <p data-brief-older className="flex flex-wrap items-baseline gap-x-2 text-sm text-ink-muted">
+            <span>{t("overview.brief.older", { date: formatDate(b.createdAt.slice(0, 10), i18n.language) })}</span>
+            <button
+              type="button"
+              className="text-ink underline decoration-rule-strong underline-offset-2 hover:decoration-ink"
+              onClick={() => openLatest(newer.id)}
+            >
+              {t("overview.brief.openLatest")}
+            </button>
+          </p>
+        )}
         <h2 className="text-xl font-semibold text-ink">
           {t("overview.brief.period", {
             from: formatDate(b.periodStart, i18n.language),

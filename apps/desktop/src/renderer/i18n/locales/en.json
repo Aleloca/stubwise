@@ -111,7 +111,14 @@
     "workspaceProjects_other": "{{count}} projects",
     "workspaceProjects_one": "{{count}} project",
     "viewAsPlaceholder": "Choose who to view the app as",
+    "recent": {
+      "clear": "Clear all",
+      "remove": "Remove “{{title}}” from recent",
+      "privacy": "Only you see these: the results you opened, kept for your account.",
+      "removeFailed": "Couldn't remove it from recent."
+    },
     "groups": {
+      "recent": "Recent",
       "projects": "Projects",
       "tasks": "Tasks",
       "requests": "Requests",
@@ -137,6 +144,7 @@
     "noResultsHint": "Try a code like {{example}} or a name.",
     "current": "Current",
     "hints": {
+      "remove": "to remove",
       "move": "to move",
       "open": "to open",
       "close": "to close",
@@ -2307,7 +2315,9 @@
       "none": "No brief yet",
       "firstOnMonday": "The first one arrives on Monday",
       "error": "Couldn't load the weekly brief.",
-      "gone": "This brief is no longer the latest one. Open the latest from the Overview.",
+      "gone": "This brief isn't available.",
+      "older": "Brief of {{date}} · not the latest",
+      "openLatest": "Open the latest",
       "generatedNote": "Written by Claude from the week's tasks, decisions and reports. Check it before quoting it.",
       "period": "Week of {{from}} – {{to}}",
       "close": "Close the brief",

@@ -1387,6 +1387,21 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 9 — Amministrazione, preferenze, accesso
 
+- **⌘K, i recenti condivisi col web vecchio** *(S, accettato, revisione di
+  `feat/ritiro-buchi-minori`, M4, 28 nov 2026)*: web vecchio e nuova app
+  scrivono le stesse righe di `search_history` (una per utente, tipo e
+  oggetto), quindi l'ultimo che apre riscrive `title` e `route`. Dalla stessa
+  revisione la nuova app ricostruisce l'indirizzo da tipo e oggetto (I1 a) e
+  il web vecchio apre una `route` `#/…` in `/app/` (I1 b): resta solo che il
+  titolo e il codice mostrati sono quelli dell'ultima apertura, da chiunque
+  sia venuta. Si chiude col ritiro del web vecchio.
+- **Brief: il prototipo non chiede `tickets.view_all`** *(S, divergenza
+  dichiarata, stessa revisione, M2)*: sul server entrambe le letture del brief
+  (`/briefs/latest`, `/api/briefs/:id`) lo vogliono; nel prototipo il brief
+  lo legge chi vede il progetto, e Giulia, la persona del brief in Overview,
+  Claude e Docs, non ha `tickets.view_all` in STW. La build app rispetta il
+  server (403 → «non disponibile»). Allinearlo vuol dire cambiare la specifica
+  di quelle schermate: è una scelta di prodotto.
 - **Repositories, l'indirizzo a mano quando l'elenco della piattaforma
   fallisce** *(S, revisione di `feat/repository-nuova-app`, M2, 27 nov
   2026)*: il web vecchio lascia incollare l'URL del repository se l'account
@@ -2245,6 +2260,26 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   panoramica per workspace, i colori delle workspace, le workspace annidate.
 
 ## Chiuse
+
+- ~~**I Docs semantici in ⌘K**~~ *(ritiro del web vecchio, inventario §1.5,
+  27 nov 2026)*: **coperto**. Il gruppo Docs della ⌘K (`useDocSearch` →
+  `searchDocs` in `data/backend/real/docs.ts`) chiama
+  `GET /api/projects/:id/docs/search`, che è ibrida (`retrieveChunksForProject`
+  con gli embedding, lo stesso retrieval della chat di progetto). Non usa
+  `/api/search/docs-semantic`. Manca solo l'indicatore «Refining…» del web
+  vecchio, che il prototipo non ha.
+- ~~**Gli highlights di progetto nei Docs**~~ *(stesso inventario, §1.5)*:
+  **coperto per quanto la shape prevede**. La pagina iniziale dei Docs del
+  progetto (shape `docs.md`) ha START HERE, SPACES, DECISIONS e WHAT'S NEW,
+  e WHAT'S NEW c'è già, aggregato dagli spazi (`getProjectDocsHome`).
+  RECENTLY UPDATED e MOST READ sono dell'indice del REPOSITORY, dove ci sono
+  (`repoHighlights`). `GET /api/projects/:id/docs/highlights` non serve alla
+  nuova app.
+- ~~**Leggere un brief che non è l'ultimo**~~ *(stesso inventario, §1.6,
+  decisione del maintainer del 27 nov 2026)*: qualunque brief del progetto si
+  apre nello stesso pannello (`getBrief`, `GET /api/briefs/:id`), con «Brief of
+  <data> · not the latest» e il link all'ultimo. Le righe della cronologia
+  restano non cliccabili.
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
 

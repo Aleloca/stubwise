@@ -6,6 +6,7 @@
 // mai nel bundle.
 import type * as Fake from "../../api";
 import { liveAlerts } from "./alerts";
+import { liveSearchHistory } from "./searchHistory";
 import { liveSupport } from "./support";
 import { liveWidgets } from "./supportWidgets";
 import { liveServers } from "./servers";
@@ -125,6 +126,12 @@ export const alerts: typeof Fake.alerts = partialNamespace<typeof Fake.alerts>("
  * scritture si accendono con le rotte (I1); finché sono spente nessuna
  * pagina chiama questo namespace.
  */
+/** I risultati aperti di recente nella ⌘K (shape `search-history.md`): la cronologia del server. */
+export const searchHistory: typeof Fake.searchHistory = partialNamespace<typeof Fake.searchHistory>(
+  "searchHistory",
+  liveSearchHistory,
+);
+
 export const support: typeof Fake.support = partialNamespace<typeof Fake.support>("support", {
   ...liveSupport,
   // I widget (R1/R2) sulle rotte di oggi, `supportWidgets.ts`.
@@ -211,6 +218,7 @@ export {
 export { createMilestone, deleteMilestone, updateMilestone } from "./milestones";
 export { createProject } from "./projects";
 export {
+  getBrief,
   getLatestBrief,
   decisionLogTruncated,
   listDecisionLog,
