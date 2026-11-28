@@ -6016,7 +6016,11 @@
       "askBuild": "Chiedi a un maintainer di costruirlo.",
       "setupPrIs": "PR di setup: {{url}}",
       "setupPrIs_open": "PR di setup, aperta: {{url}}",
-      "setupPrIs_merged": "PR di setup, mergiata: {{url}}"
+      "setupPrIs_merged": "PR di setup, mergiata: {{url}}",
+      "htmlView": "Grafo interattivo",
+      "htmlFrame": "Grafo interattivo di {{name}}",
+      "expand": "Espandi",
+      "collapse": "Chiudi"
     },
     "chat": {
       "title": "Chiedi ai documenti",

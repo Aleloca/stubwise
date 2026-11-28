@@ -1,10 +1,11 @@
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useDownloadGraphJson } from "../../data/queries";
 import { useTranslation } from "react-i18next";
 import { graphJsonOf } from "../../domain/docs";
 import { useGraphAction } from "../../data/queries";
 import type { DocSpaceView, GraphActionKind, GraphCommunity } from "../../data/types";
 import { formatDate } from "../../notifications/time";
+import { graphHtmlUrl } from "../../platform/graphFrame";
 import { itemClass } from "../../tasks-ui/Menu";
 import { copyText, downloadText } from "../../tasks-ui/exportFile";
 import { useToast } from "../../tasks-ui/Toast";
@@ -20,6 +21,8 @@ import { DocsGroup, useSpace } from "./parts";
 // (motivo + «Retry»), pronto: conteggi, «Updated on push», il grafo
 // interattivo delle comunità (nomi scritti dall'AI), l'elenco, il
 // `graph.json` e il comando da copiare. Le azioni stanno nel «⋯».
+// Nella build web, al posto del grafo delle comunità, l'HTML di graphify in un
+// iframe sandbox con «Expand» e «Close» (scelta del maintainer, 28 nov 2026).
 
 const fmt = (n: number, language: string) => new Intl.NumberFormat(language).format(n);
 
@@ -185,6 +188,7 @@ function ReadyGraph({ space }: { space: DocSpaceView }) {
   const report = graph.report ?? [];
   const command = `graphify query "how does ${(report[0]?.name ?? "the code").toLowerCase()} work"`;
   const graphJson = useDownloadGraphJson();
+  const htmlUrl = graphHtmlUrl(space.repositoryId);
   const download = async () => {
     // Il `graph.json` vero del server (ritiro del web vecchio, inventario 1.5);
     // nel prototipo quello composto dallo stato, come prima.
@@ -223,7 +227,11 @@ function ReadyGraph({ space }: { space: DocSpaceView }) {
         )}
       </p>
 
-      <CommunityGraph name={space.name} report={report} />
+      {htmlUrl ? (
+        <GraphHtmlFrame name={space.name} src={htmlUrl} />
+      ) : (
+        <CommunityGraph name={space.name} report={report} />
+      )}
 
       <DocsGroup
         title={t("docs.graph.communities")}
@@ -263,6 +271,52 @@ function ReadyGraph({ space }: { space: DocSpaceView }) {
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * L'HTML di graphify (solo build web): un iframe `sandbox="allow-scripts"`
+ * SENZA `allow-same-origin`, quindi con origine opaca, e la rotta che manda
+ * la sua CSP. «Expand» lo porta a tutta finestra con un overlay fisso (niente
+ * Fullscreen API, nessun permesso in più all'iframe); «Close» o Escape lo
+ * riportano al suo posto. È UN solo iframe, spostato di classe: espandere e
+ * chiudere non lo rimontano, e la simulazione del grafo non riparte. Un
+ * Escape premuto DENTRO il grafo non arriva qui (il documento è isolato):
+ * resta il bottone.
+ */
+function GraphHtmlFrame({ name, src }: { name: string; src: string }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const toggle = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setExpanded(false);
+      toggle.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
+  return (
+    <section
+      aria-label={t("docs.graph.htmlView")}
+      data-expanded={expanded ? "true" : "false"}
+      className={expanded ? "fixed inset-0 z-50 flex flex-col gap-2 bg-ground p-4" : "mt-6 flex flex-col gap-2"}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-ink">{t("docs.graph.htmlView")}</h2>
+        <button ref={toggle} type="button" className={smallSecondary} onClick={() => setExpanded((v) => !v)}>
+          {expanded ? t("docs.graph.collapse") : t("docs.graph.expand")}
+        </button>
+      </div>
+      <iframe
+        src={src}
+        sandbox="allow-scripts"
+        title={t("docs.graph.htmlFrame", { name })}
+        className={`w-full rounded-md border border-rule bg-surface ${expanded ? "min-h-0 flex-1" : "h-[70vh]"}`}
+      />
+    </section>
   );
 }
 
