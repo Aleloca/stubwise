@@ -505,6 +505,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Workspace» (27 nov 2026; migrazione 0239 additiva, server poi worker poi caddy, permesso nuovo `workspaces.manage`, rollback sicuro prima che esista una workspace, dopo toglie l'accesso dato solo dalla workspace)
   - «Parità MCP con la nuova app» (26 nov 2026; migrazione 0237 additiva, server poi caddy, worker invariato, rollback sicuro con server e caddy insieme)
   - «Nuova app: impostazioni di progetto, polso, design e piano» (27 nov 2026; server e caddy, nessuna migrazione, rollback sicuro)
+  - «Indurimento di sicurezza dell'origine» (27 nov 2026; migrazione 0238 additiva, server poi caddy, rollback sicuro)
+  - «La cassaforte nella nuova app nel browser» (28 nov 2026; server e caddy in qualunque ordine, nessuna migrazione, rollback sicuro)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

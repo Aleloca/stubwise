@@ -111,7 +111,14 @@
     "workspaceProjects_other": "{{count}} projects",
     "workspaceProjects_one": "{{count}} project",
     "viewAsPlaceholder": "Choose who to view the app as",
+    "recent": {
+      "clear": "Clear all",
+      "remove": "Remove “{{title}}” from recent",
+      "privacy": "Only you see these: the results you opened, kept for your account.",
+      "removeFailed": "Couldn't remove it from recent."
+    },
     "groups": {
+      "recent": "Recent",
       "projects": "Projects",
       "tasks": "Tasks",
       "requests": "Requests",
@@ -137,6 +144,7 @@
     "noResultsHint": "Try a code like {{example}} or a name.",
     "current": "Current",
     "hints": {
+      "remove": "to remove",
       "move": "to move",
       "open": "to open",
       "close": "to close",
@@ -2307,7 +2315,9 @@
       "none": "No brief yet",
       "firstOnMonday": "The first one arrives on Monday",
       "error": "Couldn't load the weekly brief.",
-      "gone": "This brief is no longer the latest one. Open the latest from the Overview.",
+      "gone": "This brief isn't available.",
+      "older": "Brief of {{date}} · not the latest",
+      "openLatest": "Open the latest",
       "generatedNote": "Written by Claude from the week's tasks, decisions and reports. Check it before quoting it.",
       "period": "Week of {{from}} – {{to}}",
       "close": "Close the brief",
@@ -13902,7 +13912,13 @@
       "unsupported": "This Mac can't open the vault (no Secure Enclave, or a build without it). Open it in the browser.",
       "inactiveAdmin": "Activate it in the browser.",
       "unsupportedWeb": "In the browser, the vault opens on Stubwise's web pages, with your passkey.",
-      "openWebPage": "Open the vault page"
+      "openWebPage": "Open the vault page",
+      "openWeb": "Open · closes after 15 minutes without use",
+      "webLimit": "In the browser, sleep and screen lock close it when you come back.",
+      "openPasskey": "Open with passkey",
+      "passkeyUnsupported": "This passkey can't open the vault: it doesn't support the extension the vault needs. Try another passkey.",
+      "tryAnotherPasskey": "Try another passkey",
+      "openFailedWeb": "The vault couldn't be opened."
     },
     "row": {
       "show": "Show",
@@ -13919,6 +13935,7 @@
       "openFirst": "Open the vault first"
     },
     "copied": "Copied. The clipboard is cleared in 30 seconds.",
+    "copiedWeb": "Copied. Clears from your clipboard in 30 seconds when this tab is in front. Your system's clipboard history may keep it.",
     "revealFailed": "The password couldn't be opened.",
     "revealLimited_one": "You've opened many passwords in a short time. For safety, new ones open again in about {{count}} minute. Ones you've already opened stay readable.",
     "revealLimited_other": "You've opened many passwords in a short time. For safety, new ones open again in about {{count}} minutes. Ones you've already opened stay readable.",

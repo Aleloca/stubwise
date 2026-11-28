@@ -7390,6 +7390,28 @@ deploy o di un rollback che la tocca.
   elenchi più e che il loro dettaglio dica `ignored` (o `handed`).
   **Rollback**: sicuro, nessun dato toccato; scendendo, le 6 tornano visibili
   come prima.
+- **«Brief passati e risultati recenti nella ⌘K» (28 nov 2026)**: branch
+  `feat/ritiro-buchi-minori`, ritiro del web vecchio (inventario §1.6),
+  decisioni del maintainer del 27 nov. Nella nuova app (`/app`):
+  - qualunque brief del progetto si apre nel pannello di lettura
+    (`GET /api/briefs/:id`), con «Brief of <data> · not the latest» e il link
+    all'ultimo. `briefHeadline` passa da `@stubwise/notifications` a
+    `@stubwise/shared` (ri-esportata, nessun import cambia);
+  - la ⌘K a query vuota mostra i risultati aperti di recente
+    (`/api/search/history`): ✕ e ⌘⌫ per togliere una voce, «Clear all» senza
+    conferma. Si ricordano task, progetti e pagine Docs aperti dalla ⌘K, mai
+    la posta. Le voci registrate dal web vecchio non si mostrano.
+  **Server**: nessuna rotta nuova né migrazione (lo spostamento di
+  `briefHeadline` non cambia il comportamento). **Ordine**: `caddy` (e il
+  `server`/`worker` solo se si vuole il codice di `shared` allineato, senza
+  effetti). **Rollback**: sicuro.
+  **Dopo la revisione (28 nov 2026)**: la nuova app ricostruisce l'indirizzo
+  di un recente da tipo e oggetto (mai dalla `route` salvata), quindi si
+  aprono anche le voci scritte dal web vecchio; il web vecchio apre una
+  `route` `#/…` scritta dalla nuova app in `/app/`. Va quindi ribuildato
+  **anche il web vecchio** (`caddy`, che lo serve). Togliere un recente è
+  ottimistico. `latestWeeklyBrief` usa `briefSummaryText` di `shared`: il
+  `server` va ribuildato (nessun cambio di comportamento).
 
 - **«Indurimento di sicurezza dell'origine» (27 nov 2026)**: branch
   `fix/sicurezza-origine`. Il modello di minaccia («un XSS più un tocco
@@ -7409,8 +7431,9 @@ deploy o di un rollback che la tocca.
     `new Function` all'avvio (`@stubwise/shared/csp`, primo import dei due
     `main.tsx`). Provato in locale su `caddy:2-alpine` coi bundle veri:
     `caddy validate`, header serviti, Chromium senza violazioni su `/`,
-    `/app/` e `/guide/`, e la ricerca della guida funzionante. Trusted Types
-    su `/app` sono **rimandati** (vedi l'invariante).
+    `/app/` e `/guide/`, e la ricerca della guida funzionante. I Trusted
+    Types su `/app` arrivano con la voce «La cassaforte nella nuova app nel
+    browser», qui sotto.
   - **I6, lo sblocco della cassaforte non è una riconferma**: migrazione
     **0238** (`sessions.vault_unlocked_at`, nullable). Le rotte della
     cassaforte dichiarano `config.reauth: "vault"`.
@@ -7461,6 +7484,73 @@ deploy o di un rollback che la tocca.
   ```
   La colonna della 0238 può restare (il codice vecchio non la nomina).
   Scendendo, lo sblocco torna a rinnovare la riconferma.
+- **«La cassaforte nella nuova app nel browser» (28 nov 2026)**: branch
+  `feat/cassaforte-browser` (con dentro `feat/vault-session-tag`). Design
+  `docs/plans/2026-11-27-cassaforte-browser-design.md`, tre revisioni di
+  sicurezza più quella finale; le regole stanno in `docs/invariants/vault.md`
+  («La cassaforte nella nuova app nel browser»). Rispetto a main:
+  - **La nuova app (`/app`, bundle di caddy)**: la fase 1 della cassaforte
+    nel browser. Sblocco con la passkey (PRF), Show, Copy, crea, cambia,
+    condividi e togli, chi aspetta, conferma e rifiuta. Chiave, rete e
+    crittografia stanno in un Dedicated Worker; nella pagina resta la sola
+    cerimonia della passkey, con le primitive catturate e i prototipi
+    congelati al boot. Tetti per sblocco: 15 minuti d'inattività, 60 dallo
+    sblocco, 30 reveal, 10 condivisioni, 10 cambi password. Conferma,
+    rifiuto e rimozione di un lettore vogliono un tocco nuovo della passkey.
+    L'HTML della pagina passa da un solo modulo, con la sua politica dei
+    Trusted Types. Il desktop (Electron) non cambia comportamento.
+  - **Server**:
+    - **`sessionTag` in `GET /api/auth/me`**: un'etichetta opaca della
+      sessione del cookie, un HMAC dell'id della sessione con una
+      sottochiave HKDF della chiave di cifratura (`info`
+      `stubwise:session-tag:v1`), mai l'id. `null` per un PAT; campo
+      additivo e opzionale. Il worker la confronta, e se cambia richiude.
+    - **`config.reauth: "vault"` vuole SOLO uno sblocco recente** da una
+      sessione del browser (`vaultUnlockedAt`): un login non basta più.
+      Senza, **403 `vault_unlock_required`**, e il client deve sbloccare,
+      non riconfermare; il web vecchio, su quel codice, apre il dialogo
+      dello sblocco e ripete la richiesta. Restano su `vault` le rotte
+      della chiave aperta: `keys`, `keys/:id/seals`, `recovery-key` e il
+      sigillo di un Mac. Passano a `reauth: true` l'attivazione, il
+      recupero col kit (`recovery/challenge`, `pending`, `confirm/:id`) e
+      togliere un Mac (`DELETE /api/vault/device-seals/:id`, e da un full
+      admin `DELETE /api/vault/users/:userId/device-seals/:id`), perché
+      chi chiama può non avere una chiave da sbloccare, o è un passo della
+      procedura d'incidente. Il PAT desktop non cambia.
+    - **Rotta nuova `POST /api/vault/lock`**: azzera `vaultUnlockedAt`
+      della sessione del cookie (204, idempotente; da un PAT nessun
+      effetto). La chiama il worker a ogni chiusura, best-effort.
+  - **Caddy**: su `/app` un secondo campo CSP, `require-trusted-types-for
+    'script'; trusted-types stubwise-vault-worker stubwise-html;
+    worker-src 'self'`; su tutto il sito 403 a ogni richiesta con
+    `Service-Worker: script`.
+  **Deploy**: ribuildare **`server`** e **`caddy`**; il worker non cambia.
+  Nessuna migrazione, nessuna env, nessun `notification_kind` nuovo.
+  **Ordine**: indifferente.
+  - Server prima: il web vecchio riceve `vault_unlock_required` sulle rotte
+    della chiave e, finché non arriva il caddy nuovo, mostra un errore al
+    posto del dialogo, per i minuti del deploy.
+  - Caddy prima: la nuova app trova un server senza `sessionTag` (il worker
+    lo tratta come «nessuna etichetta», confronta solo l'utente) e senza
+    `/api/vault/lock` (best-effort, un 404 non conta).
+  **Controllo dopo il deploy**:
+  ```sh
+  curl -sI https://<istanza>/app/ | grep -i trusted-types
+  curl -s -o /dev/null -w "%{http_code}\n" -H "Service-Worker: script" https://<istanza>/app/   # 403
+  curl -s -o /dev/null -w "%{http_code}\n" https://<istanza>/app/                                # 200
+  ```
+  In `/app`, con la console aperta: nessuna violazione della CSP né dei
+  Trusted Types su posta (l'originale di un'email con «Show images»), uno
+  schizzo in una doc di prodotto, la stampa, il QR della configurazione del
+  TOTP e un incolla HTML in una doc di prodotto. Poi la cassaforte: apri,
+  Show, crea, condividi e conferma; la conferma chiede la passkey anche a
+  cassaforte aperta. Nel web vecchio, subito dopo un login e senza
+  sbloccare, un'azione che scrive un sigillo deve aprire «Sblocca la
+  cassaforte».
+  **Rollback**: sicuro, server e caddy in qualunque ordine: nessun dato
+  nuovo, e i client vecchi non leggono `sessionTag` né chiamano `/lock`.
+  Scendendo, un login fresco torna ad aprire le rotte della chiave per 10
+  minuti, e togliere un Mac dal browser torna a volere lo sblocco.
 
 - **«Nuova app: impostazioni di progetto, polso, design e piano» (27 nov
   2026)**: branch `feat/impostazioni-progetto`, ritiro del web vecchio

@@ -111,7 +111,14 @@
     "workspaceProjects_other": "{{count}} progetti",
     "workspaceProjects_one": "{{count}} progetto",
     "viewAsPlaceholder": "Scegli come chi vedere l'app",
+    "recent": {
+      "clear": "Svuota",
+      "remove": "Togli “{{title}}” dai recenti",
+      "privacy": "Li vedi solo tu: i risultati che hai aperto, salvati per il tuo account.",
+      "removeFailed": "Impossibile toglierlo dai recenti."
+    },
     "groups": {
+      "recent": "Recenti",
       "projects": "Progetti",
       "tasks": "Task",
       "requests": "Richieste",
@@ -137,6 +144,7 @@
     "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
     "current": "Attuale",
     "hints": {
+      "remove": "per togliere",
       "move": "per spostarti",
       "open": "per aprire",
       "close": "per chiudere",
@@ -2307,7 +2315,9 @@
       "none": "Ancora nessun brief",
       "firstOnMonday": "Il primo arriva lunedì",
       "error": "Impossibile caricare il brief settimanale.",
-      "gone": "Questo brief non è più l'ultimo. Apri l'ultimo dalla Panoramica.",
+      "gone": "Questo brief non è disponibile.",
+      "older": "Brief del {{date}} · non è l'ultimo",
+      "openLatest": "Apri l'ultimo",
       "generatedNote": "Scritto da Claude a partire da task, decisioni e report della settimana. Verificalo prima di citarlo.",
       "period": "Settimana dal {{from}} al {{to}}",
       "close": "Chiudi il brief",
@@ -13902,7 +13912,13 @@
       "unsupported": "Questo Mac non può aprire la cassaforte (manca il Secure Enclave, o la build non lo prevede). Aprila dal browser.",
       "inactiveAdmin": "Attivala nel browser.",
       "unsupportedWeb": "Nel browser la cassaforte si apre dalle pagine web di Stubwise, con la tua passkey.",
-      "openWebPage": "Apri la pagina della cassaforte"
+      "openWebPage": "Apri la pagina della cassaforte",
+      "openWeb": "Aperta · si chiude dopo 15 minuti senza uso",
+      "webLimit": "Nel browser, lo stop e il blocco dello schermo la chiudono al tuo ritorno.",
+      "openPasskey": "Apri con la passkey",
+      "passkeyUnsupported": "Questa passkey non apre la cassaforte: non ha l'estensione che serve. Prova con un'altra passkey.",
+      "tryAnotherPasskey": "Prova un'altra passkey",
+      "openFailedWeb": "Non è stato possibile aprire la cassaforte."
     },
     "row": {
       "show": "Mostra",
@@ -13919,6 +13935,7 @@
       "openFirst": "Prima apri la cassaforte"
     },
     "copied": "Copiata. Gli appunti si svuotano fra 30 secondi.",
+    "copiedWeb": "Copiata. Sparisce dagli appunti dopo 30 secondi, con questa scheda davanti. La cronologia degli appunti del sistema potrebbe tenerla.",
     "revealFailed": "Non è stato possibile aprire la password.",
     "revealLimited_one": "Hai aperto molte password in poco tempo. Per sicurezza, quelle nuove si riaprono fra circa {{count}} minuto. Quelle già aperte restano leggibili.",
     "revealLimited_other": "Hai aperto molte password in poco tempo. Per sicurezza, quelle nuove si riaprono fra circa {{count}} minuti. Quelle già aperte restano leggibili.",

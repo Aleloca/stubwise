@@ -13,6 +13,14 @@ export function backendMode(env: NodeJS.ProcessEnv = process.env): BackendMode {
   return env.STUBWISE_BUILD === "app" ? "app" : "prototype";
 }
 
+/**
+ * Cassaforte nel browser (design §4, I1): DOVE gira la build «app», fissato
+ * al build e mai scelto a runtime su `window.stubwise` (che uno script può
+ * falsare): `electron` (`build:app`, la chiave nel main) o `web` (`build:web`,
+ * `/app`, la chiave nella scheda). Decide `@backend/vault`.
+ */
+export type BackendTarget = "electron" | "web";
+
 const data = resolve(import.meta.dirname, "src/renderer/data");
 
 /**
@@ -20,9 +28,24 @@ const data = resolve(import.meta.dirname, "src/renderer/data");
  * reset (`runtime`), i fatti sugli accessi (`access`), il `Viewer` del prototipo. Ogni modulo vero è tipato sul
  * finto (`tsconfig.json` → `paths`).
  */
-export function backendAliases(mode: BackendMode): Alias[] {
+export function backendAliases(mode: BackendMode, target: BackendTarget = "electron"): Alias[] {
   const app = mode === "app";
   return [
+    {
+      // Le primitive della cassaforte catturate al PRIMO import (design §2.4):
+      // solo nella build web, altrove un modulo vuoto.
+      find: /^@backend\/vault-boot$/,
+      replacement: resolve(
+        data,
+        app && target === "web" ? "backend/real/vaultBrowser/boot.ts" : "backend/real/vault/boot-none.ts",
+      ),
+    },
+    {
+      // Nel prototipo il namespace vero non si usa (lo importa solo
+      // `backend/real/index.ts`): i test lo leggono sul modulo Electron.
+      find: /^@backend\/vault$/,
+      replacement: resolve(data, app && target === "web" ? "backend/real/vault/web.ts" : "backend/real/vault/electron.ts"),
+    },
     {
       find: /^@backend\/api$/,
       replacement: resolve(data, app ? "backend/real/index.ts" : "api.ts"),
@@ -47,6 +70,9 @@ export function backendAliases(mode: BackendMode): Alias[] {
 }
 
 /** `import.meta.env.VITE_STUBWISE_BUILD` fissato nel bundle. */
-export function backendDefine(mode: BackendMode): Record<string, string> {
-  return { "import.meta.env.VITE_STUBWISE_BUILD": JSON.stringify(mode) };
+export function backendDefine(mode: BackendMode, target: BackendTarget = "electron"): Record<string, string> {
+  return {
+    "import.meta.env.VITE_STUBWISE_BUILD": JSON.stringify(mode),
+    "import.meta.env.VITE_STUBWISE_TARGET": JSON.stringify(target),
+  };
 }

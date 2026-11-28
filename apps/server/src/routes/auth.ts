@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, hkdfSync, randomBytes } from "node:crypto";
 import { and, asc, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -234,6 +234,44 @@ const credentialsSchema = z.object({
  * Sessioni opache: il cookie contiene solo l'id (firmato), lo stato vive
  * nella tabella `sessions`.
  */
+/**
+ * La cassaforte nel browser (I-3): l'etichetta OPACA della sessione del cookie,
+ * per `GET /api/auth/me`. Un HMAC-SHA256 dell'id della sessione con la chiave
+ * del server, con un prefisso di dominio: stabile per la sessione, diversa a
+ * ogni login, e dall'etichetta non si risale all'id (che è la credenziale).
+ * Un PAT o il token della chat non hanno una sessione del cookie: `null`.
+ *
+ * La chiave dell'HMAC è una SOTTOCHIAVE HKDF della chiave di cifratura, con
+ * un `info` suo (seconda revisione di sicurezza, m-5): la chiave che cifra i
+ * segreti del server non firma anche un valore che esce verso il client.
+ */
+const sessionTagKeys = new WeakMap<Buffer, Buffer>();
+function sessionTagKey(key: Buffer): Buffer {
+  let sub = sessionTagKeys.get(key);
+  if (!sub) {
+    sub = Buffer.from(hkdfSync("sha256", key, Buffer.alloc(0), "stubwise:session-tag:v1", 32));
+    sessionTagKeys.set(key, sub);
+  }
+  return sub;
+}
+
+/**
+ * La chiave si legge solo per una sessione del cookie: il getter di
+ * `app.encryptionKey` LANCIA su un'app costruita senza chiave (i test), e
+ * un PAT non deve passarci. Senza chiave l'etichetta è `null`, mai un 500 di
+ * `/me` (in produzione la chiave è obbligatoria, `config.ts`).
+ */
+function sessionTagOf(keyOf: () => Buffer, user: { sessionId?: string; patId?: string }): string | null {
+  if (!user.sessionId || user.patId !== undefined) return null;
+  let key: Buffer;
+  try {
+    key = keyOf();
+  } catch {
+    return null;
+  }
+  return createHmac("sha256", sessionTagKey(key)).update(`stubwise:session-tag:v1:${user.sessionId}`).digest("base64url").slice(0, 32);
+}
+
 export async function authRoutes(
   instance: FastifyInstance,
   opts: AuthRoutesOptions,
@@ -540,6 +578,8 @@ export async function authRoutes(
       instancePermissions: [...request.user!.instancePermissions],
       projectPermissions: await projectPermissionsMap(app.db, request.user!),
       departmentPermissions: await departmentPermissionsMap(app.db, request.user!.id),
+      // La cassaforte nel browser (I-3): l'etichetta opaca della sessione del cookie.
+      sessionTag: sessionTagOf(() => app.encryptionKey, request.user!),
       // Rimandi, lotto 5: i reparti, nell'ordine della persona (il primo colora le iniziali).
       departments: await app.db
         .select({ id: departments.id, name: departments.name, colorToken: departments.colorToken })

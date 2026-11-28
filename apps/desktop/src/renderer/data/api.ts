@@ -191,6 +191,8 @@ import { workspacesForSearch } from "./workspaces/index";
 export * as me from "./me";
 // Lotto 10: la Cassaforte delle credenziali e la chiave del Mac (shape `vault.md`).
 export * as vault from "./vault";
+// I risultati aperti di recente nella ⌘K (shape `search-history.md`).
+export * as searchHistory from "./searchHistory";
 /** L'istanza (area 9b): `api.instance.listProviders()`, `api.instance.getUsage(…)`… */
 export * as instance from "./instance";
 /** Progetto → Settings (area 9c): `api.projectSettings.getProjectSettings(…)`… */
@@ -832,6 +834,22 @@ export async function getLatestBrief(projectId: string): Promise<WeeklyBrief | n
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .at(0);
   return latest ? copy(latest) : null;
+}
+
+/**
+ * UN brief per id, anche uno che non è più l'ultimo (ritiro del web vecchio:
+ * la card `project.brief` di una settimana fa, la roadmap). `null` se non
+ * c'è o è di un progetto che chi guarda non vede: niente contenuto, come il
+ * 404 del server.
+ */
+export async function getBrief(briefId: string): Promise<WeeklyBrief | null> {
+  const me = await gate("getBrief");
+  const brief = state.briefs.find((b) => b.id === briefId);
+  if (!brief || !visibleProjectIds(me).has(brief.projectId)) return null;
+  // Come `getLatestBrief`: nel prototipo il brief lo legge chi vede il
+  // progetto. Il server chiede anche `tickets.view_all` (le due rotte), e la
+  // build app lo rispetta (403 → null): divergenza dichiarata nel registro.
+  return copy(brief);
 }
 
 /**

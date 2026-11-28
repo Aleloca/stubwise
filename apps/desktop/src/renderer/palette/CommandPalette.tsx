@@ -21,6 +21,8 @@ import {
   useChatSearch,
   useDocSearch,
   useDocSpaces,
+  useRecentResults,
+  useRecentResultWrites,
   useProductSearch,
   useProductSpace,
   useDriveSearch,
@@ -38,6 +40,7 @@ import { Highlighted } from "../pages/chat/ChatSearch";
 import { fold, MIN_QUERY, plainText, searchWords } from "../pages/chat/search";
 import { formatDate } from "../notifications/time";
 import { useToast } from "../tasks-ui/Toast";
+import type { RecentResultType, RememberResultInput } from "../data/searchHistoryModel";
 import type { SearchResult } from "../data/types";
 import { VIEW_AS_PERSONAS } from "@backend/viewer";
 import { useViewer } from "../data/viewing";
@@ -83,6 +86,7 @@ const PRESELECT_GROUPS = [
 
 type Step = "root" | "viewAs" | "filters" | "channels";
 type GroupId =
+  | "recent"
   | "whoCan"
   | "projects"
   | "tasks"
@@ -106,6 +110,10 @@ type GroupId =
 
 interface Item {
   key: string;
+  /** Un risultato aperto di recente (gruppo «Recent», a query vuota): si può togliere. */
+  recent?: { type: RecentResultType; entityId: string; title: string };
+  /** Aprire questa riga la ricorda fra i recenti (shape `search-history.md`). */
+  remember?: RememberResultInput;
   code?: string;
   label: string;
   /** Reparto, solo per le task: la striscia a sinistra della riga. */
@@ -313,6 +321,15 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     pagesQuery,
     scoped && scopeSpace ? scopeSpace.repositoryId : null,
   );
+  // I risultati aperti di recente (shape `search-history.md`): a query vuota,
+  // in testa; nello spazio Docs, quelli di quello spazio; mai nel Prodotto.
+  const showRecent = step === "root" && query.trim() === "" && !productScoped;
+  const recents = useRecentResults(scoped && scopeSpace ? scopeSpace.repositoryId : null, showRecent);
+  const recentWrites = useRecentResultWrites();
+  const forgetRecent = (r: { type: RecentResultType; entityId: string }) =>
+    recentWrites.forget.mutate(r, { onError: () => toast.error(t("palette.recent.removeFailed")) });
+  const clearRecent = () =>
+    recentWrites.clear.mutate(undefined, { onError: () => toast.error(t("palette.recent.removeFailed")) });
   // Le pagine di prodotto: con l'ambito del Prodotto da un carattere, senza
   // ambito da due accanto alle altre pagine; mai dentro lo spazio di un repository.
   const productQuery = productScoped || (!scoped && trimmed.length >= MIN_QUERY) ? trimmed : "";
@@ -428,6 +445,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     };
 
     const byGroup: Record<GroupId, Item[]> = {
+      recent: [],
       whoCan: [],
       projects: [],
       tasks: [],
@@ -497,6 +515,14 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
             words,
           },
           fromSearch: true,
+          remember: {
+            type: "doc",
+            entityId: `${hit.page.repositoryId}:${hit.page.slug}`,
+            code: hit.page.code,
+            title: hit.page.title,
+            route: `#/p/${hit.projectCode}/docs/${hit.repositoryName}/${hit.page.slug}`,
+            repositoryId: hit.page.repositoryId,
+          },
           select: () => {
             router.history.push(
               `/p/${hit.projectCode}/docs/${hit.repositoryName}/${hit.page.slug}`,
@@ -506,7 +532,25 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         }),
       );
     }
-    if (scoped) return byGroup.pages.length > 0 ? [{ id: "pages", items: byGroup.pages }] : [];
+    if (showRecent)
+      byGroup.recent = (recents.data ?? []).slice(0, GROUP_LIMIT).map(
+        (r): Item => ({
+          key: `recent-${r.type}-${r.entityId}`,
+          code: r.code ?? undefined,
+          label: r.title,
+          recent: { type: r.type, entityId: r.entityId, title: r.title },
+          // Riaprirla la riporta in cima.
+          remember: { type: r.type, entityId: r.entityId, code: r.code, title: r.title, route: r.route, repositoryId: r.repositoryId },
+          select: () => {
+            router.history.push(r.route.replace(/^#/, ""));
+            onClose();
+          },
+        }),
+      );
+    if (scoped)
+      return (["recent", "pages"] as const)
+        .map((id) => ({ id, items: byGroup[id] }))
+        .filter((g) => g.items.length > 0);
     // Le pagine di prodotto: codice · titolo (· «ACQ · Product», senza ambito) e il passaggio.
     if (productQuery) {
       const words = searchWords(productQuery);
@@ -661,6 +705,19 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
               }
             : {}),
           fromSearch: true,
+          // Task e progetti si ricordano (i tipi del server); richieste e persone no.
+          ...(r.kind === "task" || r.kind === "project"
+            ? {
+                remember: {
+                  type: r.kind === "task" ? ("ticket" as const) : ("project" as const),
+                  entityId: r.id,
+                  code: r.code ?? null,
+                  title: r.label,
+                  route: r.route,
+                  repositoryId: null,
+                },
+              }
+            : {}),
           select: () => {
             router.history.push(r.route.replace(/^#/, ""));
             onClose();
@@ -845,6 +902,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     byGroup.more.push(...matched.filter(quoting).map(toItem));
     return (
       [
+        "recent",
         "whoCan",
         "projects",
         "tasks",
@@ -870,6 +928,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   }, [
     step,
     query,
+    showRecent,
+    recents.data,
     searching,
     search.data,
     chatQuery,
@@ -987,6 +1047,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
 
   const choose = (item: Item | undefined, details = false) => {
     if (!item || (stale && item.fromSearch)) return;
+    // Fail-open e silenzioso: l'apertura avviene comunque.
+    if (item.remember) recentWrites.remember.mutate(item.remember);
     if (details && item.details) item.details();
     else item.select();
   };
@@ -1030,6 +1092,12 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         else onClose();
         break;
       case "Backspace":
+        // ⌘⌫ su un recente selezionato lo toglie (shape `search-history.md` §3).
+        if (e.metaKey && activeItem?.recent) {
+          e.preventDefault();
+          forgetRecent(activeItem.recent);
+          break;
+        }
         if (step !== "root" && query === "") {
           e.preventDefault();
           back();
@@ -1129,8 +1197,21 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
             const headingId = `${baseId}-group-${group.id}`;
             return (
               <div key={group.id} role="group" aria-labelledby={headingId} className="pb-1">
-                <div id={headingId} className="heading-group px-4 pt-2.5 pb-1.5">
-                  {t(`palette.groups.${group.id}`)}
+                <div className="flex items-baseline justify-between pr-4">
+                  <div id={headingId} className="heading-group px-4 pt-2.5 pb-1.5">
+                    {t(`palette.groups.${group.id}`)}
+                  </div>
+                  {group.id === "recent" && (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={clearRecent}
+                      className="text-xs text-ink-muted hover:text-ink"
+                    >
+                      {t("palette.recent.clear")}
+                    </button>
+                  )}
                 </div>
                 {group.items.map((item) => {
                   const selected = item === activeItem;
@@ -1336,6 +1417,22 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                           {item.shortcut}
                         </kbd>
                       )}
+                      {item.recent && (
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          aria-label={t("palette.recent.remove", { title: item.recent.title })}
+                          title={t("palette.recent.remove", { title: item.recent.title })}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            forgetRecent(item.recent!);
+                          }}
+                          className={`shrink-0 rounded px-1 text-ink-muted hover:text-ink ${selected ? "visible" : "invisible"}`}
+                        >
+                          ✕
+                        </button>
+                      )}
                       <span
                         className={`shrink-0 text-ink-muted ${selected ? "visible" : "invisible"}`}
                       >
@@ -1345,6 +1442,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                     </div>
                   );
                 })}
+                {group.id === "recent" && (
+                  <p className="px-4 pt-1 pb-1.5 text-xs text-ink-faint">{t("palette.recent.privacy")}</p>
+                )}
               </div>
             );
           })}
@@ -1387,6 +1487,12 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
               <span className="flex items-center gap-1.5">
                 <Kbd>⌥↵</Kbd>
                 {t("palette.hints.details")}
+              </span>
+            )}
+            {activeItem?.recent && (
+              <span className="flex items-center gap-1.5">
+                <Kbd>⌘⌫</Kbd>
+                {t("palette.hints.remove")}
               </span>
             )}
             <span className="flex items-center gap-1.5">

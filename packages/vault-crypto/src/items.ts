@@ -14,8 +14,8 @@
 
 import { bytes, formatEnvelope, fromUtf8, parseEnvelope, utf8 } from "./encoding.js";
 import { HKDF_INFO, hkdfAesKey, importPublicKey, randomIv } from "./keys.js";
+import { subtle } from "./runtime.js";
 
-const subtle = () => globalThis.crypto.subtle;
 
 const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
 
@@ -23,8 +23,17 @@ function copyAad(credentialId: string, recipientId: string): Uint8Array<ArrayBuf
   return utf8(`${credentialId}:${recipientId}`);
 }
 
-async function importItemKey(raw: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
-  return subtle().importKey("raw", raw, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+/**
+ * La chiave della voce dai suoi byte grezzi, che si azzerano subito dopo
+ * l'import (M2, cassaforte nel browser §6). `extractable: false` per chi
+ * deve solo LEGGERE (Show, Copy): la chiave non esce più dalla `CryptoKey`.
+ */
+async function importItemKey(raw: Uint8Array<ArrayBuffer>, extractable = true): Promise<CryptoKey> {
+  try {
+    return await subtle().importKey("raw", raw, { name: "AES-GCM", length: 256 }, extractable, ["encrypt", "decrypt"]);
+  } finally {
+    raw.fill(0);
+  }
 }
 
 /** Genera una chiave d'oggetto nuova e ci cifra la password. */
@@ -60,14 +69,26 @@ export async function wrapItemKey(
   const ephemeral = await subtle().generateKey(ECDH, true, ["deriveBits"]);
   const epk = new Uint8Array(await subtle().exportKey("raw", ephemeral.publicKey));
   const shared = await subtle().deriveBits({ name: "ECDH", public: recipient }, ephemeral.privateKey, 256);
-  const wrapKey = await hkdfAesKey(shared, HKDF_INFO.wrap, epk);
+  let wrapKey: CryptoKey;
+  try {
+    wrapKey = await hkdfAesKey(shared, HKDF_INFO.wrap, epk);
+  } finally {
+    // Revisione finale: il segreto ECDH, non solo la copia che fa hkdfAesKey.
+    new Uint8Array(shared).fill(0);
+  }
   const raw = await subtle().exportKey("raw", itemKey);
   const iv = randomIv();
-  const ct = await subtle().encrypt(
-    { name: "AES-GCM", iv, additionalData: copyAad(credentialId, recipientId) },
-    wrapKey,
-    raw,
-  );
+  let ct: ArrayBuffer;
+  try {
+    ct = await subtle().encrypt(
+      { name: "AES-GCM", iv, additionalData: copyAad(credentialId, recipientId) },
+      wrapKey,
+      raw,
+    );
+  } finally {
+    // La chiave d'oggetto in chiaro non resta in memoria dopo la cifratura.
+    new Uint8Array(raw).fill(0);
+  }
   return formatEnvelope({ epk, iv, ct });
 }
 
@@ -77,17 +98,29 @@ export async function unwrapItemKey(
   privateKey: CryptoKey,
   credentialId: string,
   recipientId: string,
+  /** `extractable: false` per leggere soltanto (M2); di default estraibile, per ricifrarla a un altro. */
+  options: { extractable?: boolean } = {},
 ): Promise<CryptoKey> {
   const { epk, iv, ct } = parseEnvelope(wrapped, ["epk", "iv", "ct"]);
   const ephemeral = await subtle().importKey("raw", epk, ECDH, false, []);
   const shared = await subtle().deriveBits({ name: "ECDH", public: ephemeral }, privateKey, 256);
-  const wrapKey = await hkdfAesKey(shared, HKDF_INFO.wrap, epk);
+  let wrapKey: CryptoKey;
+  try {
+    wrapKey = await hkdfAesKey(shared, HKDF_INFO.wrap, epk);
+  } finally {
+    new Uint8Array(shared).fill(0);
+  }
   const raw = await subtle().decrypt(
     { name: "AES-GCM", iv, additionalData: copyAad(credentialId, recipientId) },
     wrapKey,
     ct,
   );
-  return importItemKey(bytes(raw));
+  // m-4: anche il buffer decifrato da WebCrypto, non solo la sua copia.
+  try {
+    return await importItemKey(bytes(raw), options.extractable ?? true);
+  } finally {
+    new Uint8Array(raw).fill(0);
+  }
 }
 
 /**

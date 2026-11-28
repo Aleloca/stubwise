@@ -9,6 +9,8 @@ import { matches, type FilterContext } from "../domain/filters";
 import { serverInProject } from "../domain/servers/projects";
 import { ACTIVITY } from "./seed/activity";
 import { BRIEFS } from "./seed/briefs";
+import { seedSearchHistory } from "./seed/searchHistory";
+import type { SearchHistoryEntry } from "./searchHistoryModel";
 import {
   CHAT_CHANNELS,
   CHAT_MESSAGES,
@@ -277,6 +279,11 @@ export type ApiFnName =
   | "listDecisionLog"
   | "getLatestBrief"
   | "mail.getMessageImage"
+  | "getBrief"
+  | "searchHistory.listRecentResults"
+  | "searchHistory.rememberResult"
+  | "searchHistory.forgetResult"
+  | "searchHistory.clearRecentResults"
   | "listNotifications"
   | "markNotification"
   | "search"
@@ -1131,6 +1138,8 @@ interface State {
   requests: ProjectRequest[];
   milestones: Milestone[];
   briefs: WeeklyBrief[];
+  /** I risultati aperti di recente nella ⌘K, per persona (shape `search-history.md`). */
+  searchHistory: SearchHistoryEntry[];
   decisionLog: DecisionLogEntry[];
   dailyReports: DailyReport[];
   /** Autori git dei commit collegati a una persona dopo il seed (nome git → id persona). */
@@ -1471,6 +1480,7 @@ function freshState(): State {
     requests: REQUESTS.map(copy),
     milestones: MILESTONES.map(copy),
     briefs: BRIEFS.map(copy),
+    searchHistory: seedSearchHistory(TASKS, DOC_PAGES, DOC_SPACES),
     decisionLog: DECISION_LOG.map(copy),
     dailyReports: DAILY_REPORTS.map(copy),
     commitAuthorLinks: new Map(SEED_GIT_LINKS),

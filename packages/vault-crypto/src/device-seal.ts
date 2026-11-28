@@ -27,8 +27,8 @@ import {
   rawPublicPoint,
   unsealPkcs8,
 } from "./keys.js";
+import { subtle } from "./runtime.js";
 
-const subtle = () => globalThis.crypto.subtle;
 const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
 const AAD_PREFIX = "stubwise/vault/v1/device-seal:";
 

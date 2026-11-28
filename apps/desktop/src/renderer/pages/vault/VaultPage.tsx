@@ -1,5 +1,4 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { canEncryptHere } from "../../platform/vaultBridge";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCredentials, useProjects, useVaultEntry } from "../../data/queries";
@@ -76,7 +75,7 @@ export function VaultPage() {
             <h1 className="text-2xl font-semibold text-ink">{t("vault.page.title")}</h1>
             <p className="max-w-[72ch] text-md text-ink-muted">{t("vault.page.subtitle")}</p>
           </div>
-          {(entry?.createProjectIds.length ?? 0) > 0 && canEncryptHere() && (
+          {(entry?.createProjectIds.length ?? 0) > 0 && (
             <button type="button" className={secondaryButton} onClick={newCredential}>
               {t("vault.new")}
             </button>

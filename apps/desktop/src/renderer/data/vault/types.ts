@@ -118,7 +118,12 @@ export type VaultBarState =
   /** L'istanza ha la cassaforte dal desktop spenta (`VAULT_DESKTOP`): solo dal browser. Solo nell'app. */
   | "disabled"
   /** Un build o un Mac senza Secure Enclave: solo dal browser. Solo nell'app. */
-  | "unsupported";
+  | "unsupported"
+  /**
+   * Cassaforte nel browser (design §9): la passkey usata non dà la PRF e non
+   * apre la cassaforte. Solo nella build web.
+   */
+  | "passkey_unsupported";
 
 export interface VaultStatusView {
   state: VaultBarState;

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useVaultUsable } from "./useVaultUsable";
 import { useTranslation } from "react-i18next";
-import { useCopyPassword, useShowPassword, useVaultStatus } from "../../data/queries";
+import { useCopyPassword, useOnVaultChange, useShowPassword, useVaultStatus } from "../../data/queries";
+import { isWebAppBuild } from "../../platform/vaultBridge";
 import { useToast } from "../../tasks-ui/Toast";
 import { useOpenVault } from "./VaultBar";
 
@@ -42,6 +43,27 @@ export function usePasswordReveal() {
   useEffect(() => {
     if (state !== "open") setShown({});
   }, [state]);
+  // Cassaforte nel browser (design §6, I3): la password sparisce subito alla
+  // chiusura (dal modulo della chiave, non dalla rilettura), quando la
+  // scheda va in secondo piano e a `pagehide`. Show resta finché Hide (VA-Q3)
+  // finché la scheda è davanti.
+  const web = isWebAppBuild();
+  useOnVaultChange(() => {
+    if (web) setShown({});
+  });
+  useEffect(() => {
+    if (!web) return;
+    const hide = () => setShown({});
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") hide();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", hide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", hide);
+    };
+  }, [web]);
   // A chiusa i gesti aprono prima; da associare, revocata o senza Touch ID non c'è niente da aprire qui.
   const { usable } = useVaultUsable();
   const ensureOpen = async () => state === "open" || (await open());
@@ -68,7 +90,7 @@ export function usePasswordReveal() {
     copy: async (id: string) => {
       if (!(await ensureOpen())) return;
       const out = await copyMutation.mutateAsync(id).catch(() => null);
-      if (out?.ok) toast.show(t("vault.copied"));
+      if (out?.ok) toast.show(t(web ? "vault.copiedWeb" : "vault.copied"));
       else toast.error(revealError(t, out));
     },
   };
