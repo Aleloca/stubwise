@@ -22,13 +22,37 @@ const ALLOWED = [
   /^\.\.\/styles\/index\.css$/,
 ];
 
+/**
+ * Gli specificatori di un sorgente: `import … from`, `import "…"`, ma anche
+ * `export … from` e `import("…")` (m-3, seconda revisione: una
+ * ri-esportazione o un import dinamico tirerebbero dentro lo stesso codice).
+ */
+export function specifiersOf(code: string): string[] {
+  const out: string[] = [];
+  for (const m of code.matchAll(/^\s*(?:import|export)\s+(?:type\s+)?(?:[^"';]*?\sfrom\s+)?["']([^"']+)["']/gm)) out.push(m[1]!);
+  for (const m of code.matchAll(/\bimport\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g)) out.push(m[1]!);
+  // Un `import(` con un'espressione non si può controllare: vale come vietato.
+  for (const m of code.matchAll(/\bimport\s*\(\s*(?!["'`])([^)]*)\)/g)) out.push(`<dinamico: ${m[1]!.trim()}>`);
+  return out;
+}
+
 const sources = readdirSync(DIR).filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\./.test(f));
 
 describe("la pagina a sé importa solo ciò che le serve", () => {
   it.each(sources)("%s", (file) => {
     const code = readFileSync(join(DIR, file), "utf8");
-    const specifiers = [...code.matchAll(/^\s*import\s+(?:type\s+)?(?:[^"';]*?\sfrom\s+)?["']([^"']+)["']/gm)].map((m) => m[1]!);
-    expect(specifiers.filter((s) => !ALLOWED.some((re) => re.test(s)))).toEqual([]);
+    expect(specifiersOf(code).filter((s) => !ALLOWED.some((re) => re.test(s)))).toEqual([]);
+  });
+
+  it("m-3: l'estrattore vede anche le ri-esportazioni e gli import dinamici", () => {
+    const code = [
+      'import { a } from "./ui";',
+      'export { b } from "../data/queries";',
+      'export * from "../router";',
+      'const c = await import("../layout/AppLayout");',
+      "const d = await import(name);",
+    ].join("\n");
+    expect(specifiersOf(code)).toEqual(["./ui", "../data/queries", "../router", "../layout/AppLayout", "<dinamico: name>"]);
   });
 
   it("le pagine ci sono tutte (il test non passa su una cartella vuota)", () => {

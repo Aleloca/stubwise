@@ -709,6 +709,24 @@ describe("il recupero col kit, nel worker (fase 2)", () => {
     expect(calls.some((c) => c.path.endsWith("/passkey/verify"))).toBe(false);
   });
 
+  it("m-1 (seconda revisione): un codice o una passkey sbagliati (401 del secondo fattore) non buttano il kit", async () => {
+    let wrong = true;
+    routes["POST /api/me/security/reauth"] = () =>
+      wrong ? { status: 401, body: { code: "invalid_second_factor" } } : { status: 204, body: null };
+    await core.handle(load(kit.kitText));
+    expect(await core.handle(confirmReq(BEA_KEY, { kind: "code", code: "000000" }))).toEqual({ ok: false, code: "invalid_second_factor" });
+    routes["POST /api/me/security/reauth/passkey/verify"] = () => ({ status: 401, body: { code: "invalid_passkey" } });
+    expect(await core.handle(confirmReq(BEA_KEY))).toEqual({ ok: false, code: "invalid_passkey" });
+    wrong = false;
+    expect(await core.handle(confirmReq(BEA_KEY, { kind: "code", code: "123456" }))).toMatchObject({ ok: true, saved: 1 });
+    // Un 401 della sessione, invece, chiude e butta il kit.
+    await core.handle(load(kit.kitText));
+    routes["POST /api/me/security/reauth"] = () => ({ status: 401, body: { code: "unauthenticated" } });
+    await core.handle(confirmReq(BEA_KEY, { kind: "code", code: "123456" }));
+    routes["POST /api/me/security/reauth"] = () => ({ status: 204, body: null });
+    expect(await core.handle(confirmReq(BEA_KEY, { kind: "code", code: "123456" }))).toEqual({ ok: false, code: "no_kit" });
+  });
+
   it("le opzioni della presenza: una passkey qualunque, senza PRF; senza passkey `no_passkeys`", async () => {
     routes["POST /api/me/security/reauth/passkey/options"] = () => ({
       body: { challenge: "Y2hhbGxlbmdl", allowCredentials: [{ id: CRED, type: "public-key" }] },

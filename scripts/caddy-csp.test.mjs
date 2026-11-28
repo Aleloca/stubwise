@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { BASE_DIRECTIVES, VAULT_PAGE_CSP, cspHeader, guideSnippet, inlineHashes, inlineScripts, sha256 } from "./caddy-csp.mjs";
+import { BASE_DIRECTIVES, VAULT_PAGE_COOP, VAULT_PAGE_CSP, cspHeader, guideSnippet, inlineHashes, inlineScripts, sha256 } from "./caddy-csp.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const caddyfile = readFileSync(join(here, "..", "Caddyfile"), "utf8");
@@ -75,7 +75,10 @@ describe("il Caddyfile", () => {
     const vault = block("handle_path /app/vault/*");
     assert.ok(vault.includes(`header Content-Security-Policy "${VAULT_PAGE_CSP}"`), vault);
     assert.ok(!vault.includes("csp_strict"), "una CSP sola, la sua (non quella dell'origine)");
-    assert.ok(vault.includes('header Cross-Origin-Opener-Policy "same-origin"'));
+    // Seconda revisione, I-1: `same-origin` non separa una pagina della STESSA
+    // origine (l'app che la apre o la segue). `noopener-allow-popups` sì.
+    assert.equal(VAULT_PAGE_COOP, "noopener-allow-popups");
+    assert.ok(vault.includes(`header Cross-Origin-Opener-Policy "${VAULT_PAGE_COOP}"`), vault);
     assert.ok(vault.includes("@vaultDocument not path /assets/*") && vault.includes('header @vaultDocument Cache-Control "no-store"'));
     assert.ok(vault.includes("root * /srv/vault") && vault.includes("try_files {path} /vault.html"));
     assert.match(caddyfile, /redir \/app\/vault \/app\/vault\/ 308/);

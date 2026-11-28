@@ -127,7 +127,11 @@
 	redir /app/vault /app/vault/ 308
 	handle_path /app/vault/* {
 		header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; worker-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'; require-trusted-types-for 'script'; trusted-types stubwise-vault-worker"
-		header Cross-Origin-Opener-Policy "same-origin"
+		# Seconda revisione, I-1: `same-origin` non separa una pagina della STESSA
+		# origine (l'app che la apre o la segue la governerebbe prima del boot).
+		# `VAULT_PAGE_COOP` di scripts/caddy-csp.mjs; la prova è
+		# `pnpm --filter @stubwise/desktop verify:vault-isolation`.
+		header Cross-Origin-Opener-Policy "noopener-allow-popups"
 		@vaultDocument not path /assets/*
 		header @vaultDocument Cache-Control "no-store"
 		root * /srv/vault

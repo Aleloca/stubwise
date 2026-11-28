@@ -36,6 +36,11 @@ export const FORBIDDEN = {
   ],
 };
 
+/** m-3: le rotte /api/ della pagina a sé (`vaultPage/api.ts`) e del suo worker (`core.ts`). */
+export const VAULT_PAGE_ROUTES = /^\/api\/(?:auth\/me|me\/security)$/;
+export const VAULT_WORKER_ROUTES =
+  /^\/api\/(?:auth\/me|me\/security\/reauth(?:\/passkey\/(?:options|verify))?|vault\/[\w/-]*|credentials\/|projects\/)$/;
+
 /**
  * Cosa DEVE comparire (revisione M-6): i marcatori sentinella del target, così
  * un modulo dimenticato fuori dal bundle (il worker!) fa fallire il controllo.
@@ -80,6 +85,17 @@ export function violations(dir, target) {
       const text = readFileSync(path, "utf8");
       if (/stubwise\/vault\/v1\/unlock|\bpkcs8\b/.test(text)) {
         out.push({ file: relative(dir, path), why: "la crittografia dello sblocco fuori dal worker" });
+      }
+    }
+  }
+  // m-3 (seconda revisione della fase 2): nella pagina a sé le rotte /api/
+  // sono un elenco CHIUSO. La pagina legge solo chi guarda e le sue passkey;
+  // il worker le rotte della cassaforte, della riconferma e delle credenziali.
+  if (target === "vault") {
+    for (const path of files(dir)) {
+      const allowed = /worker-[\w-]+\.js$/.test(path) ? VAULT_WORKER_ROUTES : VAULT_PAGE_ROUTES;
+      for (const [, route] of readFileSync(path, "utf8").matchAll(/["'`](\/api\/[^"'`$]*)/g)) {
+        if (!allowed.test(route)) out.push({ file: relative(dir, path), why: `una rotta fuori elenco: ${route}` });
       }
     }
   }

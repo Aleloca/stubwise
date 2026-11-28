@@ -217,6 +217,9 @@ export type CoreRequest =
  */
 export type Presence = { assertion: unknown; credentialId: string };
 
+/** I 401 delle rotte del secondo fattore che dicono «riprova», non «sessione finita». */
+const SECOND_FACTOR_REJECTIONS: ReadonlySet<string> = new Set(["invalid_second_factor", "invalid_passkey"]);
+
 /** Lo scopo di una cerimonia, come `prepare` l'ha preparata (m-3). */
 type PreparePurpose = "open" | "create" | "seal" | "activate";
 
@@ -376,7 +379,9 @@ export class VaultCore {
       const code = typeof data?.code === "string" ? data.code : `http_${res.status}`;
       const retry = Number(res.headers.get("retry-after"));
       // I-2: la sessione è finita; M-5: la finestra del server è più stretta della nostra.
-      if (res.status === 401) this.lock("session");
+      // m-1 (seconda revisione della fase 2): un 401 del SECONDO FATTORE (un
+      // codice o una passkey sbagliati) non è la fine della sessione, e non chiude.
+      if (res.status === 401 && !SECOND_FACTOR_REJECTIONS.has(code)) this.lock("session");
       // `vault_unlock_required` (54, 18d8097cb): una rotta `reauth: "vault"` vuole uno sblocco recente.
       else if (code === "reauth_required" || code === "vault_unlock_required") this.lock("reauth", code);
       throw new HttpError(res.status, code, Number.isFinite(retry) && retry > 0 ? retry : undefined, data);

@@ -70,5 +70,17 @@ describe("check-vault-target", () => {
     expect(forbidden('fetch("/api/auth/me")')).toEqual([]);
     expect(forbidden('importKey("pkcs8",x)')).toContain("la crittografia dello sblocco fuori dal worker");
   });
+
+  it("m-3 (seconda revisione): vault, le rotte /api/ in elenco chiuso; la pagina ne ha due, il worker le sue", () => {
+    const d = bundle('fetch("/api/auth/me");fetch("/api/me/security");new BroadcastChannel("stubwise-vault");"stubwise-vault-worker"');
+    writeFileSync(join(d, "worker-abc.js"), 'fetch("/api/vault/status");fetch(`/api/credentials/${id}/reveal`);fetch("/api/me/security/reauth/passkey/verify")');
+    expect(violations(d, "vault")).toEqual([]);
+    // Una rotta fuori elenco, nella pagina o nel worker.
+    writeFileSync(join(d, "worker-abc.js"), 'fetch("/api/vault/status");fetch("/api/tasks/x")');
+    expect(violations(d, "vault").map((v) => v.why).join()).toContain("/api/tasks/x");
+    writeFileSync(join(d, "worker-abc.js"), 'fetch("/api/vault/status")');
+    writeFileSync(join(d, "index-abc.js"), 'fetch("/api/vault/status");new BroadcastChannel("stubwise-vault");"stubwise-vault-worker"');
+    expect(violations(d, "vault").map((v) => v.why).join()).toContain("/api/vault/status");
+  });
 });
 

@@ -57,6 +57,17 @@ export const VAULT_PAGE_CSP = [
   "trusted-types stubwise-vault-worker",
 ].join("; ");
 
+/**
+ * La COOP della pagina a sé (seconda revisione di sicurezza della fase 2,
+ * I-1): `same-origin` non separa una pagina della STESSA origine, e uno script
+ * nell'app che apre `/app/vault/` (o ne segue la scheda) la governerebbe
+ * prima del boot. `noopener-allow-popups` chiude il riferimento in Chromium
+ * (`apps/desktop/scripts/verify-vault-isolation.mjs`). Dove il valore non è
+ * supportato resta il comportamento di `unsafe-none`: la difesa vera è
+ * un'origine separata (registro dei rimandi).
+ */
+export const VAULT_PAGE_COOP = "noopener-allow-popups";
+
 export function cspHeader(scriptSources) {
   return [`script-src ${["'self'", ...scriptSources].join(" ")}`, ...BASE_DIRECTIVES].join("; ");
 }
