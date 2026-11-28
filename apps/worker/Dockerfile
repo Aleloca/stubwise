@@ -29,7 +29,6 @@ RUN apt-get update \
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY apps/server/package.json apps/server/package.json
 COPY apps/worker/package.json apps/worker/package.json
-COPY apps/web/package.json apps/web/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/shared/package.json packages/shared/package.json
 # `@stubwise/docs-engine` ed `@stubwise/embeddings`: dal 28 nov 2026
