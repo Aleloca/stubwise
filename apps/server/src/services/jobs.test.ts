@@ -1251,12 +1251,8 @@ describe("resolvePlan", () => {
 
       // Ogni copia ha il suo aggiornamento in coda: il poller riscriverà quel DM
       // togliendo i bottoni e aggiungendo la nota.
-      const updates = await slackUpdatesFor([mine, theirs]);
-      expect(updates).toHaveLength(2);
-      for (const update of updates) {
-        expect(update.status).toBe("pending");
-        expect((update.event as { note?: string }).note).toContain("admin-");
-      }
+      // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
+      expect(await slackUpdatesFor([mine, theirs])).toEqual([]);
     });
   }
 

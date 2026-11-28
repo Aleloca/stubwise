@@ -10,29 +10,15 @@ import {
 import type { Language } from "@stubwise/i18n";
 import {
   actionsFor,
-  buildInboxBlocks,
   buildPushPayload,
-  buildQuestionBlocks,
-  createSlackClient,
-  eventSummary,
-  formatNotification,
-  isFatalSlackError,
-  KINDS_WITH_OPTIONS,
   loadSettings,
-  loadSlackBotToken,
   notificationVisibleToRecipient,
-  linkContextsFor,
-  type CardLinkContext,
-  openUrl,
-  cardPermissionsOf,
   PushRelayRejected,
   sendWebhookEvent,
   unreadCount,
   type DbOrTx,
   type NotificationEvent,
   type PushRelayClient,
-  type SlackBlock,
-  type SlackMessenger,
   contentLanguageOf,
   sendableWebhook,
   webhookWantsKind,
@@ -40,7 +26,7 @@ import {
   type SendableWebhook,
 } from "@stubwise/notifications";
 import type { PushPlatform, PushRelaySendResponse } from "@stubwise/shared";
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 /**
  * POLLER DELL'OUTBOX delle notifiche (`notification_deliveries`): task SEPARATO
@@ -128,19 +114,10 @@ export interface DeliveriesLogger {
 /** Invio sul canale webhook. Default {@link sendWebhookEvent}, fake nei test. */
 export type SendWebhookFn = (db: Db, event: NotificationEvent) => Promise<void>;
 
-/** Caricamento del bot token Slack. Default {@link loadSlackBotToken}, fake nei test. */
-export type LoadSlackBotTokenFn = (db: Db, encryptionKey: Buffer) => Promise<string | null>;
-
-/** Fabbrica del client Slack. Default {@link createSlackClient}, fake nei test. */
-export type SlackMessengerFactory = (botToken: string) => SlackMessenger;
-
 export interface DeliveriesPollerDeps {
   db: Db;
   logger: DeliveriesLogger;
-  /**
-   * Chiave con cui è cifrato il bot token Slack nelle instance settings (la
-   * stessa del server). Serve ai canali Slack; il webhook la ignora.
-   */
+  /** Chiave delle instance settings (la stessa del server): decifra il segreto dei webhook. */
   encryptionKey: Buffer;
   /** Invio webhook iniettabile nei test. Default sendWebhookEvent. */
   sendWebhook?: SendWebhookFn;
@@ -149,10 +126,6 @@ export interface DeliveriesPollerDeps {
    * iniettabile nei test. Default `sendToWebhook` di `@stubwise/notifications`.
    */
   sendToWebhook?: (webhook: SendableWebhook, event: NotificationEvent, lang: "en" | "it") => Promise<unknown>;
-  /** Caricamento del bot token iniettabile nei test. Default loadSlackBotToken. */
-  loadSlackBotToken?: LoadSlackBotTokenFn;
-  /** Client Slack iniettabile nei test. Default createSlackClient (rete vera). */
-  slackClientFactory?: SlackMessengerFactory;
   /**
    * Client del relay push, costruito all'avvio dal `PUSH_RELAY_URL`.
    * `null`/assente = PUSH SPENTE: la consegna si chiude `skipped push_disabled`
@@ -268,16 +241,13 @@ async function processDelivery(
   row: NotificationDelivery,
 ): Promise<void> {
   const { db } = deps;
-  if (row.channel === "slack_dm" || row.channel === "slack_update") {
-    await processSlackDelivery(deps, tick, row);
-    return;
-  }
   if (row.channel === "push") {
     await processPushDelivery(deps, tick, row);
     return;
   }
   if (row.channel !== "webhook") {
-    // Canale aggiunto all'enum ma non ancora gestito qui: meglio una consegna
+    // Canale non gestito qui (uno aggiunto all'enum, o `slack_dm`/`slack_update`
+    // rimasti in coda dopo il ritiro di Slack, R2): meglio una consegna
     // dichiaratamente non gestita che una riga pending che il poller riguarda
     // per sempre (o, peggio, trattata come un webhook).
     await finish(db, row.id, "skipped", "channel_not_implemented");
@@ -371,7 +341,6 @@ async function retryOrFail(
   await keepPending(db, row.id, error);
 }
 
-
 // --- Canali Slack ---------------------------------------------------------
 
 /**
@@ -384,61 +353,26 @@ async function retryOrFail(
  * worker.
  */
 interface TickContext {
-  /** Bot token decifrato, `null` se l'integrazione non è configurata. Memoizzato. */
-  botToken(): Promise<string | null>;
   /**
    * Vero la PRIMA volta che lo si chiama in questo tick: serve a loggare UNA
    * SOLA riga per le push spente, non una per consegna.
    *
-   * La differenza col bot Slack non configurato — che logga per consegna — è
-   * che quello è una misconfigurazione TRANSITORIA (qualcuno ricollegherà
-   * Slack), mentre `PUSH_RELAY_URL=` è l'interruttore documentato del rollback,
-   * cioè uno stato STABILE: su un'istanza con dieci telefoni sarebbero dieci
-   * warn per notifica, per sempre, e un log che si ripete così smette di essere
-   * letto.
+   * `PUSH_RELAY_URL=` è l'interruttore documentato del rollback, cioè uno
+   * stato STABILE: su un'istanza con dieci telefoni sarebbero dieci warn per
+   * notifica, per sempre, e un log che si ripete così smette di essere letto.
    */
   firstPushDisabled(): boolean;
 }
 
-function createTickContext(deps: DeliveriesPollerDeps): TickContext {
-  const load = deps.loadSlackBotToken ?? loadSlackBotToken;
-  let pending: Promise<string | null> | undefined;
+function createTickContext(): TickContext {
   let pushDisabledLogged = false;
   return {
-    botToken() {
-      pending ??= load(deps.db, deps.encryptionKey);
-      return pending;
-    },
     firstPushDisabled() {
       if (pushDisabledLogged) return false;
       pushDisabledLogged = true;
       return true;
     },
   };
-}
-
-/** Separatore di `external_ref` per i canali Slack: `<channel>|<ts>`. */
-const EXTERNAL_REF_SEPARATOR = "|";
-
-/** Compone l'`external_ref` di un messaggio Slack. Vedi il docblock del modulo. */
-export function externalRefOf(message: { channel: string; ts: string }): string {
-  return `${message.channel}${EXTERNAL_REF_SEPARATOR}${message.ts}`;
-}
-
-/**
- * Scompone un `external_ref` Slack nei due argomenti di `chat.update`, o `null`
- * se la stringa non ha la forma attesa (riga scritta a mano, o da una versione
- * precedente): meglio saltare l'aggiornamento che chiamare Slack con un ts vuoto.
- */
-export function parseExternalRef(
-  externalRef: string | null,
-): { channel: string; ts: string } | null {
-  if (!externalRef) return null;
-  const index = externalRef.indexOf(EXTERNAL_REF_SEPARATOR);
-  if (index <= 0) return null;
-  const channel = externalRef.slice(0, index);
-  const ts = externalRef.slice(index + 1);
-  return channel && ts ? { channel, ts } : null;
 }
 
 /** La notifica dietro una consegna per-destinatario, col suo destinatario. */
@@ -466,31 +400,6 @@ interface DeliveryRecipient {
 
 /** Il `kind` come lo tipizza la colonna enum (già valido: lo garantisce il DB). */
 type NotificationKindColumn = Parameters<typeof actionsFor>[0]["kind"];
-
-/**
- * RECINTO attorno alla resa del testo dal jsonb, gemello di quello del servizio
- * inbox: `notifications.event` è stato scritto anche mesi fa e da una versione
- * precedente del codice, e un payload marcio non deve far fallire (e ritentare
- * per cinque volte) una consegna. Degrada al `kind`, che viene dalla colonna
- * enum di cui ci si può fidare, e rinuncia al link.
- */
-function renderSlack(
-  rawEvent: Record<string, unknown>,
-  kind: NotificationKindColumn,
-  lang: Language,
-  publicUrl?: string,
-  linkContext: CardLinkContext = {},
-): { text: string; url?: string } {
-  try {
-    const event = rawEvent as unknown as NotificationEvent;
-    const body = formatNotification(event, "slack", lang).body as { text?: unknown };
-    const text = typeof body.text === "string" && body.text.trim() !== "" ? body.text : kind;
-    const url: unknown = openUrl(event, publicUrl, linkContext);
-    return { text, ...(typeof url === "string" && url !== "" ? { url } : {}) };
-  } catch {
-    return { text: kind };
-  }
-}
 
 /** Legge la notifica e il destinatario di una consegna per-destinatario. */
 async function loadRecipient(db: Db, notificationId: string): Promise<DeliveryRecipient | null> {
@@ -529,258 +438,6 @@ async function recipientStillSees(db: Db, notificationId: string): Promise<boole
     .from(notifications)
     .where(and(eq(notifications.id, notificationId), notificationVisibleToRecipient()));
   return rows.length > 0;
-}
-
-/** Stato dell'ultimo job del ticket (come fa il servizio inbox): gate delle azioni. */
-async function latestJobStatus(db: Db, ticketId: string): Promise<string | null> {
-  const [row] = await db
-    .select({ status: aiJobs.status })
-    .from(aiJobs)
-    .where(eq(aiJobs.ticketId, ticketId))
-    .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
-    .limit(1);
-  return row?.status ?? null;
-}
-
-/**
- * Processa una consegna Slack (DM o aggiornamento). Struttura comune ai due
- * canali: bot token → notifica e destinatario → invio → classificazione
- * dell'errore.
- *
- * CLASSIFICAZIONE: un errore Slack DEFINITIVO ({@link isFatalSlackError}: token
- * revocato, scope mancante, destinatario o messaggio inesistente) chiude subito
- * `failed` — ritentarlo cinque volte non lo farebbe cambiare idea. Tutto il
- * resto (rete, `ratelimited`, errori interni di Slack) passa dal backoff
- * ordinario.
- */
-async function processSlackDelivery(
-  deps: DeliveriesPollerDeps,
-  tick: TickContext,
-  row: NotificationDelivery,
-): Promise<void> {
-  const { db } = deps;
-  const token = await tick.botToken();
-  if (!token) {
-    // Esito terminale silenzioso altrimenti: senza log l'unica traccia sarebbe
-    // una riga di DB che nessuno guarda.
-    deps.logger.warn(
-      { deliveryId: row.id, channel: row.channel },
-      "[notify] consegna skipped: bot Slack non configurato",
-    );
-    await finish(db, row.id, "skipped", "slack_not_configured");
-    return;
-  }
-  if (!row.notificationId) {
-    // Impossibile per il CHECK `notification_deliveries_channel_shape_chk`, ma
-    // il tipo lo ammette: riga malformata → terminale.
-    await finish(db, row.id, "failed", "consegna Slack senza notificationId");
-    return;
-  }
-  const recipient = await loadRecipient(db, row.notificationId);
-  if (!recipient) {
-    await finish(db, row.id, "failed", "notifica o destinatario non trovati");
-    return;
-  }
-
-  const client = (deps.slackClientFactory ?? createSlackClient)(token);
-  try {
-    if (row.channel === "slack_update") {
-      await sendSlackUpdate(deps, row, recipient, client);
-    } else {
-      await sendSlackDm(deps, row, recipient, client);
-    }
-  } catch (err) {
-    const error = errText(err);
-    if (isFatalSlackError(err)) {
-      deps.logger.warn(
-        { deliveryId: row.id, channel: row.channel, error },
-        "[notify] consegna Slack failed: errore non recuperabile",
-      );
-      await finish(db, row.id, "failed", error);
-      return;
-    }
-    // NOTA su `ratelimited`: il `Retry-After` di Slack NON viene onorato, di
-    // proposito. Il backoff minimo del claim è 30s ≥ del Retry-After tipico
-    // (1–30s), gli invii di un tick sono sequenziali e il limite è per-canale:
-    // coi volumi attesi (un DM per destinatario per notifica) non lo si tocca.
-    // Se un giorno lo si toccasse, il posto per leggerlo è qui.
-    await retryOrFail(deps, row, error);
-  }
-}
-
-/** Posta il DM con i bottoni delle azioni offerte a QUESTO destinatario. */
-async function sendSlackDm(
-  deps: DeliveriesPollerDeps,
-  row: NotificationDelivery,
-  recipient: DeliveryRecipient,
-  client: SlackMessenger,
-): Promise<void> {
-  const { db } = deps;
-  if (!recipient.slackUserId) {
-    // L'utente ha scollegato Slack dopo il publish: non c'è dove consegnare, e
-    // ritentare non lo ricollegherà.
-    await finish(db, row.id, "skipped", "user_without_slack_id");
-    return;
-  }
-  if (!(await recipientStillSees(db, recipient.notificationId))) {
-    // Uscito dal progetto dopo la publish: la card non la vede più, il DM
-    // nemmeno. Terminale: rientrare nel progetto la riporta in inbox, non
-    // resuscita un DM di giorni prima.
-    await finish(db, row.id, "skipped", "recipient_cannot_see");
-    return;
-  }
-  // Ritiro del web vecchio: il link della card nella nuova app, derivato dalla riga
-  // e dagli id dell'evento come nell'inbox (`linkContextsFor`).
-  const linkContext =
-    (
-      await linkContextsFor(db, [
-        { id: recipient.notificationId, kind: recipient.kind, projectId: recipient.projectId, ticketId: recipient.ticketId, event: recipient.event },
-      ])
-    ).get(recipient.notificationId) ?? {};
-  const { text, url } = renderSlack(recipient.event, recipient.kind, recipient.language, deps.publicUrl, linkContext);
-  const jobStatus = recipient.ticketId ? await latestJobStatus(db, recipient.ticketId) : null;
-  // I bottoni sono quelli che il destinatario può premere: i SUOI permessi nel
-  // progetto della card, come nell'inbox.
-  // Card vecchie senza `project_id`: il progetto è quello del ticket (R34).
-  const permissions = await cardPermissionsOf(db, recipient.userId, {
-    projectId: recipient.projectId,
-    ticketId: recipient.ticketId,
-  });
-  const actions = actionsFor(
-    { kind: recipient.kind, requestedByUserId: recipient.requestedByUserId },
-    jobStatus,
-    { id: recipient.userId, permissions },
-  );
-  // I kind CON OPZIONI (la domanda dell'agente, il pulse proattivo) hanno
-  // bottoni loro, uno per scelta: il generico "Rispondi" non potrebbe portarsi
-  // dietro l'opzione premuta. `buildQuestionBlocks` legge le opzioni dal payload
-  // dell'evento (autosufficiente, e indifferente al kind) e, se non sono
-  // utilizzabili, degrada da sé ai blocchi standard.
-  const blocks = KINDS_WITH_OPTIONS.has(recipient.kind)
-    ? buildQuestionBlocks({
-        text,
-        event: recipient.event,
-        actions,
-        notificationId: recipient.notificationId,
-        lang: recipient.language,
-        ...(url ? { url } : {}),
-      })
-    : buildInboxBlocks({
-        text,
-        actions,
-        notificationId: recipient.notificationId,
-        lang: recipient.language,
-        ...(url ? { url } : {}),
-        // Riassunto "in breve" (fase 5): letto in modo difensivo dal payload
-        // jsonb — le righe scritte prima della fase non ce l'hanno — e reso in
-        // una section sua, escapata da `buildInboxBlocks`.
-        ...(() => {
-          const summary = eventSummary(recipient.event);
-          return summary ? { summary } : {};
-        })(),
-      });
-
-  // `channel` = lo user id: Slack apre da sé il DM (scope chat:write + im:write).
-  const posted = await client.postMessage({ channel: recipient.slackUserId, text, blocks });
-  await finish(db, row.id, "sent", null, externalRefOf(posted));
-}
-
-/**
- * Riscrive il DM già inviato della stessa notifica: testo originale (nella
- * lingua del destinatario) + la nota di stato del payload, senza bottoni.
- *
- * Il messaggio da riscrivere è quello della consegna `slack_dm` SORELLA (stessa
- * notifica, `sent`, con `external_ref`). Se non c'è — il DM non è mai partito, o
- * è fallito — non c'è nulla da aggiornare: `skipped`, non un errore.
- */
-async function sendSlackUpdate(
-  deps: DeliveriesPollerDeps,
-  row: NotificationDelivery,
-  recipient: DeliveryRecipient,
-  client: SlackMessenger,
-): Promise<void> {
-  const { db } = deps;
-  const [sibling] = await db
-    .select({ externalRef: notificationDeliveries.externalRef })
-    .from(notificationDeliveries)
-    .where(
-      and(
-        eq(notificationDeliveries.notificationId, recipient.notificationId),
-        eq(notificationDeliveries.channel, "slack_dm"),
-        eq(notificationDeliveries.status, "sent"),
-        isNotNull(notificationDeliveries.externalRef),
-      ),
-    )
-    .orderBy(desc(notificationDeliveries.sentAt))
-    .limit(1);
-  const target = parseExternalRef(sibling?.externalRef ?? null);
-  if (!target) {
-    // Nessun DM `sent` da riscrivere: due situazioni diverse.
-    //
-    // Se il DM sorella è ancora `pending` siamo semplicemente ARRIVATI PRIMA —
-    // capita di continuo, perché chi accoda l'aggiornamento (l'azione dai
-    // bottoni) e chi accoda il DM sono processi distinti e il claim del poller
-    // non garantisce l'ordine. Lasciare la riga `pending` la fa ritentare dopo
-    // il backoff, quando il DM sarà partito: chiuderla `skipped` lascerebbe
-    // invece per sempre un messaggio con i bottoni di una notifica già decisa.
-    // Il DM che non parte mai (utente scollegato, token revocato) finisce
-    // `failed`/`skipped` e ricade nel ramo sotto, che chiude anche l'update.
-    const [pendingSibling] = await db
-      .select({ id: notificationDeliveries.id })
-      .from(notificationDeliveries)
-      .where(
-        and(
-          eq(notificationDeliveries.notificationId, recipient.notificationId),
-          eq(notificationDeliveries.channel, "slack_dm"),
-          eq(notificationDeliveries.status, "pending"),
-        ),
-      )
-      .limit(1);
-    // CAP DELL'ATTESA: `retryOrFail` non ritenta all'infinito. Con
-    // MAX_ATTEMPTS=5 e backoff 30/60/120/240s la finestra è di ~8 minuti; oltre
-    // quella l'update si chiude `failed` e il DM resta con i bottoni di una
-    // notifica già decisa. Innocuo: chi li preme ottiene `already_handled` (il
-    // servizio inbox riguarda lo stato, non il messaggio), e i bottoni stale
-    // spariscono al prossimo aggiornamento di quel DM.
-    if (pendingSibling) {
-      await retryOrFail(deps, row, "slack_dm_pending");
-      return;
-    }
-    // DM sorella assente o in uno stato terminale senza messaggio: non c'è
-    // nulla da riscrivere, e non lo sarà mai.
-    await finish(db, row.id, "skipped", "no_slack_message");
-    return;
-  }
-
-  const { text } = renderSlack(recipient.event, recipient.kind, recipient.language);
-  const note = noteOf(row.event);
-  // Riga di stato staccata dal testo: il DM resta leggibile come "cos'era" +
-  // "com'è finita".
-  const updatedText = note ? `${text}\n\n${note}` : text;
-  const blocks: SlackBlock[] = buildInboxBlocks({
-    text: updatedText,
-    // Nessuna azione: una notifica già decisa non si ridecide dal messaggio
-    // vecchio (chi ci prova otterrebbe un `already_handled`).
-    actions: [],
-    notificationId: recipient.notificationId,
-    lang: recipient.language,
-  });
-
-  await client.updateMessage({ channel: target.channel, ts: target.ts, text: updatedText, blocks });
-  // L'aggiornamento conserva il riferimento del messaggio riscritto: è utile a
-  // capire, guardando la riga, QUALE messaggio ha toccato.
-  await finish(db, row.id, "sent", null, externalRefOf(target));
-}
-
-/**
- * Nota di stato dal payload della consegna `slack_update`
- * (`{ "note": "✅ Gestita da …" }`). Assente o malformata ⇒ nessuna nota: si
- * rimuovono solo i bottoni. Il payload lo scrive chi accoda l'aggiornamento
- * (Task 10), già localizzato per il destinatario.
- */
-function noteOf(event: Record<string, unknown> | null): string | null {
-  const note = event?.note;
-  return typeof note === "string" && note.trim() !== "" ? note : null;
 }
 
 // --- Canale push (fase 4) -------------------------------------------------
@@ -1114,7 +771,7 @@ export async function processDeliveriesOnce(deps: DeliveriesPollerDeps): Promise
 
   // Contesto del giro: il bot token si carica al massimo una volta (e solo se
   // c'è davvero una consegna Slack da fare).
-  const tick = createTickContext(deps);
+  const tick = createTickContext();
   let processed = 0;
   for (const row of rows) {
     if (deps.signal?.aborted) break;

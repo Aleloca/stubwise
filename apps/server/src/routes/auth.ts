@@ -1,5 +1,5 @@
 import { createHmac, hkdfSync, randomBytes } from "node:crypto";
-import { and, asc, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -19,7 +19,6 @@ import {
   SESSION_COOKIE_OPTIONS,
   sessionIdFromRequest,
   sessionUserSelection,
-  toSessionUser,
 } from "../auth/session.js";
 import type { SessionUserColumns } from "../auth/session.js";
 import { departmentMembers, departments, invites, passwordResetTokens, personalAccessTokens, roles, sessions, users } from "@stubwise/db";
@@ -30,20 +29,15 @@ import {
   inviteProjectSchema,
   languageSchema,
   loginResponseSchema,
-  mobileLoginBodySchema,
   DEVICE_NAME_FORBIDDEN,
-  mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
   inviteLinkSchema,
 } from "@stubwise/shared";
-import { createPatForUser, revokeMobilePats } from "./pat.js";
+import { revokeMobilePats } from "./pat.js";
 import { secondFactorLoginRoutes } from "./second-factor-login.js";
 import { desktopHandoffRoutes } from "./desktop-handoff.js";
 import { hasConfirmedTotp } from "../auth/second-factor/totp.js";
-import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-factor/index.js";
-import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
-import { lockedErrorSchema, rejectAttempt } from "./second-factor-replies.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { applyInviteWorkspaces, assertInviteWorkspaces, inviteWorkspacesOf, saveInviteWorkspaces } from "../services/workspaces.js";
 import {
@@ -65,11 +59,6 @@ import { sendEmailChangeError } from "./me-email-change.js";
 import { personObject, recordChange } from "../services/change-log.js";
 import { inviteObject, inviteParams } from "../services/invite-change.js";
 import { inviteIdOf } from "../services/admin-people.js";
-import {
-  loadSlackCreds,
-  defaultSlackClientFactory,
-  type SlackClientFactory,
-} from "../slack/creds.js";
 
 export interface AuthRoutesOptions {
   /**
@@ -85,13 +74,6 @@ export interface AuthRoutesOptions {
    * credenziali e sta nel bucket condiviso con `/login`.
    */
   rateLimit: RateLimitConfig;
-  /**
-   * Fabbrica del client Slack, per gli inviti originati dal workspace Slack
-   * (POST /invites con slackUserId): email/avatar sono derivati server-side dal
-   * profilo Slack, mai dal client. Default: client reale via fetch globale.
-   * Fake nei test.
-   */
-  slackClientFactory?: SlackClientFactory;
 }
 
 /** Validità di un link di invito: 7 giorni. */
@@ -277,7 +259,6 @@ export async function authRoutes(
   opts: AuthRoutesOptions,
 ): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
-  const slackClientFactory = opts.slackClientFactory ?? defaultSlackClientFactory;
 
   /**
    * UN SOLO limiter, condiviso da `/login` e `/mobile-login`.
@@ -434,81 +415,6 @@ export async function authRoutes(
   // Integrazione area 2: il login del desktop dal browser (stesso bucket).
   desktopHandoffRoutes(instance, credentialsRateLimit);
 
-  /**
-   * Login dell'app mobile: stesse credenziali del web, ma invece di aprire una
-   * sessione a cookie emette un Personal Access Token per QUEL device, che
-   * l'app tiene nel Keychain e manda nell'header `authorization`.
-   *
-   * Un PAT per device, e non uno condiviso, perché è ciò che rende governabile
-   * la revoca: il token si chiama `Mobile · <deviceName>`, l'utente lo
-   * riconosce nella lista dei token e può buttare giù il telefono perso senza
-   * sloggare gli altri — ed è la stessa riga che il logout dell'app revoca da
-   * sé. Nessuna scadenza: la fine di un PAT mobile è la revoca, non il tempo.
-   *
-   * NON crea la sessione a cookie: sarebbe una riga in `sessions` che nessun
-   * client chiuderà mai, per un client che non manda cookie.
-   *
-   * Condivide il bucket di rate limit con `/login` — non «lo stesso limite»,
-   * proprio lo stesso contatore: sono due porte sulle stesse credenziali, e
-   * bucket separati raddoppierebbero i tentativi disponibili a un attaccante.
-   */
-  app.post(
-    "/mobile-login",
-    {
-      onRequest: credentialsRateLimit,
-      config: { access: { kind: "public" }, credentialDoor: true },
-      schema: {
-        body: mobileLoginBodySchema,
-        response: {
-          200: mobileLoginResponseSchema,
-          400: errorSchema,
-          401: errorSchema,
-          403: errorSchema,
-          423: lockedErrorSchema,
-          429: errorSchema,
-        },
-      },
-    },
-    async (request, reply) => {
-      const user = await verifyCredentials(app.db, request.body.email, request.body.password);
-      // Identica, parola per parola, alla 401 di /login: le due rotte non
-      // devono nemmeno distinguersi fra loro.
-      if (!user) {
-        return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
-      }
-      // Il token è una credenziale permanente: senza secondo fattore non se ne
-      // emette. Chi non ha l'app configurata la configura dalla web (l'app
-      // non sa farlo), e non riceve nessun token nel frattempo.
-      if (!(await hasConfirmedTotp(app.db, user.id))) {
-        return apiError(
-          reply,
-          403,
-          "second_factor_setup_required",
-          "Set up the second factor on the web first",
-        );
-      }
-      const { code } = request.body;
-      if (!code) {
-        return apiError(reply, 401, "second_factor_required", "Second factor code required");
-      }
-      // Stesso tetto per account, stesso bucket per IP e stesse risposte del
-      // secondo passo del login web: una porta in più non è un tentativo in più.
-      const attempt = await attemptSecondFactor(app.db, user, () =>
-        verifySecondFactorCode(app.db, app.encryptionKey, user.id, code),
-      );
-      if (!attempt.ok) return rejectAttempt(reply, attempt);
-      await recordSecurityEvent(app.db, { kind: "login", user });
-      const { id: patId, token } = await createPatForUser(
-        app.db,
-        user.id,
-        `Mobile · ${request.body.deviceName}`,
-        null,
-        "mobile",
-      );
-      return reply.code(200).send({ token, patId, user: toSessionUser(user) });
-    },
-  );
-
   // Best effort, senza requireAuth: il logout deve riuscire anche con cookie
   // assente, manomesso o già scaduto. Si elimina la riga solo se il cookie
   // si risolve; in ogni caso si pulisce il cookie e si risponde 204.
@@ -640,15 +546,11 @@ export async function authRoutes(
       // (una sessione rubata o un PAT non coniano un invito privilegiato).
       config: { access: { kind: "instance", permission: "users.invite" }, reauth: true },
       schema: {
-        // slackUserId opzionale: l'invito originato dal picker del workspace
-        // porta con sé l'identità Slack, propagata all'utente alla
-        // registrazione. L'email resta obbligatoria (il picker la precompila).
         // instanceRoleId (assente = `User`) e projects: ruolo d'istanza e
         // progetti che l'invitato riceve all'accettazione, con le regole di
         // chi invita (anti-escalation, `project.members.manage` per progetto).
         body: z.object({
           email: z.email(),
-          slackUserId: z.string().min(1).optional(),
           instanceRoleId: z.uuid().optional(),
           projects: z.array(inviteProjectSchema).max(200).optional(),
           // Workspace (D9): le workspace in cui l'invitato entra (senza ruolo: il Viewer, D3).
@@ -672,27 +574,8 @@ export async function authRoutes(
       },
     },
     async (request, reply) => {
-      const { email, slackUserId, instanceRoleId } = request.body;
+      const { email, instanceRoleId } = request.body;
       const grants = request.body.projects ?? [];
-      // Avatar derivato server-side dal profilo Slack, mai dal client.
-      let slackAvatarUrl: string | null = null;
-      if (slackUserId) {
-        const creds = await loadSlackCreds(instance);
-        if (!creds) {
-          return apiError(
-            reply,
-            400,
-            "slack_not_configured",
-            "Slack integration is not configured",
-          );
-        }
-        const client = slackClientFactory(creds.botToken);
-        const profile = await client.getUserProfile(slackUserId);
-        if (!profile) {
-          return apiError(reply, 400, "slack_user_not_found", "Slack user not found");
-        }
-        slackAvatarUrl = profile.avatarUrl;
-      }
       const token = randomBytes(32).toString("base64url");
       const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
       let warnings: InviteWarning[] = [];
@@ -706,8 +589,6 @@ export async function authRoutes(
             token,
             email,
             expiresAt,
-            slackUserId: slackUserId ?? null,
-            slackAvatarUrl,
             instanceRoleId: roleId,
             invitedByUserId: request.user!.id,
           });
@@ -721,52 +602,6 @@ export async function authRoutes(
         return sendRoleRuleError(reply, error);
       }
       return reply.code(201).send({ id: inviteIdOf(token), token, expiresAt: expiresAt.toISOString(), warnings });
-    },
-  );
-
-  // Inviti ancora in sospeso: una riga in `invites` esiste solo finché il
-  // token non è stato consumato (la register la elimina), quindi la tabella
-  // coincide con la lista degli invitati che non si sono ancora registrati.
-  // Solo admin: il token permette di registrarsi e non va esposto ai member.
-  app.get(
-    "/invites",
-    {
-      config: { mcp: { action: "auth.invites", summary: "Gli inviti emessi, col loro stato.", effect: "read", note: "Il token di ogni invito è nascosto (un link d'invito vale un account): per revocarne uno usa admin.revokeInvite, per id; l'elenco con gli id è admin.invites." }, access: { kind: "instance", permission: "users.invite" } },
-      schema: {
-        response: {
-          200: z.array(
-            z.object({
-              token: z.string(),
-              email: z.email(),
-              expiresAt: z.iso.datetime(),
-              createdAt: z.iso.datetime(),
-              // Identità Slack dell'invito (null se invito email classico),
-              // per mostrare l'avatar nella lista inviti della pagina Team.
-              slackUserId: z.string().nullable(),
-              slackAvatarUrl: z.string().nullable(),
-            }),
-          ),
-          ...authErrorResponses,
-        },
-      },
-    },
-    async () => {
-      const rows = await app.db
-        .select({
-          token: invites.token,
-          email: invites.email,
-          expiresAt: invites.expiresAt,
-          createdAt: invites.createdAt,
-          slackUserId: invites.slackUserId,
-          slackAvatarUrl: invites.slackAvatarUrl,
-        })
-        .from(invites)
-        .orderBy(desc(invites.createdAt));
-      return rows.map((row) => ({
-        ...row,
-        expiresAt: row.expiresAt.toISOString(),
-        createdAt: row.createdAt.toISOString(),
-      }));
     },
   );
 

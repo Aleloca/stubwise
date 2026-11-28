@@ -221,18 +221,6 @@ export async function putInstanceSettings(
     // Le ultime 4, con la chiave (0225, rimandi lotto 5).
     s3Set.s3SecretKeyLast4 = body.s3SecretKey === "" ? null : secretLast4(body.s3SecretKey);
   }
-  // Segreti Slack: stessa semantica della secret S3. Assente → non toccare;
-  // "" → azzera (null); non vuoto → cifra e salva. Mai esposti in lettura.
-  if (body.slackSigningSecret !== undefined) {
-    s3Set.slackSigningSecretEncrypted =
-      body.slackSigningSecret === ""
-        ? null
-        : encrypt(body.slackSigningSecret, key());
-  }
-  if (body.slackBotToken !== undefined) {
-    s3Set.slackBotTokenEncrypted =
-      body.slackBotToken === "" ? null : encrypt(body.slackBotToken, key());
-  }
 
   const reachedBefore = (await aiBudgetState(db)).exhausted;
   await db.transaction(async (tx) => {

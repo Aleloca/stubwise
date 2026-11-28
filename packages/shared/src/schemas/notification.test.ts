@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readerSchema, UNKNOWN } from "../reader.js";
 import {
-  deviceDeletionSchema,
   deviceRegistrationSchema,
   inboxGoogleSchema,
   inboxItemSchema,
@@ -192,24 +191,6 @@ describe("deviceRegistrationSchema", () => {
     expect(deviceRegistrationSchema.safeParse({ ...valido, token: "a".repeat(1025) }).success).toBe(
       false,
     );
-  });
-});
-
-describe("deviceDeletionSchema", () => {
-  it("vuole un token non vuoto", () => {
-    expect(deviceDeletionSchema.safeParse({ token: "tok-1" }).success).toBe(true);
-    expect(deviceDeletionSchema.safeParse({}).success).toBe(false);
-    expect(deviceDeletionSchema.safeParse({ token: "" }).success).toBe(false);
-  });
-
-  it("ha lo STESSO tetto della registrazione", () => {
-    // Se i due tetti divergessero esisterebbe un token registrabile e non
-    // cancellabile: un device impossibile da spegnere dal logout.
-    const oltre = "a".repeat(1025);
-    expect(deviceDeletionSchema.safeParse({ token: oltre }).success).toBe(false);
-    expect(
-      deviceRegistrationSchema.safeParse({ platform: "ios", token: oltre }).success,
-    ).toBe(false);
   });
 });
 

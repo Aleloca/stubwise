@@ -174,14 +174,6 @@ const ROUTES: [string, SensitiveRoute][] = [
     },
   ],
   [
-    "PATCH /api/users/:id/role",
-    {
-      method: "PATCH",
-      url: () => `/api/users/${memberId}/role`,
-      payload: () => ({ role: "member" }),
-    },
-  ],
-  [
     "PATCH /api/users/:id/instance-role",
     {
       method: "PATCH",
@@ -193,15 +185,6 @@ const ROUTES: [string, SensitiveRoute][] = [
     "POST /api/users/:id/password-reset",
     { method: "POST", url: () => `/api/users/${memberId}/password-reset` },
   ],
-  [
-    "PUT /api/users/:id/slack",
-    {
-      method: "PUT",
-      url: () => `/api/users/${memberId}/slack`,
-      payload: () => ({ slackUserId: "U1" }),
-    },
-  ],
-  ["DELETE /api/users/:id/slack", { method: "DELETE", url: () => `/api/users/${memberId}/slack` }],
   [
     "POST /api/users/:id/git-identities",
     {

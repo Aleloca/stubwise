@@ -1,46 +1,20 @@
 /**
- * Cuore RAG condiviso sui Docs di un progetto (M6.5).
- *
- * Questo modulo isola le parti del flusso RAG che NON dipendono dal trasporto
- * (streaming SSE, sessione/persistenza, AbortSignal) così possono essere riusate
- * da più consumatori:
- *  - la chat web ({@link ../routes/docs-chat.ts}) — streaming + history + sessione;
- *  - integrazioni one-shot (es. Slack) — accumulo non-streaming, nessuna history.
+ * Cuore RAG condiviso sui Docs di un progetto (M6.5): le parti del flusso che
+ * NON dipendono dal trasporto (streaming SSE, sessione, AbortSignal).
  *
  * Espone:
  *  - {@link buildDocsSystemPrompt}: il system prompt anti-allucinazione + doppio
  *    registro + obbligo citazioni (UNICA definizione, condivisa);
- *  - {@link buildCitations}: dedup delle citazioni per slug (UNICA definizione);
- *  - {@link answerDocsQuestion}: il flusso RAG completo NON-streaming (retrieval →
- *    prompt → accumulo dello stream LLM → testo + citazioni).
+ *  - {@link buildCitations}: dedup delle citazioni per slug (UNICA definizione).
  *
- * Il retrieval (scope/ranking) resta in {@link ./docs-retrieval.ts}: qui lo si
- * richiama con gli stessi parametri della chat web.
- *
- * PERIMETRO (fase 2b): il retrieval dal knowledge graph è appeso al system
- * prompt SOLO se il chiamante passa le deps `graph` ({@link DocsGraphDeps}).
- * Oggi lo fa il solo consumatore di questo modulo, Slack `/docs` (superficie
- * interna al team). La chat pubblica del widget NON passa da qui — ha il suo
- * prompt in {@link ./widget-chat.ts} — e comunque, senza `graph`, non vedrebbe
- * nulla del codice.
+ * Il consumatore è la chat dei Docs ({@link ./docs-chat.ts}); il retrieval
+ * (scope/ranking) resta in {@link ./docs-retrieval.ts}. La chat pubblica del
+ * widget NON passa da qui: ha il suo prompt in {@link ./widget-chat.ts}.
+ * (Il flusso non-streaming di Slack `/docs` è andato via con R2.)
  */
 
-import type { ChatLlm } from "./chat-llm.js";
 import { escapeUntrusted } from "../services/untrusted.js";
-import { retrieveChunks, retrieveChunksForProject, type RetrievedChunk } from "./docs-retrieval.js";
-import {
-  appendGraphContext,
-  retrieveGraphContext,
-  retrieveGraphContextForProject,
-  type GraphContextDeps,
-} from "../graph-chat/context.js";
-import {
-  appendDecisionContext,
-  retrieveDecisionContext,
-  retrieveDecisionContextForRepository,
-} from "../graph-chat/decisions.js";
-import type { EmbeddingClient } from "@stubwise/embeddings";
-import type { Db } from "@stubwise/db";
+import { type RetrievedChunk } from "./docs-retrieval.js";
 
 /** Citazione restituita alla UI / persistita / postata: riferimento a una pagina doc. */
 export interface Citation {
@@ -51,7 +25,7 @@ export interface Citation {
    * Repository d'origine della pagina citata. Valorizzato sia nella chat per-repo
    * (costante) sia in quella cross-repo di progetto (Fase 2), dove disambigua da
    * QUALE repository proviene la fonte (link "Fonti" col `repositoryId`, nome repo
-   * nella UI/Slack).
+   * nella UI).
    */
   repositoryId: string;
   repositorySlug: string;
@@ -147,166 +121,4 @@ export function buildCitations(chunks: RetrievedChunk[]): Citation[] {
     }
   }
   return [...byKey.values()];
-}
-
-/** Risposta RAG non-streaming: testo accumulato + citazioni. */
-export interface DocsAnswer {
-  text: string;
-  citations: Citation[];
-}
-
-/**
- * Dipendenze del retrieval strutturale dal knowledge graph (fase 2b) per i
- * flussi one-shot: il runtime decorato sull'app (`app.graphChat`) più il logger
- * del chiamante. È il `GraphContextDeps` senza `db`, che arriva dalle deps del
- * flusso RAG.
- *
- * OPZIONALE per costruzione: un chiamante che non lo passa ottiene esattamente
- * la risposta di prima della fase 2b — nessun blocco, nessuna query a graphify.
- * Così una nuova superficie è fail-open (e fuori perimetro) per default, e solo
- * chi è INTERNO lo abilita esplicitamente.
- */
-export type DocsGraphDeps = Omit<GraphContextDeps, "db">;
-
-/**
- * Logger di ripiego per il retrieval delle decisioni quando il chiamante non
- * passa `graph` (che è dove vive il logger delle deps). Le decisioni non
- * dipendono dal grafo, quindi non possono restare senza un posto in cui
- * riportare un fallimento — e inghiottire l'errore in silenzio sarebbe
- * l'unica cosa peggiore di non averlo.
- */
-const SILENT_LOGGER = { debug: () => {} };
-
-/**
- * Flusso RAG completo NON-streaming per una singola domanda one-shot (es. Slack).
- *
- * Stesso cuore della chat web ({@link ../routes/docs-chat.ts}) — stesso retrieval
- * (k = {@link CHAT_RETRIEVAL_K}), stesso system prompt, stesse citazioni — ma:
- *  - NESSUNA history: il `messages` contiene solo la domanda utente (Slack è
- *    one-shot, niente sessione multi-turn);
- *  - NESSUN AbortSignal: la generazione non è interrompibile da un client che si
- *    disconnette (one-shot);
- *  - ACCUMULO dello stream invece dell'inoltro frammento-per-frammento: i delta
- *    del {@link ChatLlm} sono concatenati e restituiti come testo completo.
- */
-export async function answerDocsQuestion(
-  deps: {
-    db: Db;
-    embeddingClient: EmbeddingClient;
-    chatLlm: ChatLlm;
-    /** Retrieval dal grafo (fase 2b). Assente = risposta identica a prima. */
-    graph?: DocsGraphDeps;
-  },
-  input: {
-    repositoryId: string;
-    question: string;
-    /**
-     * Progetto a cui attribuire i consumi della risposta. Opzionale: se il
-     * chiamante non ce l'ha, la riga resta senza progetto (nessuna query in
-     * più solo per questo).
-     */
-    projectId?: string | null;
-  },
-): Promise<DocsAnswer> {
-  // Grafo e pgvector in PARALLELO, come nelle route delle chat: la query al
-  // grafo è più veloce dell'embedding, quindi la latenza resta quella di prima.
-  const [chunks, graphBlock, decisionBlock] = await Promise.all([
-    retrieveChunks(deps.db, deps.embeddingClient, input.repositoryId, input.question, {
-      k: CHAT_RETRIEVAL_K,
-    }),
-    deps.graph
-      ? retrieveGraphContext(
-          { db: deps.db, ...deps.graph },
-          { repositoryId: input.repositoryId, question: input.question },
-        )
-      : null,
-    // Il REGISTRO DECISIONI (fase 5) NON è condizionato a `deps.graph`: non ha
-    // niente a che vedere col grafo (è una query sul nostro DB) e vale anche
-    // sulle istanze che il retrieval strutturale non lo hanno acceso.
-    retrieveDecisionContextForRepository(
-      deps.db,
-      { repositoryId: input.repositoryId, question: input.question },
-      deps.graph?.logger ?? SILENT_LOGGER,
-    ),
-  ]);
-
-  const system = appendDecisionContext(
-    appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock),
-    decisionBlock,
-  );
-  // Niente history: solo la domanda corrente come unico messaggio utente.
-  const messages = [{ role: "user" as const, content: input.question }];
-
-  // Accumula lo stream: Slack non stremma, vuole il testo completo in una volta.
-  let text = "";
-  for await (const delta of deps.chatLlm.stream({
-    system,
-    messages,
-    usage: { operation: "chat", projectId: input.projectId ?? null },
-  })) {
-    text += delta;
-  }
-
-  return { text, citations: buildCitations(chunks) };
-}
-
-/**
- * Flusso RAG completo NON-streaming a livello di PROGETTO (Fase 2).
- *
- * Identica meccanica di {@link answerDocsQuestion} — stesso system prompt, stesse
- * citazioni, accumulo dello stream invece dell'inoltro frammento-per-frammento —
- * ma il retrieval è CROSS-REPO via {@link retrieveChunksForProject}: aggrega i
- * Docs di TUTTI i repository del progetto. Le citazioni includono il repository di
- * origine di ciascuna fonte (campo già presente in {@link Citation}), così il
- * chiamante (es. Slack `/docs` di progetto) può disambiguare/linkare per repo.
- *
- * `k` non è forzato: {@link retrieveChunksForProject} lo dimensiona di default in
- * proporzione al numero di repo documentati (D6).
- */
-export async function answerProjectDocsQuestion(
-  deps: {
-    db: Db;
-    embeddingClient: EmbeddingClient;
-    chatLlm: ChatLlm;
-    /** Retrieval dal grafo (fase 2b). Assente = risposta identica a prima. */
-    graph?: DocsGraphDeps;
-  },
-  input: { projectId: string; question: string },
-): Promise<DocsAnswer> {
-  // Grafo (di tutti i repo del progetto col grafo pronto) e pgvector in
-  // PARALLELO, come nella chat Docs di progetto.
-  const [chunks, graphBlock, decisionBlock] = await Promise.all([
-    retrieveChunksForProject(deps.db, deps.embeddingClient, input.projectId, input.question),
-    deps.graph
-      ? retrieveGraphContextForProject(
-          { db: deps.db, ...deps.graph },
-          { projectId: input.projectId, question: input.question },
-        )
-      : null,
-    // Come sopra: le decisioni non dipendono dal grafo.
-    retrieveDecisionContext(
-      deps.db,
-      { projectId: input.projectId, question: input.question },
-      deps.graph?.logger ?? SILENT_LOGGER,
-    ),
-  ]);
-
-  const system = appendDecisionContext(
-    appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock),
-    decisionBlock,
-  );
-  // Niente history: solo la domanda corrente come unico messaggio utente.
-  const messages = [{ role: "user" as const, content: input.question }];
-
-  // Accumula lo stream: il chiamante one-shot vuole il testo completo in una volta.
-  let text = "";
-  for await (const delta of deps.chatLlm.stream({
-    system,
-    messages,
-    usage: { operation: "chat", projectId: input.projectId },
-  })) {
-    text += delta;
-  }
-
-  return { text, citations: buildCitations(chunks) };
 }

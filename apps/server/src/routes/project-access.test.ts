@@ -10,7 +10,6 @@ import {
   backlogJobs,
   projectBriefs,
   projectDecisions,
-  projectEmailRoutes,
   projectEnvironments,
   projectFollows,
   projects,
@@ -136,15 +135,12 @@ async function seedItem(title: string, requesterId?: string): Promise<string> {
 }
 
 describe("visibilità del progetto: membri sì, follower no", () => {
-  it("un follower NON membro riceve 404 su dettaglio, timeline, decisioni, brief e review", async () => {
+  it("un follower NON membro riceve 404 su dettaglio, decisioni e brief", async () => {
     const briefId = await seedBrief("2026-08-24", "2026-08-30");
     for (const url of [
       `/api/projects/${projectId}`,
-      `/api/projects/${projectId}/timeline`,
       `/api/projects/${projectId}/decisions`,
       `/api/projects/${projectId}/briefs`,
-      `/api/projects/${projectId}/reviews`,
-      `/api/projects/${projectId}/email-routes`,
       `/api/projects/${projectId}/environments`,
       `/api/projects/${projectId}/widgets`,
       `/api/briefs/${briefId}`,
@@ -159,11 +155,8 @@ describe("visibilità del progetto: membri sì, follower no", () => {
     const briefId = await seedBrief("2026-08-17", "2026-08-23");
     for (const url of [
       `/api/projects/${projectId}`,
-      `/api/projects/${projectId}/timeline`,
       `/api/projects/${projectId}/decisions`,
       `/api/projects/${projectId}/briefs`,
-      `/api/projects/${projectId}/reviews`,
-      `/api/projects/${projectId}/email-routes`,
       `/api/projects/${projectId}/environments`,
       `/api/projects/${projectId}/widgets`,
       `/api/briefs/${briefId}`,
@@ -222,17 +215,11 @@ describe("registro decisioni: decisions.record", () => {
 });
 
 describe("impostazioni del progetto: project.settings.manage", () => {
-  it("senza (Developer): PATCH, DELETE, email-routes, brief e PUT dei plugin 403 (il GET in sola lettura), stato invariato", async () => {
+  it("senza (Developer): PATCH, DELETE e PUT dei plugin 403 (il GET in sola lettura), stato invariato", async () => {
     const patch = await call(dev, "PATCH", `/api/projects/${projectId}`, { name: "Rinominato" });
     expect(patch.statusCode).toBe(403);
     const del = await call(dev, "DELETE", `/api/projects/${projectId}`, { confirmCode: "X" });
     expect(del.statusCode).toBe(403);
-    const routes = await call(dev, "PUT", `/api/projects/${projectId}/email-routes`, {
-      routes: [{ kind: "sender_domain", value: "example.com" }],
-    });
-    expect(routes.statusCode).toBe(403);
-    const brief = await call(dev, "POST", `/api/projects/${projectId}/briefs/generate`, {});
-    expect(brief.statusCode).toBe(403);
     // Review di F5: i plugin si LEGGONO da chi vede il progetto, in sola lettura.
     const plugins = await call(dev, "GET", `/api/projects/${projectId}/plugins`);
     expect(plugins.statusCode).toBe(200);
@@ -244,12 +231,6 @@ describe("impostazioni del progetto: project.settings.manage", () => {
     const [row] = await testDb.db.select().from(projects).where(eq(projects.id, projectId));
     expect(row).toBeDefined();
     expect(row!.name).not.toBe("Rinominato");
-    expect(
-      await testDb.db.select().from(projectEmailRoutes).where(eq(projectEmailRoutes.projectId, projectId)),
-    ).toHaveLength(0);
-    expect(
-      await testDb.db.select().from(projectBriefs).where(eq(projectBriefs.status, "queued")),
-    ).toHaveLength(0);
   });
 
   it("con (Project Lead, non admin d'istanza): PATCH e plugin 200", async () => {
@@ -436,7 +417,7 @@ describe("backlog: backlog.view_all, backlog.create, backlog.edit", () => {
     ]);
   });
 
-  it("fondere verso una voce di un progetto invisibile: 404 target_not_found, nessuna scrittura", async () => {
+  it("fondere verso una voce di un progetto invisibile: la stessa risposta di un altro progetto, nessuna scrittura", async () => {
     const { projectId: hidden } = await seedRepository(testDb.db);
     const [target] = await testDb.db
       .insert(backlogItems)
@@ -444,17 +425,20 @@ describe("backlog: backlog.view_all, backlog.create, backlog.edit", () => {
       .returning({ id: backlogItems.id });
     const item = await seedItem("Da fondere", legacy.id);
 
-    const res = await call(dev, "POST", `/api/backlog/${item}/merge`, { targetId: target!.id });
-    expect(res.statusCode).toBe(404);
-    expect((res.json() as { code: string }).code).toBe("target_not_found");
+    // La fusione dell'app (`/api/requests/:id/merge`, la sola dopo R2): una voce
+    // che chi fonde non vede risponde come una di un altro progetto, quindi la
+    // risposta non dice che esiste.
+    const res = await call(dev, "POST", `/api/requests/${item}/merge`, { intoId: target!.id });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_target");
     const [row] = await testDb.db.select().from(backlogItems).where(eq(backlogItems.id, item));
     expect(row!.status).toBe("new");
 
-    // Da membro di entrambi, lo stesso caso è il 400 di sempre.
+    // Da membro di entrambi, lo stesso caso è lo stesso 400.
     await addMember(app, hidden, dev.id, "developer");
-    const cross = await call(dev, "POST", `/api/backlog/${item}/merge`, { targetId: target!.id });
+    const cross = await call(dev, "POST", `/api/requests/${item}/merge`, { intoId: target!.id });
     expect(cross.statusCode).toBe(400);
-    expect((cross.json() as { code: string }).code).toBe("cross_project_merge");
+    expect((cross.json() as { code: string }).code).toBe("invalid_target");
   });
 
   it("lo stato di un job della coda: il proprio sì, non membro 404", async () => {

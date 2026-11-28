@@ -16,7 +16,6 @@ import {
   claudeConversationQuestionSchema,
   claudeProposalViewSchema,
   docBriefResponseSchema,
-  docChatMessageSchema,
   docPageSchema,
   docsChatAnswerSchema,
   productBlockSchema,
@@ -146,8 +145,8 @@ const SECRET_ONCE = new Set([
   "POST /api/automation-sources",
   "POST /api/automation-sources/:id/regenerate",
 ]);
-/** Le rotte dell'app mobile che non servono da Claude Code e sarebbero un vettore (revisione del lotto 6, I2). */
-const APP_ONLY = new Set(["PUT /api/me/devices"]);
+/** Le rotte dell'app mobile che non servono da Claude Code e sarebbero un vettore (revisione del lotto 6, I2). Vuoto da R2: `PUT /api/me/devices`, l'unica, è andata via con le rotte della mobile. */
+const APP_ONLY = new Set<string>([]);
 /**
  * Le rotte che rifiutano il PAT nell'handler (`requireBrowserOrConfirmedDesktop`):
  * dichiarano anche `config.reauth`, così il catalogo non le offre. Elenco
@@ -307,7 +306,6 @@ const UNTRUSTED_SCHEMAS: readonly unknown[] = [
   claudeConversationQuestionSchema,
   claudeProposalViewSchema,
   docBriefResponseSchema,
-  docChatMessageSchema,
   docPageSchema,
   docsChatAnswerSchema,
   productBlockSchema,
@@ -381,8 +379,6 @@ const UNTRUSTED_BY_ACTION: Record<string, string> = {
   "agentSessions.list": "titoli e ultime righe dell'agente",
   "agentSessions.get": "testo dell'agente e di chi gli scrive",
   "agentSessions.events": "messaggi, strumenti ed esiti dell'agente",
-  "widgets.conversations": "messaggi dei clienti del widget",
-  "widgets.conversation": "messaggi dei clienti del widget",
   "tasks.server": "uscite dei comandi e analisi dell'host",
   "tasks.serverFix": "uscite dei comandi dell'host",
   "tasks.serverFixCommands": "uscite dei comandi dell'host",
@@ -617,7 +613,7 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
       "PUT /api/automations/:code/draft",
     ]);
     /** Un campo d'INGRESSO dall'aria segreta che non lo è: il token push di un telefono (dell'app mobile). */
-    const INNOCENT_BODY = new Set(["POST /api/me/devices/delete: token"]);
+    const INNOCENT_BODY = new Set<string>([]);
 
     type Op = { requestBody?: { content?: Record<string, { schema?: unknown }> }; responses?: Record<string, { content?: Record<string, { schema?: unknown }> }> };
     async function specAndRedacted() {

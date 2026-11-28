@@ -3,16 +3,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import {
-  gitIdentities,
-  inviteProjects,
-  invites,
-  passwordResetTokens,
-  projectMembers,
-  projects,
-  roles,
-  users,
-} from "@stubwise/db";
+import { gitIdentities, inviteProjects, invites, passwordResetTokens, projectMembers, projects, roles, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
@@ -553,13 +544,6 @@ describe("ultimo full admin", () => {
     expect(await instanceRoleOf(someone.id)).toBe(managerRole);
   });
 
-  it("la rotta legacy /role passa dalla stessa guardia (codice last_admin)", async () => {
-    const res = await call(admin, "PATCH", `/api/users/${admin.id}/role`, { role: "member" });
-    expect(res.statusCode).toBe(409);
-    expect(res.json()).toMatchObject({ code: "last_admin" });
-    expect(await instanceRoleOf(admin.id)).toBe(adminRoleId);
-  });
-
   it("area 9 (D-2, era R31): chi ha users.manage crea il link di reset anche per un full admin (il rischio accettato) → 201, il token c'è", async () => {
     const res = await call(usersManager, "POST", `/api/users/${admin.id}/password-reset`);
     expect(res.statusCode).toBe(201);
@@ -708,7 +692,8 @@ describe("inviti con ruolo d'istanza e progetti", () => {
     });
     expect(widerInvite.statusCode).toBe(403);
     expect(widerInvite.json()).toMatchObject({ code: "escalation", permission: "settings.manage" });
-    const pending = (await call(admin, "GET", "/api/auth/invites")).json() as { email: string }[];
+    // Gli inviti in sospeso dal DB (la rotta dell'elenco è andata via con R2).
+    const pending = await testDb.db.select({ email: invites.email }).from(invites);
     expect(pending.map((i) => i.email)).not.toEqual(expect.arrayContaining(["nope-1@example.com"]));
     expect(pending.some((i) => i.email.startsWith("nope-"))).toBe(false);
   });
@@ -722,7 +707,8 @@ describe("inviti: ruling R51", () => {
     });
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ code: "escalation", permission: expect.any(String) });
-    const pending = (await call(admin, "GET", "/api/auth/invites")).json() as { email: string }[];
+    // Gli inviti in sospeso dal DB (la rotta dell'elenco è andata via con R2).
+    const pending = await testDb.db.select({ email: invites.email }).from(invites);
     expect(pending.some((i) => i.email === "r51-nope@example.com")).toBe(false);
   });
 

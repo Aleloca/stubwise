@@ -8,18 +8,12 @@ import {
   decisionDraftSchema,
   decisionPatchSchema,
   decisionSourceSchema,
-  emailLabelsSchema,
-  emailRoutesPutSchema,
-  emailRoutesSchema,
-  prReviewSummarySchema,
   projectDecisionSchema,
   projectDetailSchema,
   projectListItemSchema,
   projectPulseSummarySchema,
   projectSchema,
-  projectTimelineKindSchema,
   projectBriefWeeklySchema,
-  projectTimelineSchema,
   updateProjectSchema,
   compareProjectNames,
   needsViewer,
@@ -67,13 +61,7 @@ import {
 } from "./shared.js";
 import { apiError } from "../errors.js";
 import { deleteStoredObjects, storageKeysOfProject } from "../chat/attachments.js";
-import {
-  TIMELINE_MAX_DAYS,
-  buildProjectTimeline,
-  listProjectReviews,
-  resolveTimelineWindow,
-} from "../services/project-timeline.js";
-import { listProjectBriefs, queueBriefRegeneration } from "../services/project-briefs.js";
+import { listProjectBriefs } from "../services/project-briefs.js";
 import {
   createManualDecision,
   listProjectDecisions,
@@ -81,11 +69,6 @@ import {
 } from "../services/project-decisions.js";
 import { recordChange } from "../services/change-log.js";
 import { memberObject } from "../services/roles.js";
-import {
-  listEmailRoutes,
-  listObservedEmailLabels,
-  putEmailRoutes,
-} from "../services/email-routes.js";
 
 /**
  * Tentativi massimi di insert prima di arrendersi sulla generazione dello
@@ -246,7 +229,6 @@ function toPublicProject(row: ProjectRow, pausers: Map<string, string> = new Map
     kind: row.clientName ? "client" : "internal",
   };
 }
-
 
 /**
  * Route dei progetti (gruppi), registrate sotto /api/projects. Lettura per chi
@@ -518,216 +500,6 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   );
 
   /**
-   * LE REGOLE DI ROUTING DELLA POSTA (Fase 6): quali email parlano di questo
-   * progetto — dominio o indirizzo del mittente/destinatario, etichetta Gmail,
-   * parola chiave. Un messaggio che nessuna regola riconosce non viene nemmeno
-   * scaricato dal poller, quindi questa è, di fatto, la superficie che decide
-   * cosa Stubwise legge della posta di chi ha collegato una casella.
-   *
-   * ⚠️ Registrata PRIMA di `/:projectId`, come ogni rotta con suffisso
-   * letterale su questo prefisso (vedi il commento su `/pulse`).
-   *
-   * ACL di LETTURA come timeline, brief e decisioni: chi vede il progetto
-   * (membro o full admin); "non membro" e "inesistente" rispondono entrambi
-   * 404.
-   */
-  app.get(
-    "/:projectId/email-routes",
-    {
-      config: { mcp: { action: "projects.emailRoutes", summary: "Le regole che dicono quali email parlano di un progetto (dominio, indirizzo, etichetta Gmail).", effect: "read" }, access: onProject("member") },
-      schema: {
-        params: idParamsSchema,
-        response: { 200: emailRoutesSchema, 404: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request) => {
-      return { routes: await listEmailRoutes(app.db, request.params.projectId) };
-    },
-  );
-
-  /**
-   * SOSTITUISCE l'insieme completo delle regole (le assenti spariscono), come
-   * il PUT delle abilitazioni dei plugin: la UI ha davanti tutte le regole del
-   * progetto e salva la foto intera.
-   *
-   * `project.settings.manage`: allargare il perimetro di lettura della posta
-   * altrui è una decisione da maintainer, non un'impostazione di comodo.
-   *
-   * ⚠️ Registrata PRIMA di `/:projectId` (vedi il commento su `/pulse`).
-   */
-  app.put(
-    "/:projectId/email-routes",
-    {
-      config: { mcp: { action: "projects.setEmailRoutes", summary: "SOSTITUISCE le regole della posta di un progetto: quelle assenti spariscono.", effect: "destructive", note: "Cambia quali mail di tutti diventano proposte di questo progetto." }, access: onProject("project.settings.manage") },
-      schema: {
-        params: idParamsSchema,
-        body: emailRoutesPutSchema,
-        response: {
-          200: emailRoutesSchema,
-          400: errorSchema,
-          404: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { projectId } = request.params;
-      const result = await putEmailRoutes(app.db, projectId, request.body.routes);
-      if (!result.ok) {
-        // 400 e non una riga salvata in silenzio: un valore che si normalizza a
-        // vuoto ("@", "<>") non filtrerebbe nulla, ma nell'elenco della UI
-        // sembrerebbe una regola attiva.
-        return apiError(
-          reply,
-          400,
-          result.error,
-          `Not a usable routing value: ${JSON.stringify(result.detail)}`,
-        );
-      }
-      return { routes: result.routes };
-    },
-  );
-
-  /**
-   * Le ETICHETTE GMAIL già osservate nella posta delle caselle di chi chiede:
-   * alimentano il picker delle regole `gmail_label`, così una regola si sceglie
-   * da un elenco invece di indovinare il nome esatto di una label.
-   *
-   * Sono le etichette dell'UTENTE, non del progetto (vedi il docblock di
-   * `listObservedEmailLabels`): finché il poller non ha ingerito nulla la
-   * risposta è `[]`, ed è una risposta valida — il picker resta a testo libero.
-   *
-   * ⚠️ Registrata PRIMA di `/:projectId` (vedi il commento su `/pulse`).
-   */
-  app.get(
-    "/:projectId/email-labels",
-    {
-      config: { mcp: { action: "projects.emailLabels", summary: "Le etichette Gmail viste nelle tue caselle, per le regole della posta.", effect: "read" }, access: onProject("member") },
-      schema: {
-        params: idParamsSchema,
-        response: { 200: emailLabelsSchema, 404: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request) => {
-      return { labels: await listObservedEmailLabels(app.db, request.user!.id) };
-    },
-  );
-
-  /**
-   * Le review AI di PR del progetto (Fase 5): la PRIMA lettura di `pr_reviews`
-   * da un'API. Serve alla timeline (verdetto accanto alla PR) e all'app.
-   *
-   * Registrata PRIMA di `GET /:projectId` per coerenza con `/pulse` qui sopra.
-   * Il path ha un suffisso letterale (`/reviews`) e non collide davvero con la
-   * rotta parametrica, ma l'ordine "letterali prima della `:id`" è la regola di
-   * questo file e non si fa un'eccezione per ricordarsi che era innocua.
-   */
-  app.get(
-    "/:projectId/reviews",
-    {
-      // Review di PR: `repos.view` (ruling R49), come le PR stesse.
-      config: { access: onProject("repos.view"), mcp: { action: "projects.reviews", summary: "Le review AI delle PR di un progetto.", effect: "read" } },
-      schema: {
-        params: idParamsSchema,
-        querystring: z.object({
-          limit: z.coerce.number().int().min(1).max(200).optional(),
-        }),
-        response: {
-          200: z.array(prReviewSummarySchema),
-          404: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request) => {
-      return listProjectReviews(app.db, request.params.projectId, request.query.limit ?? 50);
-    },
-  );
-
-  /**
-   * LA TIMELINE DI PROGETTO (Fase 5): ticket, milestone, PR, report, decisioni
-   * e brief fusi in un racconto ordinato. Alimenta la pagina web "Roadmap".
-   *
-   * `from`/`to` sono ISO 8601 e hanno default lato server (ultime 4 settimane);
-   * `kinds` è un elenco separato da virgole per filtrare i tipi di voce. La
-   * finestra non può superare i 180 giorni: sopra è un 400, non una risposta
-   * enorme costruita scandendo lo storico intero.
-   *
-   * ACL: chi vede il progetto (membro o full admin; seguirlo non basta).
-   * "Non membro" e "inesistente" rispondono entrambi 404. Le VOCI seguono poi
-   * i permessi di lettura (ruling R49, vedi `buildProjectTimeline`).
-   */
-  app.get(
-    "/:projectId/timeline",
-    {
-      config: { access: onProject("member"), mcp: { action: "projects.timeline", summary: "La timeline di un progetto: ticket, traguardi, PR, report, decisioni e brief in una finestra di date.", effect: "read" } },
-      schema: {
-        params: idParamsSchema,
-        querystring: z.object({
-          from: z.string().optional(),
-          to: z.string().optional(),
-          kinds: z.string().optional(),
-        }),
-        response: {
-          200: projectTimelineSchema,
-          400: errorSchema,
-          404: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const resolved = resolveTimelineWindow(request.query);
-      if (!resolved.ok) {
-        return apiError(
-          reply,
-          400,
-          resolved.reason,
-          resolved.reason === "window_too_large"
-            ? `The timeline window cannot exceed ${TIMELINE_MAX_DAYS} days`
-            : "Invalid from/to range",
-        );
-      }
-
-      // `kinds` vuoto (`?kinds=`) NON è "nessun tipo": è un parametro che il
-      // client ha mandato senza valore, e la risposta giusta è la timeline
-      // intera, non una lista vuota che sembra un progetto senza storia.
-      let kinds: Set<string> | undefined;
-      if (request.query.kinds !== undefined && request.query.kinds.trim() !== "") {
-        const requested = request.query.kinds.split(",").map((value) => value.trim());
-        const unknown = requested.filter(
-          (value) => !projectTimelineKindSchema.options.includes(value as never),
-        );
-        if (unknown.length > 0) {
-          return apiError(
-            reply,
-            400,
-            "invalid_kinds",
-            `Unknown timeline kinds: ${unknown.join(", ")}`,
-          );
-        }
-        kinds = new Set(requested);
-      }
-
-      // Le voci si filtrano coi permessi di lettura di chi chiede (ruling
-      // R49): ticket altrui, PR, report e brief non passano dalla timeline
-      // a chi non li vedrebbe dalle loro rotte.
-      const entries = await buildProjectTimeline(
-        app.db,
-        request.params.projectId,
-        resolved.window,
-        kinds,
-        { userId: request.user!.id, permissions: routePermissions(request) },
-      );
-      return {
-        from: resolved.window.from.toISOString(),
-        to: resolved.window.to.toISOString(),
-        entries,
-      };
-    },
-  );
-
-  /**
    * I BRIEF SETTIMANALI del progetto (Fase 5), dal più recente.
    *
    * ACL: `tickets.view_all` (ruling R49). Il brief racconta il progetto
@@ -754,51 +526,6 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => {
       return listProjectBriefs(app.db, request.params.projectId, request.query.limit ?? 20);
-    },
-  );
-
-  /**
-   * RIGENERA il brief dell'ultima settimana chiusa: mette la riga in coda, e a
-   * generarla sarà il poller del worker al tick successivo (non aspetta il
-   * giorno d'invio). `project.settings.manage`: è un run AI, e chi lo lancia
-   * spende.
-   *
-   * `force` è richiesto solo se il brief è già `done` — rifare un testo che
-   * qualcuno ha già letto, e che è già stato annunciato in inbox e su Slack, è
-   * una decisione. Un brief `failed` o ancora in coda si rigenera senza.
-   *
-   * 201 se la riga è stata creata, 200 se una esistente è tornata in coda: la
-   * UI distingue "ne parte uno nuovo" da "questo lo rifacciamo".
-   */
-  app.post(
-    "/:projectId/briefs/generate",
-    {
-      config: { access: onProject("project.settings.manage"), mcp: { action: "projects.generateBrief", summary: "Rigenera il brief dell'ultima settimana chiusa (un run AI, lo genera il worker).", effect: "write", note: "Spende budget AI." } },
-      schema: {
-        params: idParamsSchema,
-        body: z.object({ force: z.boolean().optional() }),
-        response: {
-          200: projectBriefWeeklySchema,
-          201: projectBriefWeeklySchema,
-          404: errorSchema,
-          409: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const result = await queueBriefRegeneration(app.db, request.params.projectId, {
-        ...(request.body.force !== undefined ? { force: request.body.force } : {}),
-      });
-      if (!result.ok) {
-        return apiError(
-          reply,
-          409,
-          "brief_already_done",
-          "This week's brief is already generated: pass force to regenerate it",
-        );
-      }
-      return reply.code(result.created ? 201 : 200).send(result.brief);
     },
   );
 

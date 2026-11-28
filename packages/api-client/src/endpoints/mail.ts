@@ -4,7 +4,6 @@ import {
   mailPageSchema,
   mailRejectionsSchema,
   mailReproposeResultSchema,
-  mailSummarySchema,
   mailThreadDetailSchema,
   mailThreadPageSchema,
   mailProposalListSchema,
@@ -26,7 +25,6 @@ import type {
   MailRejections,
   MailReproposeResult,
   MailSource,
-  MailSummary,
   MailThreadDetail,
   MailThreadPage,
   WaitingCustomersResponse,
@@ -335,11 +333,6 @@ export function createMailEndpoints(request: ApiRequest) {
         undefined,
         mailThreadDetailSchema,
       );
-    },
-
-    /** Contatori per il badge di nav e l'intestazione della pagina. */
-    summary(): Promise<Reader<MailSummary>> {
-      return request("GET", "/api/me/mail/summary", undefined, mailSummarySchema);
     },
 
     /**

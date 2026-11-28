@@ -417,27 +417,6 @@ describe("ricerca", () => {
     expect(body.tickets.items.map((t) => t.id)).toEqual([ticketCarolA]);
   });
 
-  it("GET /api/search/docs-semantic: solo i Docs dei progetti con `docs.view`", async () => {
-    const global = (await get(alice, `/api/search/docs-semantic?q=${WORD}`)).json() as {
-      repositoryId: string;
-    }[];
-    expect(global.some((d) => d.repositoryId === repoA)).toBe(true);
-    expect(global.some((d) => d.repositoryId === repoB)).toBe(false);
-
-    const scopedB = await get(alice, `/api/search/docs-semantic?q=${WORD}&repositoryId=${repoB}`);
-    expect(scopedB.statusCode).toBe(200);
-    expect(scopedB.json()).toEqual([]);
-
-    // Senza alcun progetto: niente, non tutta l'istanza.
-    const none = await get({ headers: { cookie: seeded.memberCookie } }, `/api/search/docs-semantic?q=${WORD}`);
-    expect(none.json()).toEqual([]);
-
-    const adminGlobal = (await get(admin(), `/api/search/docs-semantic?q=${WORD}`)).json() as {
-      repositoryId: string;
-    }[];
-    expect(adminGlobal.some((d) => d.repositoryId === repoB)).toBe(true);
-  });
-
   it("cronologia: le voci di un progetto non visibile non si mostrano, ma restano", async () => {
     await testDb.db.insert(searchHistory).values([
       { userId: alice.id, type: "project", entityId: projectA, title: "A", route: "/a" },
@@ -528,17 +507,11 @@ describe("consumi", () => {
     expect(body.totals.costUsd).toBe(1);
     expect(body.byProject.map((p) => p.projectId)).toEqual([projectA]);
 
-    const breakdown = (await get(erin, "/api/ai-usage/breakdown?groupBy=project")).json() as {
-      rows: { key: string | null }[];
-    };
-    expect(breakdown.rows.map((r) => r.key)).toEqual([projectA]);
-
     const adminBody = (await get(admin(), "/api/ai-usage/costs")).json() as Costs;
     expect(adminBody.totals.costUsd).toBe(7);
 
     // Alice (Legacy Member) non ha `project.usage.view` né `usage.view`.
     expect((await get(alice, "/api/ai-usage/costs")).statusCode).toBe(403);
-    expect((await get(alice, "/api/ai-usage/breakdown?groupBy=project")).statusCode).toBe(403);
   });
 });
 

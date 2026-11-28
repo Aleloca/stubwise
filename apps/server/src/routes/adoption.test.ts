@@ -5,7 +5,6 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { buildApp } from "../app.js";
 import {
   aiJobs,
-  comments,
   encrypt,
   gitAccounts,
   prCorrections,
@@ -18,6 +17,8 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb, roleInsert } from "@stubwise/db/testing";
 import { GitHubProvider, type PullRequestInfo } from "@stubwise/git";
 import { addMember, seedUsers, type SeededUsers } from "../test/fixtures.js";
+import { enqueueCorrection } from "@stubwise/notifications";
+import { PROJECT_PERMISSIONS } from "@stubwise/shared";
 
 /**
  * ADOZIONE di una PR aperta da altri (6 ott 2026, piano
@@ -137,21 +138,41 @@ function mockProvider(info: PullRequestInfo | Error = prInfo()) {
   return { getInfo, comment };
 }
 
-function adopt(t: ReviewTicket, cookie: string, payload?: Record<string, unknown>) {
-  return app.inject({
-    method: "POST",
-    url: `/api/tickets/${t.ticketId}/repositories/${t.repositoryId}/adoption`,
-    headers: { cookie },
-    ...(payload ? { payload } : {}),
+/**
+ * Una PR adottata da una PERSONA (l'admin), com'era scritta dall'adozione
+ * finché c'era la sua rotta (tolta con R2): la riga col branch, il «Solo
+ * analisi» tolto e la prima correzione accodata. Le PR già adottate restano, e
+ * quello che segue (correzioni, branch protetto, la vista) vale ancora.
+ */
+async function adopt(t: ReviewTicket): Promise<void> {
+  const adoption = {
+    branch: "feature/login",
+    prUrl: "https://github.com/acme/repo/pull/7",
+    prNumber: 7,
+    prState: "open" as const,
+    adoptedAt: new Date(),
+    adoptedByUserId: users.adminId,
+    adoptionReleasedAt: null,
+    adoptionReleasedByUserId: null,
+  };
+  await testDb.db
+    .insert(ticketRepositories)
+    .values({ ticketId: t.ticketId, repositoryId: t.repositoryId, ...adoption })
+    .onConflictDoUpdate({ target: [ticketRepositories.ticketId, ticketRepositories.repositoryId], set: adoption });
+  await testDb.db
+    .update(prReviews)
+    .set({ analysisOnly: false, analysisOnlyBy: null, analysisOnlyAt: null })
+    .where(eq(prReviews.ticketId, t.ticketId));
+  const enqueued = await enqueueCorrection(testDb.db, {
+    ticketId: t.ticketId,
+    repositoryId: t.repositoryId,
+    prNumber: 7,
+    trigger: "stubwise",
+    requestedByUserId: users.adminId,
+    actorPermissions: new Set(PROJECT_PERMISSIONS),
+    reviewId: t.reviewId,
   });
-}
-
-function release(t: ReviewTicket, cookie: string) {
-  return app.inject({
-    method: "DELETE",
-    url: `/api/tickets/${t.ticketId}/repositories/${t.repositoryId}/adoption`,
-    headers: { cookie },
-  });
+  expect(enqueued.ok).toBe(true);
 }
 
 async function rowOf(t: ReviewTicket) {
@@ -170,13 +191,6 @@ async function jobsOf(t: ReviewTicket) {
   return testDb.db.select().from(aiJobs).where(eq(aiJobs.ticketId, t.ticketId));
 }
 
-async function systemComments(t: ReviewTicket) {
-  return testDb.db
-    .select({ body: comments.body })
-    .from(comments)
-    .where(and(eq(comments.ticketId, t.ticketId), eq(comments.authorType, "system")));
-}
-
 async function detail(t: ReviewTicket, cookie: string) {
   const res = await app.inject({ method: "GET", url: `/api/tickets/${t.ticketId}`, headers: { cookie } });
   expect(res.statusCode).toBe(200);
@@ -187,250 +201,6 @@ async function detail(t: ReviewTicket, cookie: string) {
 }
 
 const codeOf = (res: { json: () => unknown }) => (res.json() as { code: string }).code;
-
-describe("POST …/adoption — chi può", () => {
-  it("un OPERATORE: 403 e niente scritto, nessuna chiamata al provider", async () => {
-    const t = await seedReviewTicket();
-    const { getInfo, comment } = mockProvider();
-
-    const res = await adopt(t, users.memberCookie, { note: "fallo" });
-
-    expect(res.statusCode).toBe(403);
-    expect(await rowOf(t)).toBeUndefined();
-    expect(await correctionsOf(t)).toEqual([]);
-    expect(await jobsOf(t)).toEqual([]);
-    expect(await systemComments(t)).toEqual([]);
-    expect(getInfo).not.toHaveBeenCalled();
-    expect(comment).not.toHaveBeenCalled();
-  });
-
-  it("un MAINTAINER: 202, riga adottata col branch del provider, prima correzione con review e nota, commento sulla PR", async () => {
-    const t = await seedReviewTicket();
-    const { getInfo, comment } = mockProvider();
-
-    const res = await adopt(t, users.adminCookie, { note: "  aggiungi anche il test  " });
-
-    expect(res.statusCode).toBe(202);
-    const { correctionId } = res.json() as { correctionId: string };
-    expect(getInfo).toHaveBeenCalledTimes(1);
-    expect(getInfo.mock.calls[0]![1]).toBe(7);
-
-    const row = await rowOf(t);
-    expect(row).toMatchObject({
-      branch: "feature/login",
-      prNumber: 7,
-      prUrl: "https://github.com/acme/repo/pull/7",
-      prState: "open",
-      adoptedByUserId: users.adminId,
-      adoptionReleasedAt: null,
-    });
-    expect(row!.adoptedAt).not.toBeNull();
-
-    const [correction] = await correctionsOf(t);
-    expect(correction).toMatchObject({
-      id: correctionId,
-      trigger: "stubwise",
-      status: "queued",
-      reviewId: t.reviewId,
-      note: "aggiungi anche il test",
-      requestedByUserId: users.adminId,
-    });
-    const [job] = await jobsOf(t);
-    expect(job).toMatchObject({ correctionId, status: "queued", manualTrigger: true });
-
-    expect((await systemComments(t)).map((c) => c.body).join("\n")).toContain("feature/login");
-    // Il commento sulla PR: UNO, con le credenziali del principale, testo fisso.
-    expect(comment).toHaveBeenCalledTimes(1);
-    const [project, prNumber, body] = comment.mock.calls[0]!;
-    expect(project.credentials.token).toBe(MAIN_TOKEN);
-    expect(prNumber).toBe(7);
-    expect(body).toContain("feature/login");
-    expect(body).toContain("admin@example.com");
-
-    // Il ciclo ora vive sulla voce PR del ticket review.
-    const d = await detail(t, users.adminCookie);
-    expect(d.repositories).toHaveLength(1);
-    expect(d.repositories[0]!.cycle).toMatchObject({ state: "correcting" });
-    expect(d.prAdoption).toMatchObject({ state: "adopted", adoptedBy: "admin@example.com", canManage: true });
-  });
-
-  it("review APPROVATA: adottata, ma nessuna correzione accodata (reviewApproved, correctionId null)", async () => {
-    const t = await seedReviewTicket({ verdict: "approve" });
-    const { comment } = mockProvider();
-
-    const res = await adopt(t, users.adminCookie);
-
-    expect(res.statusCode).toBe(202);
-    expect(res.json()).toEqual({ correctionId: null, reviewApproved: true });
-    expect((await rowOf(t))!.adoptedAt).not.toBeNull();
-    expect(await correctionsOf(t)).toEqual([]);
-    expect(await jobsOf(t)).toEqual([]);
-    // Il commento sulla PR c'è comunque: la PR è affidata.
-    expect(comment).toHaveBeenCalledTimes(1);
-  });
-
-  it("già adottata: 409 already_adopted, nessuna seconda correzione", async () => {
-    const t = await seedReviewTicket();
-    mockProvider();
-    expect((await adopt(t, users.adminCookie)).statusCode).toBe(202);
-
-    const again = await adopt(t, users.adminCookie);
-
-    expect(again.statusCode).toBe(409);
-    expect(codeOf(again)).toBe("already_adopted");
-    expect(await correctionsOf(t)).toHaveLength(1);
-  });
-});
-
-describe("POST …/adoption — quale PR NON si adotta (fail-closed, niente scritto)", () => {
-  it.each([
-    ["fork", prInfo({ fromFork: true }), "pr_from_fork"],
-    // Il nome del branch da solo non dice DOVE sta: un fork cancellato non si adotta.
-    ["fork non verificabile", prInfo({ fromFork: null }), "pr_fork_unverifiable"],
-    // Una PR da fork su `main`: pushare lì sarebbe pushare sul main del repository.
-    ["branch di default", prInfo({ sourceBranch: "main", targetBranch: "develop" }), "base_branch"],
-    ["branch target", prInfo({ sourceBranch: "release", targetBranch: "release" }), "base_branch"],
-    ["branch di Stubwise", prInfo({ sourceBranch: "stubwise/ticket-3" }), "stubwise_pr"],
-    ["PR chiusa", prInfo({ state: "closed" }), "pr_not_open"],
-    ["provider che non risponde", new Error("ECONNRESET"), "pr_unverifiable"],
-  ] as const)("%s → %s", async (_label, info, code) => {
-    const t = await seedReviewTicket();
-    const { comment } = mockProvider(info);
-
-    const res = await adopt(t, users.adminCookie);
-
-    expect(codeOf(res)).toBe(code);
-    expect(res.statusCode).toBeGreaterThanOrEqual(400);
-    expect(await rowOf(t)).toBeUndefined();
-    expect(await correctionsOf(t)).toEqual([]);
-    expect(await jobsOf(t)).toEqual([]);
-    expect(await systemComments(t)).toEqual([]);
-    expect(comment).not.toHaveBeenCalled();
-  });
-
-  it("area 8, F1, S8: il ramo di RILASCIO del repository → base_branch, niente scritto", async () => {
-    const t = await seedReviewTicket();
-    await testDb.db.update(repositories).set({ releaseBranch: "production" }).where(eq(repositories.id, t.repositoryId));
-    const { comment } = mockProvider(prInfo({ sourceBranch: "production", targetBranch: "main" }));
-
-    const res = await adopt(t, users.adminCookie);
-
-    expect(codeOf(res)).toBe("base_branch");
-    expect(await rowOf(t)).toBeUndefined();
-    expect(comment).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["nome esatto", "develop"],
-    ["`*` finale", "release/1.2"],
-  ])("branch PROTETTO sulla repository (%s) → 422 protected_branch, niente scritto", async (_l, branch) => {
-    const t = await seedReviewTicket();
-    await testDb.db
-      .update(repositories)
-      .set({ protectedBranches: ["develop", "release/*"] })
-      .where(eq(repositories.id, t.repositoryId));
-    const { comment } = mockProvider(prInfo({ sourceBranch: branch }));
-
-    const res = await adopt(t, users.adminCookie);
-
-    expect(res.statusCode).toBe(422);
-    expect(codeOf(res)).toBe("protected_branch");
-    expect(await rowOf(t)).toBeUndefined();
-    expect(await correctionsOf(t)).toEqual([]);
-    expect(comment).not.toHaveBeenCalled();
-  });
-
-  it("un ticket che non è `review`: 422 not_review_ticket, nessuna chiamata al provider", async () => {
-    const t = await seedReviewTicket({ type: "bug" });
-    const { getInfo } = mockProvider();
-    const res = await adopt(t, users.adminCookie);
-    expect(res.statusCode).toBe(422);
-    expect(codeOf(res)).toBe("not_review_ticket");
-    expect(getInfo).not.toHaveBeenCalled();
-    expect(await rowOf(t)).toBeUndefined();
-  });
-});
-
-describe("area 8, F1, S8: l'adozione dei client vecchi vale «analisi e correzioni» su quella PR", () => {
-  it("toglie il «Solo analisi» della PR, e la prima correzione parte", async () => {
-    const t = await seedReviewTicket();
-    await testDb.db.update(prReviews).set({ analysisOnly: true, analysisOnlyAt: new Date() }).where(eq(prReviews.ticketId, t.ticketId));
-    mockProvider();
-
-    const res = await adopt(t, users.adminCookie);
-
-    expect(res.statusCode).toBe(202);
-    expect(await testDb.db.select().from(prReviews).where(and(eq(prReviews.ticketId, t.ticketId), eq(prReviews.analysisOnly, true)))).toEqual([]);
-    expect(await correctionsOf(t)).toHaveLength(1);
-    // Adottata da una PERSONA: vale «analisi e correzioni» anche col repository in «solo analisi».
-    expect((await rowOf(t))!.adoptedByUserId).not.toBeNull();
-  });
-});
-
-describe("DELETE …/adoption — «Smetti di correggere»", () => {
-  it("un OPERATORE: 403 e l'adozione resta, la correzione in coda pure", async () => {
-    const t = await seedReviewTicket();
-    mockProvider();
-    await adopt(t, users.adminCookie);
-
-    const res = await release(t, users.memberCookie);
-
-    expect(res.statusCode).toBe(403);
-    expect((await rowOf(t))!.adoptionReleasedAt).toBeNull();
-    expect((await correctionsOf(t))[0]!.status).toBe("queued");
-  });
-
-  it("un MAINTAINER: 204, riga rilasciata, coda annullata (job skipped col motivo), commenti, ciclo spento", async () => {
-    const t = await seedReviewTicket();
-    const { comment } = mockProvider();
-    await adopt(t, users.adminCookie);
-    comment.mockClear();
-
-    const res = await release(t, users.adminCookie);
-
-    expect(res.statusCode).toBe(204);
-    const row = await rowOf(t);
-    expect(row!.adoptionReleasedAt).not.toBeNull();
-    expect(row!.adoptionReleasedByUserId).toBe(users.adminId);
-    expect((await correctionsOf(t))[0]!.status).toBe("cancelled");
-    const [job] = await jobsOf(t);
-    expect(job!.status).toBe("skipped");
-    expect(job!.log).toContain("[correction]");
-    expect(job!.log).not.toMatch(/PR chiusa|PR closed/);
-    expect(await systemComments(t)).toHaveLength(2);
-    expect(comment).toHaveBeenCalledTimes(1);
-
-    const d = await detail(t, users.adminCookie);
-    expect(d.repositories[0]!.cycle).toBeNull();
-    expect(d.prAdoption).toMatchObject({ state: "available" });
-
-    // Nessun «Chiedi modifiche» passa più.
-    const ask = await app.inject({
-      method: "POST",
-      url: `/api/tickets/${t.ticketId}/repositories/${t.repositoryId}/corrections`,
-      headers: { cookie: users.adminCookie },
-    });
-    expect(ask.statusCode).toBe(409);
-    expect(await correctionsOf(t)).toHaveLength(1);
-
-    // Rilasciare di nuovo: 409, niente di nuovo.
-    const again = await release(t, users.adminCookie);
-    expect(again.statusCode).toBe(409);
-    expect(codeOf(again)).toBe("not_adopted");
-  });
-
-  it("si può ri-adottare dopo il rilascio", async () => {
-    const t = await seedReviewTicket();
-    mockProvider();
-    await adopt(t, users.adminCookie);
-    await release(t, users.adminCookie);
-
-    const res = await adopt(t, users.adminCookie);
-
-    expect(res.statusCode).toBe(202);
-    expect((await rowOf(t))!.adoptionReleasedAt).toBeNull();
-  });
-});
 
 describe("GET /api/tickets/:id — prAdoption, derivato col ruolo di chi guarda", () => {
   it("stessi dati, due ruoli: canManage vero solo per il maintainer", async () => {
@@ -481,7 +251,7 @@ describe("GET /api/tickets/:id — prAdoption, derivato col ruolo di chi guarda"
   it("PR adottata poi chiusa o mergiata: mai «adopted» (niente «Smetti» premibile), spenta come PR chiusa", async () => {
     const t = await seedReviewTicket();
     mockProvider();
-    await adopt(t, users.adminCookie);
+    await adopt(t);
     // Anche se l'adozione non fosse stata rilasciata (difesa): la PR non è più aperta.
     await testDb.db
       .update(ticketRepositories)
@@ -504,7 +274,7 @@ describe("POST /api/tickets/:id/run-ai su un ticket review", () => {
   it("niente fix: 409 review_ticket_not_runnable e nessun job (il «Rilancia» di un job.failed)", async () => {
     const t = await seedReviewTicket();
     mockProvider();
-    await adopt(t, users.adminCookie);
+    await adopt(t);
     // La correzione è finita male: il suo job è terminale.
     await testDb.db.update(aiJobs).set({ status: "failed" }).where(eq(aiJobs.ticketId, t.ticketId));
     await testDb.db.update(prCorrections).set({ status: "done" }).where(eq(prCorrections.ticketId, t.ticketId));
@@ -523,7 +293,7 @@ describe("POST /api/tickets/:id/run-ai su un ticket review", () => {
   it("la ripresa di una correzione ferma su una PR ADOTTATA: un member riceve 403 e niente cambia", async () => {
     const t = await seedReviewTicket();
     mockProvider();
-    await adopt(t, users.adminCookie);
+    await adopt(t);
     await testDb.db
       .update(aiJobs)
       .set({ status: "held", heldReason: "limit" })
@@ -548,7 +318,7 @@ describe("POST /api/tickets/:id/run-ai su un ticket review", () => {
   it("la ripresa della correzione FERMA invece passa", async () => {
     const t = await seedReviewTicket();
     mockProvider();
-    await adopt(t, users.adminCookie);
+    await adopt(t);
     await testDb.db
       .update(aiJobs)
       .set({ status: "held", heldReason: "budget" })
@@ -579,7 +349,7 @@ describe("PR adottata col branch diventato PROTETTO: rifiuto subito, niente scri
   it("«Chiedi modifiche» di un admin: 409 adopted_branch_protected, nessuna riga nuova; il ciclo lo dice", async () => {
     const t = await seedReviewTicket();
     mockProvider();
-    await adopt(t, users.adminCookie);
+    await adopt(t);
     await testDb.db.update(aiJobs).set({ status: "failed" }).where(eq(aiJobs.ticketId, t.ticketId));
     await testDb.db.update(prCorrections).set({ status: "done" }).where(eq(prCorrections.ticketId, t.ticketId));
     await protectAdoptedBranch(t);
@@ -604,7 +374,7 @@ describe("PR adottata col branch diventato PROTETTO: rifiuto subito, niente scri
   it("senza protezione lo stesso click passa (verso opposto)", async () => {
     const t = await seedReviewTicket();
     mockProvider();
-    await adopt(t, users.adminCookie);
+    await adopt(t);
     await testDb.db.update(aiJobs).set({ status: "failed" }).where(eq(aiJobs.ticketId, t.ticketId));
     await testDb.db.update(prCorrections).set({ status: "done" }).where(eq(prCorrections.ticketId, t.ticketId));
 
@@ -621,7 +391,7 @@ describe("PR adottata col branch diventato PROTETTO: rifiuto subito, niente scri
   it("ripresa di una correzione ferma: 409 adopted_branch_protected anche per un admin, il job resta held", async () => {
     const t = await seedReviewTicket();
     mockProvider();
-    await adopt(t, users.adminCookie);
+    await adopt(t);
     await testDb.db
       .update(aiJobs)
       .set({ status: "held", heldReason: "limit" })

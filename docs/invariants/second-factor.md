@@ -23,7 +23,7 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   `second_factor_done`. `route-access.test.ts` elenca le rotte raggiungibili
   da una sessione parziale: aggiungerne una è una decisione visibile nel diff.
 - **Ogni porta che dà una sessione o un token passa dal secondo fattore:
-  `/login`, `/mobile-login`, `/desktop-exchange`; una porta nuova va
+  `/login`, `/desktop-exchange` (`/mobile-login` è andata via con R2); una porta nuova va
   aggiunta qui e al test.** La porta si DICHIARA (`config.credentialDoor`)
   e `route-access.test.ts` ne fissa l'elenco chiuso. `/desktop-reauth` (10
   nov 2026) NON è una porta: verifica un codice e non dà né sessione né token
@@ -57,8 +57,8 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   produttore delle proposte, esecuzione e classe nello stesso posto, e il token
   resta incapace di scrivere fuori da quella rotta (il test di registro
   pretende quella voce e nessun'altra). Ogni altra rotta, anche GET, 403
-  `chat_tool_forbidden`, e quindi niente riconferma, PAT, handoff o
-  mobile-login; nessuna `sessionId`,
+  `chat_tool_forbidden`, e quindi niente riconferma, PAT o handoff;
+  nessuna `sessionId`,
   quindi `applyReauth` non lo soddisfa mai; vale solo finché la sua
   conversazione esiste, è dell'utente del token e non è archiviata (un token
   caduto è 401 e non ricade sul cookie). Mai nei log, nel prompt o negli
@@ -77,7 +77,7 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   UPDATE guardato (`used_at is null and expires_at > now()`), PRIMA di
   confrontare `sha256(verifier)` col challenge — un verifier sbagliato lo
   brucia — e rilascia un PAT `kind = 'desktop'` («Desktop · <nome>»). Nel
-  registro di sicurezza scrive `login`, come `/mobile-login`; nessun
+  registro di sicurezza scrive `login`, come `/login`; nessun
   `security.alert` (non ne esiste uno per il primo login di un dispositivo).
 - **Limite accettato dello schema `stubwise://` (RFC 8252).** Uno schema
   custom non è legato all'app che lo registra: chi costruisce un link
@@ -111,7 +111,7 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   un'app confermata senza codici di riserva.
 - **Ogni verifica di un codice o di una passkey passa da UN helper,
   `attemptSecondFactor(db, user, verify)`.** Login (verifica e conferma
-  dell'iscrizione), login con passkey, riconferma e `/mobile-login` non
+  dell'iscrizione), login con passkey e riconferma non
   rifanno il conto dei fallimenti da sé: l'helper prenota il tentativo
   (`reserveAttempt`/`settleFailure`/`settleSuccess` in `lockout.ts`),
   esegue `verify` e restituisce `ok | wrong | busy | locked`. Mappa HTTP:

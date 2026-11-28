@@ -9,7 +9,7 @@ import {
 import type { Reader, ServerAnalysisView, ServerCommandView, ServerFixView, ServerSshAccessView, ServerTaskView } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
-import { seg, toQuery } from "../query.js";
+import { seg } from "../query.js";
 
 const analysesSchema = z.object({ analyses: z.array(serverAnalysisViewSchema) });
 const operationsSchema = z.object({ commands: z.array(serverCommandViewSchema) });
@@ -37,10 +37,6 @@ export function createServerOpsEndpoints(request: ApiRequest) {
     },
     startAnalysis(serverId: string): Promise<Reader<ServerAnalysisView>> {
       return request("POST", `${server(serverId)}/analyses`, undefined, serverAnalysisViewSchema);
-    },
-    /** Il registro, nella busta `{ commands }`. */
-    operations(serverId: string, page: { before?: string; limit?: number } = {}): Promise<Reader<{ commands: ServerCommandView[] }>> {
-      return request("GET", `${server(serverId)}/operations${toQuery(page)}`, undefined, operationsSchema);
     },
     /** La chiave pubblica d'istanza per il comando d'installazione con le operazioni (`monitor.manage`). */
     commandKey(): Promise<Reader<{ publicKey: string }>> {

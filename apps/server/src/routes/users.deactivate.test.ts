@@ -6,8 +6,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { instancePermissionsOfUser, projectPermissionsOfUser } from "@stubwise/notifications";
-import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js";
-import { resolveSlackActor } from "../slack/inbox-actions.js";
+import { resolveReporter } from "../ingest/reporter.js";
 import { hashPassword } from "../auth/password.js";
 import { generatePat, hashServerKey } from "./shared.js";
 import { addMember, fullSessionCookie, seedUsers } from "../test/fixtures.js";
@@ -164,23 +163,16 @@ describe("disattivare una persona", () => {
 });
 
 describe("le porte LATERALI di una persona disattivata (review di F1, I1)", () => {
-  it("Slack (per id collegato o per email), l'attribuzione dei ticket esterni e i permessi per conto di un id: tutto come se non ci fosse", async () => {
+  it("l'attribuzione dei ticket esterni e i permessi per conto di un id: tutto come se non ci fosse", async () => {
     const { projectId } = await seedRepository(db);
     const p = await person();
     await addMember(app, projectId, p.id, "project_lead");
     // Un secondo gestore attivo: sennò l'ultimo gestore non si disattiva (m4).
     await addMember(app, projectId, (await person()).id, "project_lead");
-    const slackId = `U${randomUUID().slice(0, 8).toUpperCase()}`;
-    await db.update(users).set({ slackUserId: slackId }).where(eq(users.id, p.id));
-    const profile = { getUserProfile: async () => ({ email: p.email }) };
     // Prima: c'è.
-    expect((await resolveSlackActor(db, profile, slackId))?.id).toBe(p.id);
     expect((await projectPermissionsOfUser(db, p.id, projectId))?.has("plans.approve")).toBe(true);
     expect((await deactivate(p.id)).statusCode).toBe(204);
     // Dopo: da nessuna di queste strade.
-    expect(await resolveSlackActor(db, profile, slackId)).toBeNull();
-    expect(await resolveSlackActor(db, profile, "U-NON-COLLEGATO")).toBeNull();
-    expect(await resolveReporterBySlackId(db, slackId)).toBeNull();
     expect(await resolveReporter(db, p.email)).toBeNull();
     expect(await projectPermissionsOfUser(db, p.id, projectId)).toBeNull();
     expect((await instancePermissionsOfUser(db, p.id)).size).toBe(0);

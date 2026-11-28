@@ -280,40 +280,12 @@ describe("publishNotification", () => {
     expect(rows.map((row) => row.userId).sort()).toEqual([adminId, followerId, outsiderId].sort());
   });
 
-  it("crea una slack_dm solo per chi ha un'identità Slack, legata alla SUA notifica", async () => {
-    const { projectId, ticketId, adminId } = await seedScenario();
+  it("non crea più nessuna slack_dm, nemmeno per chi ha un'identità Slack (R2)", async () => {
+    const { projectId, ticketId } = await seedScenario();
 
     await publishNotification(db, prOpened, { projectId, ticketId });
 
-    const deliveries = await db.select().from(notificationDeliveries);
-    expect(deliveries).toHaveLength(1);
-    const [delivery] = deliveries;
-    expect(delivery?.channel).toBe("slack_dm");
-    expect(delivery?.status).toBe("pending");
-    expect(delivery?.attempts).toBe(0);
-    expect(delivery?.event).toBeNull();
-    const adminNotification = await db
-      .select()
-      .from(notifications)
-      .where(eq(notifications.userId, adminId));
-    expect(delivery?.notificationId).toBe(adminNotification[0]?.id);
-  });
-
-  it("non crea la slack_dm per l'admin che ha disattivato i DM", async () => {
-    const { projectId, ticketId } = await seedTicket(db);
-    await seedUser({
-      role: "admin",
-      slackUserId: `U${randomUUID().slice(0, 8)}`,
-      notifySlackDm: false,
-    });
-
-    const result = await publishNotification(db, prOpened, { projectId, ticketId });
-
-    expect(result.published).toBe(1);
-    // Gli id delle righe scritte escono dalla publish (18 set 2026): uno per
-    // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
-    expect(result.notificationIds).toHaveLength(1);
-    expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+    expect(await db.select().from(notificationDeliveries)).toEqual([]);
   });
 
   it("crea una push per chi ha un device attivo, legata alla SUA notifica", async () => {
@@ -391,9 +363,9 @@ describe("publishNotification", () => {
     // destinatario. È ciò che evita a chi le ha scritte di ritrovarle cercandole.
     expect(result.notificationIds).toHaveLength(1);
     const deliveries = await db.select().from(notificationDeliveries);
-    // Una push (non due: il ventaglio sui token è del poller) e il DM Slack,
-    // che il ramo push non deve aver mangiato.
-    expect(deliveries.map((row) => row.channel).sort()).toEqual(["push", "slack_dm"]);
+    // Una push (non due: il ventaglio sui token è del poller); il DM Slack non
+    // c'è più (R2).
+    expect(deliveries.map((row) => row.channel).sort()).toEqual(["push"]);
   });
 
   it("la push va solo al destinatario che ha il device, non a chi ne è senza", async () => {
@@ -500,11 +472,10 @@ describe("publishNotification", () => {
       expect(row.event).toEqual(awaitingInput);
       expect(row.jobId).toBe(job.id);
     }
-    // Outbox: il DM Slack del solo admin (l'unico con identità Slack) e la
-    // consegna del webhook che ha scelto `job.awaiting_input`.
+    // Outbox: la consegna del webhook che ha scelto `job.awaiting_input` (i DM
+    // Slack non ci sono più, R2).
     const deliveries = await db.select().from(notificationDeliveries);
-    const slackDm = deliveries.filter((row) => row.channel === "slack_dm");
-    expect(slackDm).toHaveLength(1);
+    expect(deliveries.filter((row) => row.channel === "slack_dm")).toEqual([]);
     expect(deliveries.filter((row) => row.channel === "webhook")).toHaveLength(1);
   });
 
@@ -683,7 +654,7 @@ describe("publishNotification", () => {
       expect(await db.select().from(notifications)).toHaveLength(0);
     });
 
-    it("con notifyPush=false e notifySlackDm=false le consegne push e slack_dm vengono comunque scritte", async () => {
+    it("con notifyPush=false la consegna push viene comunque scritta (e nessun DM Slack, R2)", async () => {
       const userId = await seedUser({
         role: "member",
         slackUserId: `U${randomUUID().slice(0, 8)}`,
@@ -696,7 +667,7 @@ describe("publishNotification", () => {
 
       const [row] = await db.select().from(notifications);
       const deliveries = await db.select().from(notificationDeliveries);
-      expect(deliveries.map((d) => d.channel).sort()).toEqual(["push", "slack_dm"]);
+      expect(deliveries.map((d) => d.channel).sort()).toEqual(["push"]);
       expect(deliveries.every((d) => d.notificationId === row?.id)).toBe(true);
     });
 

@@ -93,19 +93,6 @@ describe("utente User: scritture d'istanza respinte, stato invariato", () => {
     expect(await testDb.db.select().from(invites)).toHaveLength(before);
   });
 
-  it("PATCH /api/users/:id/role → 403 e ruolo invariato", async () => {
-    const [admin] = await testDb.db.select().from(users).where(eq(users.email, "admin@example.com"));
-    const res = await app.inject({
-      method: "PATCH",
-      url: `/api/users/${admin!.id}/role`,
-      headers: { cookie: memberCookie },
-      payload: { role: "member" },
-    });
-    expect(res.statusCode).toBe(403);
-    const [after] = await testDb.db.select().from(users).where(eq(users.id, admin!.id));
-    expect(after!.role).toBe("admin");
-  });
-
   it("PUT /api/settings/instance → 403", async () => {
     const res = await app.inject({
       method: "PUT",
@@ -136,7 +123,6 @@ describe("utente User: scritture d'istanza respinte, stato invariato", () => {
     ["GET", "/api/settings/models"],
     ["GET", "/api/ai-usage/costs"],
     ["GET", "/api/ai-usage/snapshots"],
-    ["GET", "/api/auth/invites"],
     ["POST", "/api/activity/generate"],
   ] as const)("%s %s → 403", async (method, url) => {
     const res = await app.inject({ method, url, headers: { cookie: memberCookie }, payload: method === "POST" ? { date: "2026-01-01" } : undefined });
@@ -147,7 +133,6 @@ describe("utente User: scritture d'istanza respinte, stato invariato", () => {
 describe("utente User: ciò che leggeva resta leggibile", () => {
   it.each([
     "/api/git-accounts",
-    "/api/settings/mail-admission",
     "/api/servers",
     "/api/users",
     "/api/auth/me",
@@ -223,20 +208,6 @@ describe("utente User: altre scritture d'istanza respinte, stato invariato", () 
     expect(u!.bitbucketUsername).toBeNull();
   });
 
-  it("slack identity: PUT users/:id/slack e GET workspace-users → 403, utente non linkato", async () => {
-    const put = await app.inject({
-      method: "PUT",
-      url: `/api/users/${memberId}/slack`,
-      headers: { cookie: memberCookie },
-      payload: { slackUserId: "U123" },
-    });
-    expect(put.statusCode).toBe(403);
-    const get = await app.inject({ method: "GET", url: "/api/slack/workspace-users", headers: { cookie: memberCookie } });
-    expect(get.statusCode).toBe(403);
-    const [u] = await testDb.db.select().from(users).where(eq(users.id, memberId));
-    expect(u!.slackUserId).toBeNull();
-  });
-
   it("servers-checks: POST/PUT/DELETE check → 403, nessun check", async () => {
     const [srv] = await testDb.db.insert(servers).values({ name: "per-check", keyHash: "hc" }).returning();
     const post = await app.inject({
@@ -294,8 +265,11 @@ describe("permessi granulari d'istanza", () => {
     await testDb.db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, invUserId));
     const cookie = await fullSessionCookie(app, invUserId);
 
-    const ok = await app.inject({ method: "GET", url: "/api/auth/invites", headers: { cookie } });
-    expect(ok.statusCode).toBe(200);
+    // Passa il controllo d'accesso dell'invito: a fermarlo è la regola
+    // anti-escalation (il preset User ha più di ciò che ha lui), non il permesso.
+    // (Prima lo si provava sull'elenco degli inviti, tolto con R2.)
+    const ok = await app.inject({ method: "POST", url: "/api/auth/invites", headers: { cookie }, payload: { email: "inv2@example.com" } });
+    expect((ok.json() as { code: string }).code).toBe("escalation");
     const denied = await app.inject({
       method: "POST",
       url: `/api/users/${memberId}/password-reset`,

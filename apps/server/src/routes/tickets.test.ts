@@ -1512,130 +1512,6 @@ describe("effort nella risposta del ticket", () => {
   });
 });
 
-describe("GET /api/tickets/:id/activity", () => {
-  interface ActivityItem {
-    kind: string;
-    id: string;
-    createdAt: string;
-    // comment
-    authorType?: string;
-    authorId?: string | null;
-    body?: string;
-    // event
-    eventKind?: string;
-    actorId?: string | null;
-    payload?: Record<string, unknown> | null;
-    // ai_job
-    status?: string;
-    prUrl?: string | null;
-    finishedAt?: string | null;
-  }
-
-  function getActivity(id: string, cookie = users.memberCookie) {
-    return app.inject({
-      method: "GET",
-      url: `/api/tickets/${id}/activity`,
-      headers: { cookie },
-    });
-  }
-
-  it("fonde commenti, eventi e job in un unico array ordinato per createdAt", async () => {
-    const created = (await postTicket({ projectId, title: "Feed", type: "bug" })).json() as {
-      id: string;
-    };
-    const ticketId = created.id;
-    // Timestamp espliciti e distinti per asserire l'ordine cronologico.
-    const t = (offsetMs: number) => new Date(Date.UTC(2026, 0, 1, 12, 0, 0) + offsetMs);
-
-    // Inserimento volutamente fuori ordine: il merge+sort deve riordinare.
-    const [job] = await testDb.db
-      .insert(aiJobs)
-      .values({
-        ticketId,
-        status: "pr_opened",
-        prUrl: "https://github.com/acme/repo/pull/7",
-        createdAt: t(3000),
-        finishedAt: t(4000),
-      })
-      .returning();
-    const [comment2] = await testDb.db
-      .insert(comments)
-      .values({ ticketId, authorType: "user", authorId: users.memberId, body: "Secondo", createdAt: t(2000) })
-      .returning();
-    const [event] = await testDb.db
-      .insert(ticketEvents)
-      .values({
-        ticketId,
-        actorId: users.adminId,
-        kind: "status_changed",
-        payload: { from: "open", to: "in_progress" },
-        createdAt: t(1000),
-      })
-      .returning();
-    const [comment1] = await testDb.db
-      .insert(comments)
-      .values({ ticketId, authorType: "ai", authorId: null, body: "Primo", createdAt: t(0) })
-      .returning();
-
-    const res = await getActivity(ticketId);
-    expect(res.statusCode).toBe(200);
-    const items = res.json() as ActivityItem[];
-    expect(items).toHaveLength(4);
-
-    // Ordine cronologico: comment1(0) → event(1000) → comment2(2000) → job(3000).
-    expect(items.map((i) => [i.kind, i.id])).toEqual([
-      ["comment", comment1!.id],
-      ["event", event!.id],
-      ["comment", comment2!.id],
-      ["ai_job", job!.id],
-    ]);
-
-    const [c1, ev, c2, j] = items;
-    expect(c1).toMatchObject({ kind: "comment", authorType: "ai", authorId: null, body: "Primo" });
-    expect(ev).toMatchObject({
-      kind: "event",
-      eventKind: "status_changed",
-      actorId: users.adminId,
-      payload: { from: "open", to: "in_progress" },
-    });
-    // Il discriminante `kind` vale "event" e NON è stato sovrascritto dalla colonna
-    // `kind` della tabella ticketEvents (che vale "status_changed", esposta come `eventKind`).
-    expect(ev!.kind).toBe("event");
-    expect(ev).not.toHaveProperty("kind", "status_changed");
-    expect(c2).toMatchObject({ kind: "comment", authorType: "user", authorId: users.memberId, body: "Secondo" });
-    expect(j).toMatchObject({
-      kind: "ai_job",
-      status: "pr_opened",
-      prUrl: "https://github.com/acme/repo/pull/7",
-      finishedAt: expect.any(String),
-    });
-    // Il marker del job non porta i log/consumi.
-    expect(j).not.toHaveProperty("log");
-  });
-
-  it("ticket senza attività: array vuoto", async () => {
-    const created = (await postTicket({ projectId, title: "Feed vuoto", type: "task" })).json() as {
-      id: string;
-    };
-    const res = await getActivity(created.id);
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual([]);
-  });
-
-  it("ticket inesistente: 404", async () => {
-    const res = await getActivity(randomUUID());
-    expect(res.statusCode).toBe(404);
-  });
-
-  it("senza sessione: 401", async () => {
-    const created = (await postTicket({ projectId, title: "Feed 401", type: "bug" })).json() as {
-      id: string;
-    };
-    const res = await app.inject({ method: "GET", url: `/api/tickets/${created.id}/activity` });
-    expect(res.statusCode).toBe(401);
-  });
-});
-
 describe("POST /api/tickets/:id/run-ai", () => {
   it("ticket inesistente: 404", async () => {
     const res = await app.inject({
@@ -2565,7 +2441,7 @@ describe("POST /api/tickets/:id/approve-plan", () => {
   // La pagina ticket è la superficie più probabile per un maintainer, ed è
   // quella che NON passa da `executeAction`: se la propagazione vivesse solo lì,
   // decidere da qui lascerebbe le copie aperte e i DM Slack coi bottoni.
-  it("chiude le copie job.plan_review di tutti i destinatari e ne accoda l'aggiornamento Slack", async () => {
+  it("chiude le copie job.plan_review di tutti i destinatari, senza aggiornamenti Slack (R2)", async () => {
     const created = (
       await postTicket({ projectId, title: "Approve propaga", type: "bug" })
     ).json() as { id: string };
@@ -2610,7 +2486,8 @@ describe("POST /api/tickets/:id/approve-plan", () => {
           inArray(notificationDeliveries.notificationId, [mine!.id, theirs!.id]),
         ),
       );
-    expect(updates.map((u) => u.notificationId).sort()).toEqual([mine!.id, theirs!.id].sort());
+    // Il rispecchiamento sui DM Slack non c'è più (R2): nessun aggiornamento in coda.
+    expect(updates).toEqual([]);
   });
 });
 
@@ -3303,143 +3180,6 @@ describe("GET /api/tickets/:id — riassunto in breve del piano", () => {
   });
 });
 
-describe("GET /api/tickets/:id/questions", () => {
-  interface QuestionBody {
-    // `questionId` e `recommendedIndex` OPZIONALE: è la stessa forma che la card
-    // d'inbox riceve (`inboxQuestionSchema`), così il pannello di risposta
-    // consuma le due superfici senza normalizzare nulla.
-    questionId: string;
-    jobId: string;
-    round: number;
-    question: string;
-    options: { label: string; consequence?: string }[];
-    recommendedIndex?: number;
-    allowFreeText: boolean;
-    askedAt: string;
-    answer: { optionIndex?: number; text?: string } | null;
-    answeredAt: string | null;
-    answeredBy: { id: string; email: string } | null;
-  }
-
-  function getQuestions(id: string, cookie = users.memberCookie) {
-    return app.inject({ method: "GET", url: `/api/tickets/${id}/questions`, headers: { cookie } });
-  }
-
-  it("401 senza sessione, 404 su un ticket inesistente", async () => {
-    const anon = await app.inject({
-      method: "GET",
-      url: `/api/tickets/${randomUUID()}/questions`,
-    });
-    expect(anon.statusCode).toBe(401);
-    const missing = await getQuestions(randomUUID());
-    expect(missing.statusCode).toBe(404);
-  });
-
-  it("lista vuota su un ticket senza domande", async () => {
-    const created = (await postTicket({ projectId, title: "Senza Q&A", type: "bug" })).json() as {
-      id: string;
-    };
-    const res = await getQuestions(created.id);
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual([]);
-  });
-
-  it("elenca le Q&A in ordine, con l'email di chi ha risposto", async () => {
-    const created = (await postTicket({ projectId, title: "Con Q&A", type: "bug" })).json() as {
-      id: string;
-    };
-    const ticketId = created.id;
-    const [job] = await testDb.db
-      .insert(aiJobs)
-      .values({ ticketId, status: "awaiting_input" })
-      .returning({ id: aiJobs.id });
-    const at = (offsetMs: number) => new Date(Date.UTC(2026, 0, 1, 12, 0, 0) + offsetMs);
-
-    // Inserite fuori ordine: la rotta le riordina per askedAt.
-    await testDb.db.insert(agentQuestions).values([
-      {
-        jobId: job!.id,
-        ticketId,
-        round: 2,
-        question: "E il TTL?",
-        options: [{ label: "Un'ora" }, { label: "Un giorno" }],
-        allowFreeText: false,
-        askedAt: at(2000),
-      },
-      {
-        jobId: job!.id,
-        ticketId,
-        round: 1,
-        question: "Quali colonne?",
-        options: [{ label: "Vecchie", consequence: "Nessuna migrazione" }, { label: "Nuove" }],
-        recommendedIndex: 0,
-        askedAt: at(1000),
-        answer: { optionIndex: 0 },
-        answeredAt: at(1500),
-        answeredByUserId: users.adminId,
-      },
-    ]);
-
-    const res = await getQuestions(ticketId);
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as QuestionBody[];
-    expect(body.map((q) => q.round)).toEqual([1, 2]);
-
-    expect(body[0]).toMatchObject({
-      questionId: expect.any(String),
-      jobId: job!.id,
-      question: "Quali colonne?",
-      options: [{ label: "Vecchie", consequence: "Nessuna migrazione" }, { label: "Nuove" }],
-      recommendedIndex: 0,
-      allowFreeText: true,
-      answer: { optionIndex: 0 },
-      answeredBy: { id: users.adminId, email: "admin@example.com" },
-    });
-    expect(body[0]!.answeredAt).not.toBeNull();
-
-    // La domanda ancora aperta: nessuna risposta, nessun autore. Senza
-    // raccomandata il campo è OMESSO, non `null`: la colonna è nullable, il
-    // contratto no.
-    expect(body[1]).toMatchObject({
-      round: 2,
-      allowFreeText: false,
-      answer: null,
-      answeredAt: null,
-      answeredBy: null,
-    });
-    expect(body[1]).not.toHaveProperty("recommendedIndex");
-  });
-
-  it("una risposta illeggibile non fa fallire la lista", async () => {
-    const created = (await postTicket({ projectId, title: "Q&A marcia", type: "bug" })).json() as {
-      id: string;
-    };
-    const ticketId = created.id;
-    const [job] = await testDb.db
-      .insert(aiJobs)
-      .values({ ticketId, status: "queued" })
-      .returning({ id: aiJobs.id });
-    await testDb.db.insert(agentQuestions).values({
-      jobId: job!.id,
-      ticketId,
-      round: 1,
-      question: "Domanda storica",
-      options: [{ label: "A" }, { label: "B" }],
-      // Forma di una versione precedente: non è né `{optionIndex}` né `{text}`.
-      answer: { choice: "A" } as unknown as { text: string },
-      answeredAt: new Date(),
-    });
-
-    const res = await getQuestions(ticketId);
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as QuestionBody[];
-    expect(body).toHaveLength(1);
-    // Degrada a null, ma `answeredAt` dice comunque che una risposta c'è stata.
-    expect(body[0]!.answer).toBeNull();
-    expect(body[0]!.answeredAt).not.toBeNull();
-  });
-});
-
 describe("POST /api/tickets/:id/questions/answer", () => {
   /**
    * Ticket con un job fermo su una domanda aperta, richiesto da `requestedBy`.
@@ -3659,7 +3399,7 @@ describe("tickets.view_all — senza, solo i propri ticket", () => {
   });
 
   it("dettaglio: il ticket altrui è 404 su ogni rotta del ticket, il proprio 200", async () => {
-    for (const suffix of ["", "/activity", "/history", "/links", "/questions", "/comments", "/jobs", "/attachments"]) {
+    for (const suffix of ["", "/links", "/comments", "/jobs", "/attachments"]) {
       const other = await app.inject({
         method: "GET",
         url: `/api/tickets/${othersTicket}${suffix}`,

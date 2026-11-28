@@ -25,5 +25,9 @@
     "outDir": "dist/scripts"
   },
   "include": ["scripts"],
-  "exclude": ["scripts/**/*.test.ts", "dist"]
+  // `route-callers.ts` è uno strumento di sviluppo (il registro delle rotte
+  // contro i chiamanti, ritiro del web vecchio): importa `../src/app.js`, che
+  // con `rootDir: "scripts"` è fuori radice (TS6059), e non serve
+  // nell'immagine. Si lancia con tsx dal checkout.
+  "exclude": ["scripts/**/*.test.ts", "scripts/route-callers.ts", "dist"]
 }

@@ -12,7 +12,7 @@ import {
   recordSecurityEvent,
   toSecurityEventView,
 } from "../auth/second-factor/security-events.js";
-import { gitIdentities, projectAccess, roles, users } from "@stubwise/db";
+import { gitIdentities, projectAccess, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { securityEventsResponseSchema, updateInstanceRoleSchema } from "@stubwise/shared";
@@ -177,48 +177,6 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
     404: roleRuleErrorSchema,
     409: roleRuleErrorSchema,
   };
-
-  // PATCH /api/users/:id/role — percorso LEGACY (client che conoscono solo
-  // admin/member): porta il ruolo d'istanza sul preset `Admin`/`User` con le
-  // stesse regole di `/instance-role` (anti-escalation, ultimo full admin, non
-  // il proprio). Risponde ancora `last_admin` invece di `last_full_admin`: è il
-  // codice che quei client traducono.
-  app.patch(
-    "/:id/role",
-    {
-      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
-      schema: {
-        params: z.object({ id: z.uuid() }),
-        body: z.object({ role: z.enum(["admin", "member"]) }),
-        response: { 200: publicUserSchema, ...authErrorResponses, ...ruleErrors },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const [preset] = await app.db
-        .select({ id: roles.id })
-        .from(roles)
-        .where(
-          and(
-            eq(roles.presetKey, request.body.role === "admin" ? "admin" : "user"),
-            eq(roles.scope, "instance"),
-          ),
-        );
-      if (!preset) {
-        return apiError(reply, 409, "role_required_by_system", "Preset role missing");
-      }
-      try {
-        await setInstanceRole(app.db, request.user!, id, preset.id, {
-          lastAdminCode: "last_admin",
-        });
-      } catch (error) {
-        return sendRoleRuleError(reply, error);
-      }
-      const user = await publicUser(id);
-      if (!user) return apiError(reply, 404, "user_not_found", "User not found");
-      return reply.code(200).send(user);
-    },
-  );
 
   // PATCH /api/users/:id/instance-role — cambia il ruolo d'istanza. Si
   // assegna solo un ruolo i cui permessi d'istanza effettivi sono inclusi nei

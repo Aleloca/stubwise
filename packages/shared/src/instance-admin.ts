@@ -141,7 +141,9 @@ export const instanceSettingsViewSchema = z.object({
    * nuovi si fermano. `.default(true)`: un server più vecchio non ce l'ha.
    */
   attachmentsSwitch: z.boolean().default(true),
-  // Slack: solo i flag (il web vecchio; fuori dall'app nuova).
+  // Slack: solo i flag, INERTI dal ritiro del web vecchio (R2): l'integrazione
+  // non c'è più, le colonne restano fino a R3 e i client che leggono questi
+  // campi (la mobile) continuano a compilare.
   slackSigningSecretSet: z.boolean().default(false),
   slackBotTokenSet: z.boolean().default(false),
   slackEnabled: z.boolean().default(false),
@@ -174,8 +176,6 @@ export const updateInstanceSettingsSchema = z.object({
   s3Bucket: z.string().optional(),
   s3AccessKey: z.string().optional(),
   s3SecretKey: z.string().optional(),
-  slackSigningSecret: z.string().optional(),
-  slackBotToken: z.string().optional(),
 });
 export type UpdateInstanceSettingsInput = z.input<typeof updateInstanceSettingsSchema>;
 

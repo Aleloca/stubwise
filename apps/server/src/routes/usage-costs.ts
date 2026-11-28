@@ -267,124 +267,6 @@ async function aggregate(
   return { totals, byDay, byModel, byProject, byProvider };
 }
 
-const BREAKDOWN_DIMENSIONS = ["operation", "project", "model", "day"] as const;
-type BreakdownDimension = (typeof BREAKDOWN_DIMENSIONS)[number];
-
-const breakdownQuerySchema = querySchema
-  .extend({
-    groupBy: z.enum(BREAKDOWN_DIMENSIONS),
-    thenBy: z.enum(BREAKDOWN_DIMENSIONS).optional(),
-  })
-  .refine((q) => q.thenBy !== q.groupBy, {
-    message: "thenBy deve essere diverso da groupBy",
-    path: ["thenBy"],
-  });
-
-const breakdownRowSchema = z.object({
-  key: z.string().nullable(),
-  // Nome del progetto per `project`, altrimenti null (l'etichetta delle
-  // operazioni la traduce il web).
-  label: z.string().nullable(),
-  subKey: z.string().nullable(),
-  subLabel: z.string().nullable(),
-  // Esecuzioni distinte: `count(distinct coalesce(run_id, id))`.
-  runs: z.number().int(),
-  inputTokens: z.number().int(),
-  outputTokens: z.number().int(),
-  cacheReadTokens: z.number().int(),
-  cacheCreationTokens: z.number().int(),
-  // Null = nessuna riga del gruppo ha riportato un costo (non è «zero»).
-  costUsd: z.number().nullable(),
-  avgTokensPerRun: z.number(),
-});
-
-export const aiUsageBreakdownSchema = z.object({ rows: z.array(breakdownRowSchema) });
-export type AiUsageBreakdown = z.infer<typeof aiUsageBreakdownSchema>;
-
-/** Espressione di chiave (testo) e di etichetta di una dimensione di raggruppamento. */
-function dimensionExprs(dim: BreakdownDimension): {
-  key: ReturnType<typeof sql<string | null>>;
-  label: ReturnType<typeof sql<string | null>>;
-} {
-  switch (dim) {
-    case "operation":
-      return { key: sql<string>`${agentRuns.operation}`, label: sql<null>`null::text` };
-    case "model":
-      return { key: sql<string>`${agentRuns.model}`, label: sql<null>`null::text` };
-    case "project":
-      return {
-        key: sql<string | null>`${agentRuns.projectId}::text`,
-        label: sql<string | null>`${projects.name}`,
-      };
-    case "day":
-      return {
-        key: sql<string>`to_char(date_trunc('day', ${effectiveAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
-        label: sql<null>`null::text`,
-      };
-  }
-}
-
-async function breakdown(
-  db: Db,
-  from: Date,
-  to: Date,
-  groupBy: BreakdownDimension,
-  thenBy: BreakdownDimension | undefined,
-  scope: UsageScope,
-): Promise<AiUsageBreakdown> {
-  const first = dimensionExprs(groupBy);
-  const second = thenBy ? dimensionExprs(thenBy) : undefined;
-  const subKey = second ? second.key : sql<string | null>`null::text`;
-  const subLabel = second ? second.label : sql<string | null>`null::text`;
-
-  // Le etichette sono funzionalmente dipendenti dalla chiave (nome del progetto):
-  // le raggruppiamo solo quando non sono la costante null.
-  const groups = [first.key, ...(groupBy === "project" ? [first.label] : [])];
-  if (second && thenBy) {
-    groups.push(second.key, ...(thenBy === "project" ? [second.label] : []));
-  }
-
-  const rows = await db
-    .select({
-      key: first.key,
-      label: first.label,
-      subKey,
-      subLabel,
-      runs: countRuns,
-      inputTokens: sql<number>`coalesce(sum(${agentRuns.inputTokens}), 0)::int`,
-      outputTokens: sql<number>`coalesce(sum(${agentRuns.outputTokens}), 0)::int`,
-      cacheReadTokens: sql<number>`coalesce(sum(${agentRuns.cacheReadTokens}), 0)::int`,
-      cacheCreationTokens: sql<number>`coalesce(sum(${agentRuns.cacheCreationTokens}), 0)::int`,
-      // sum() di soli NULL resta NULL: è il «costo non riportato».
-      costUsd: sql<string | null>`sum(${agentRuns.costUsd})`,
-    })
-    .from(agentRuns)
-    .leftJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
-    .leftJoin(projects, eq(agentRuns.projectId, projects.id))
-    .where(and(periodFilter(from, to), inProjects(agentRuns.projectId, scope)))
-    .groupBy(...groups)
-    .orderBy(sql`${first.key} asc nulls last`, sql`${subKey} asc nulls last`);
-
-  return {
-    rows: rows.map((r) => {
-      const tokens = r.inputTokens + r.outputTokens + r.cacheReadTokens + r.cacheCreationTokens;
-      return {
-        key: r.key,
-        label: r.label,
-        subKey: r.subKey,
-        subLabel: r.subLabel,
-        runs: r.runs,
-        inputTokens: r.inputTokens,
-        outputTokens: r.outputTokens,
-        cacheReadTokens: r.cacheReadTokens,
-        cacheCreationTokens: r.cacheCreationTokens,
-        costUsd: r.costUsd === null ? null : roundCost(r.costUsd),
-        avgTokensPerRun: r.runs > 0 ? tokens / r.runs : 0,
-      };
-    }),
-  };
-}
-
 /**
  * I progetti di cui chi chiede vede i consumi: `"all"` con `usage.view`
  * d'istanza (anche le righe senza progetto: posta, operazioni d'istanza),
@@ -392,7 +274,6 @@ async function breakdown(
  * no).
  */
 type UsageScope = ProjectScope;
-
 
 /**
  * Accesso alla dashboard: `usage.view` d'istanza, oppure `project.usage.view`
@@ -485,24 +366,6 @@ export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<voi
         range: { from: from.toISOString(), to: to.toISOString() },
         ...aggregates,
       };
-    },
-  );
-
-  // Letterale come /costs: nessuna rotta parametrica sullo stesso prefisso.
-  app.get(
-    "/breakdown",
-    {
-      config: { mcp: { action: "aiUsage.breakdown", summary: "I consumi AI divisi per operazione, progetto o modello.", effect: "read" }, access: { kind: "user" } },
-      schema: {
-        querystring: breakdownQuerySchema,
-        response: { 200: aiUsageBreakdownSchema, ...authErrorResponses },
-      },
-    },
-    async (request, reply) => {
-      const scope = await requireUsageScope(request, reply);
-      if (!scope) return reply;
-      const { from, to } = resolveRange(request.query.from, request.query.to);
-      return breakdown(app.db, from, to, request.query.groupBy, request.query.thenBy, scope);
     },
   );
 }

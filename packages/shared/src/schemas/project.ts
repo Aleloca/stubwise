@@ -673,37 +673,6 @@ export const projectPulseSummarySchema = z.object({
 });
 export type ProjectPulseSummary = z.infer<typeof projectPulseSummarySchema>;
 
-/**
- * Una review AI di PR, nella forma pubblica di `GET /api/projects/:id/reviews`
- * (Fase 5: la prima lettura di `pr_reviews` da un'API).
- *
- * ⚠️ COSA NON C'È, e perché. `pr_reviews.error` è il messaggio d'errore
- * dell'agente — un dettaglio interno che può portarsi dietro path del worker e
- * frammenti di prompt: non esce da qui. Non c'è nemmeno `summary`, l'analisi
- * markdown completa: la superficie pubblica della fase è il riassunto "in
- * breve" (`prSummary`), e aggiungere l'analisi domani resta un cambio additivo,
- * mentre toglierla non lo sarebbe.
- */
-export const prReviewSummarySchema = z.object({
-  id: z.uuid(),
-  repositoryId: z.uuid(),
-  repositoryName: z.string().nullable(),
-  // Il ticket da cui la PR è nata; null se il ticket è stato cancellato
-  // (`ticket_id` è ON DELETE SET NULL) o se la PR non veniva dalla pipeline.
-  ticketId: z.uuid().nullable(),
-  prNumber: z.number().int(),
-  prUrl: z.string(),
-  prTitle: z.string(),
-  status: z.enum(["running", "completed", "failed"]),
-  // Null finché la review non è completata (o se è fallita).
-  verdict: z.enum(["approve", "request_changes"]).nullable(),
-  // Riassunto "in breve" della PR per non-tecnici; null se non generato.
-  prSummary: z.string().nullable(),
-  createdAt: z.iso.datetime(),
-  finishedAt: z.iso.datetime().nullable(),
-});
-export type PrReviewSummary = z.infer<typeof prReviewSummarySchema>;
-
 /** I tipi di voce della timeline di progetto: il discriminante dell'unione. */
 export const projectTimelineKindSchema = z.enum([
   "ticket_opened",
@@ -809,18 +778,6 @@ export const projectTimelineEntrySchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export type ProjectTimelineEntry = z.infer<typeof projectTimelineEntrySchema>;
-
-/**
- * Corpo di `GET /api/projects/:id/timeline`: la finestra effettivamente usata
- * (che può differire da quella richiesta — i default sono del server) e le voci
- * in ordine cronologico crescente.
- */
-export const projectTimelineSchema = z.object({
-  from: z.iso.datetime(),
-  to: z.iso.datetime(),
-  entries: z.array(projectTimelineEntrySchema),
-});
-export type ProjectTimeline = z.infer<typeof projectTimelineSchema>;
 
 /**
  * IL BRIEF SETTIMANALE di un progetto (Fase 5), nella forma pubblica di

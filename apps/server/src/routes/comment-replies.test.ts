@@ -13,8 +13,8 @@ import { addMember, seedUsers } from "../test/fixtures.js";
 /**
  * Risposte ai commenti (migrazione 0083, piano A5): il `POST` accetta
  * `replyToCommentId` opzionale e lo valida (stesso ticket, altrimenti 422 e
- * NESSUNA riga), e `GET /comments`, la risposta del `POST` e il feed
- * `/activity` portano `replyTo` DERIVATO a lettura.
+ * NESSUNA riga), e `GET /comments` e la risposta del `POST` portano
+ * `replyTo` DERIVATO a lettura (il feed `/activity` dei ticket è andato via con R2).
  */
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -54,11 +54,6 @@ interface CommentBody {
   id: string;
   body: string;
   replyTo: ReplyTo | null;
-}
-interface ActivityItem {
-  kind: string;
-  id: string;
-  replyTo?: ReplyTo | null;
 }
 
 async function newTicket(): Promise<string> {
@@ -108,15 +103,6 @@ async function listComments(ticketId: string): Promise<CommentBody[]> {
   return res.json() as CommentBody[];
 }
 
-async function activity(ticketId: string): Promise<ActivityItem[]> {
-  const res = await app.inject({
-    method: "GET",
-    url: `/api/tickets/${ticketId}/activity`,
-    headers: { cookie: users.memberCookie },
-  });
-  expect(res.statusCode).toBe(200);
-  return res.json() as ActivityItem[];
-}
 
 async function commentCount(ticketId: string): Promise<number> {
   const rows = await testDb.db
@@ -127,7 +113,7 @@ async function commentCount(ticketId: string): Promise<number> {
 }
 
 describe("POST /api/tickets/:id/comments con replyToCommentId", () => {
-  it("risposta a un commento dello stesso ticket: 201 e replyTo in POST, GET /comments e /activity", async () => {
+  it("risposta a un commento dello stesso ticket: 201 e replyTo in POST e GET /comments", async () => {
     const ticketId = await newTicket();
     const original = await insertComment(
       ticketId,
@@ -152,9 +138,6 @@ describe("POST /api/tickets/:id/comments con replyToCommentId", () => {
     expect(listed.find((c) => c.id === created.id)?.replyTo).toEqual(expected);
     expect(listed.find((c) => c.id === original)?.replyTo).toBeNull();
 
-    const feed = await activity(ticketId);
-    expect(feed.find((i) => i.id === created.id)?.replyTo).toEqual(expected);
-    expect(feed.find((i) => i.id === original)?.replyTo).toBeNull();
   });
 
   it("NEGATIVO: risposta a un commento di un ALTRO ticket → 422 e nessuna riga nuova", async () => {
@@ -228,8 +211,6 @@ describe("POST /api/tickets/:id/comments con replyToCommentId", () => {
       .where(eq(comments.id, original));
     const listed = await listComments(ticketId);
     expect(listed.find((c) => c.id === reply.id)?.replyTo?.excerpt).toBe("testo di dopo");
-    const feed = await activity(ticketId);
-    expect(feed.find((i) => i.id === reply.id)?.replyTo?.excerpt).toBe("testo di dopo");
   });
 
   it("originale cancellato: la risposta resta, con replyTo null", async () => {
@@ -257,8 +238,6 @@ describe("POST /api/tickets/:id/comments con replyToCommentId", () => {
 
     const listed = await listComments(mine);
     expect(listed.find((c) => c.id === row!.id)?.replyTo).toBeNull();
-    const feed = await activity(mine);
-    expect(feed.find((i) => i.id === row!.id)?.replyTo).toBeNull();
   });
 
   it("un estratto lungo si taglia a ~120 caratteri con «…»", async () => {

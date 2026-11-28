@@ -66,14 +66,14 @@ describe("publishSecurityAlert", () => {
     expect(item?.text).not.toMatch(/ by /);
   });
 
-  it("ignora le preferenze: con Slack collegato e il DM spento, il DM nasce comunque", async () => {
+  it("con Slack collegato non nasce nessun DM: i DM Slack non ci sono più (R2)", async () => {
     const target = await newUser("member", { notifyPush: false, slack: true });
 
     await publishSecurityAlert(db, target.id, "backup_codes_regenerated", null);
 
-    // Nessun device: nessuna push (il recapito resta un requisito); identità
-    // Slack presente col DM spento: il DM sì.
+    // Nessun device: nessuna push (il recapito resta un requisito), e l'identità
+    // Slack non porta più a un DM.
     const deliveries = await db.select().from(notificationDeliveries);
-    expect(deliveries.map((d) => d.channel)).toEqual(["slack_dm"]);
+    expect(deliveries).toEqual([]);
   });
 });

@@ -7,7 +7,6 @@ import {
   projectMembersViewSchema,
   projectMemberSchema,
   milestoneWithCountsSchema,
-  prReviewSummarySchema,
   projectBriefWeeklySchema,
   projectDecisionSchema,
   projectDetailSchema,
@@ -34,16 +33,13 @@ import type {
   DecisionDraft,
   DecisionPatch,
   DecisionSource,
-  PrReviewSummary,
   ProjectBriefWeekly,
   ProjectDecision,
   MilestoneWithCounts,
   ProjectDetail,
   ProjectListItem,
   ProjectPulseSummary,
-  ProjectTimeline,
   Project,
-  ProjectTimelineKind,
   Reader,
   UpdateProjectInput,
   WeeklyBriefView,
@@ -58,7 +54,6 @@ import { seg, toQuery } from "../query.js";
 
 const projectListSchema = z.array(projectListItemSchema);
 const pulseSchema = z.array(projectPulseSummarySchema);
-const reviewsSchema = z.array(prReviewSummarySchema);
 const briefsSchema = z.array(projectBriefWeeklySchema);
 const decisionsSchema = z.array(projectDecisionSchema);
 const milestonesSchema = z.array(milestoneWithCountsSchema);
@@ -211,46 +206,6 @@ export function createProjectsEndpoints(request: ApiRequest) {
       return request("GET", "/api/projects/pulse", undefined, pulseSchema);
     },
 
-    /** Le review AI di PR del progetto, dalla più recente (fase 5). */
-    reviews(
-      projectId: string,
-      options: { limit?: number } = {},
-    ): Promise<Reader<PrReviewSummary>[]> {
-      return request(
-        "GET",
-        `/api/projects/${seg(projectId)}/reviews${toQuery({ limit: options.limit })}`,
-        undefined,
-        reviewsSchema,
-      );
-    },
-
-    /**
-     * La timeline di progetto (fase 5) che alimenta la pagina Roadmap.
-     *
-     * ⚠️ CORSIA SENZA SCHEMA, di proposito. `projectTimelineEntrySchema` è una
-     * `discriminatedUnion`, e `readerSchema` non la attraversa: aprire il
-     * discriminante farebbe vincere sempre la prima variante e una voce `brief`
-     * verrebbe letta come `ticket_opened` perdendo i suoi campi (vedi il
-     * commento sulle union in `packages/shared/src/reader.ts`). Non è una
-     * lacuna da colmare in fretta: la vista roadmap mobile è esplicitamente
-     * fuori dalla v1 della fase, e il solo consumatore è la SPA — che si
-     * ridistribuisce a ogni deploy insieme al server. Chi porterà la roadmap
-     * sull'app dovrà PRIMA progettare l'apertura del discriminante
-     * (`z.union([rigido, variante_di_fallback])`), non limitarsi a passare lo
-     * schema qui.
-     */
-    timeline(
-      projectId: string,
-      params: { from?: string; to?: string; kinds?: ProjectTimelineKind[] } = {},
-    ): Promise<ProjectTimeline> {
-      const query = toQuery({
-        from: params.from,
-        to: params.to,
-        kinds: params.kinds?.join(","),
-      });
-      return request("GET", `/api/projects/${seg(projectId)}/timeline${query}`);
-    },
-
     /**
      * I brief settimanali del progetto (fase 5), dal periodo più recente.
      *
@@ -268,27 +223,6 @@ export function createProjectsEndpoints(request: ApiRequest) {
         `/api/projects/${seg(projectId)}/briefs${toQuery({ limit: options.limit })}`,
         undefined,
         briefsSchema,
-      );
-    },
-
-    /**
-     * Rimette in coda il brief dell'ultima settimana chiusa (solo admin). A
-     * generarlo è il poller del worker al tick successivo: questa risposta dice
-     * che è ACCODATO, non che è pronto.
-     *
-     * `force` serve solo contro un brief già `done` (senza, il server risponde
-     * 409 `brief_already_done`): rifare un testo già letto e già annunciato è
-     * una decisione, non un click.
-     */
-    generateBrief(
-      projectId: string,
-      body: { force?: boolean } = {},
-    ): Promise<Reader<ProjectBriefWeekly>> {
-      return request(
-        "POST",
-        `/api/projects/${seg(projectId)}/briefs/generate`,
-        body,
-        projectBriefWeeklySchema,
       );
     },
 

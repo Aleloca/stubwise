@@ -170,12 +170,3 @@ describe("docsChatAnswerSchema.productSources (area 11, F3) — additivo", () =>
     expect(parsed.productSources).toEqual([]);
   });
 });
-
-describe("docChatMessageSchema.productSources (area 11, F3, 46) — additivo", () => {
-  it("un messaggio di un server di prima non ha `productSources`: []", async () => {
-    const { docChatMessageSchema } = await import("./docs.js");
-    const { readerSchema } = await import("../reader.js");
-    const parsed = readerSchema(docChatMessageSchema).parse({ id: "1c9e4f70-5555-4666-8777-888899990041", role: "assistant", content: "x", citations: null, createdAt: "2026-11-20T08:14:00.000Z" });
-    expect(parsed.productSources).toEqual([]);
-  });
-});

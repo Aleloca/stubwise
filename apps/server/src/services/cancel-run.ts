@@ -3,7 +3,7 @@ import { t } from "@stubwise/i18n";
 import { completeCorrection, promotePendingForTicket } from "@stubwise/notifications";
 import { AI_JOB_CANCEL_CHANNEL, type ProjectPermission } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { mirrorDecision, propagateHandled } from "./notifications-propagation.js";
+import { propagateHandled } from "./notifications-propagation.js";
 import { notifyTaskActivity } from "./task-notify.js";
 import { getContentLanguage } from "../settings.js";
 
@@ -125,11 +125,6 @@ export async function cancelRun(
       await promotePendingForTicket(db, ticketId);
     } catch (error) {
       log?.warn({ err: error, ticketId }, "cancel-run: promozione della pending non riuscita");
-    }
-    if (closedCards.length > 0) {
-      await mirrorDecision(db, { notificationIds: closedCards, action: "handled", actorId: actor.id }).catch((error: unknown) =>
-        log?.warn({ err: error, ticketId }, "cancel-run: rispecchiamento delle card non riuscito"),
-      );
     }
   }
   return result;

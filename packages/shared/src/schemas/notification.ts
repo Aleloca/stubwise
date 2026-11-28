@@ -1173,7 +1173,7 @@ export const pushTokenSchema = z
  * verso uno schermo che non controllo — un'aggressione poco attraente, e
  * raggiungibile solo da chi il token ce l'ha già (dal telefono, dal nostro DB,
  * o dai log: per questo il token non sta MAI in un path, vedi
- * {@link deviceDeletionSchema}). In cambio, senza il passaggio di proprietà,
+ * il body di `POST /api/me/devices/delete`, tolta con R2). In cambio, senza il passaggio di proprietà,
  * il telefono su cui l'utente A esce e B entra sbatterebbe contro la unique e
  * non riceverebbe MAI più una push, senza nessun errore visibile. Il baratto
  * è accettato con cognizione, non per inerzia.
@@ -1210,21 +1210,3 @@ export const deviceRegistrationSchema = z.object({
   appVersion: z.string().min(1).max(64).optional(),
 });
 export type DeviceRegistration = z.infer<typeof deviceRegistrationSchema>;
-
-/**
- * Body di `POST /api/me/devices/delete`: il logout dell'app.
- *
- * ⚠️ **Il token sta nel BODY, e la rotta è un `POST` con `/delete` nel path,
- * non un `DELETE /api/me/devices/:token`.** Il verbo scomodo è deliberato e
- * non va "sistemato": il server gira con `logger: true` e pino scrive l'URL
- * intero di ogni richiesta, quindi un token nel path finirebbe in chiaro nei
- * log — dove ha molti più lettori del DB, e da dove chi lo legge se lo può
- * intestare (vedi il punto 2 di {@link deviceRegistrationSchema}). Il body non
- * viene loggato. La motivazione per esteso, con la riga di log reale, sta sul
- * docblock della rotta in `apps/server/src/routes/me-prefs.ts`.
- *
- * Un oggetto con un campo solo e non una stringa nuda: è la forma che può
- * crescere senza rompere le app già installate.
- */
-export const deviceDeletionSchema = z.object({ token: pushTokenSchema });
-export type DeviceDeletion = z.infer<typeof deviceDeletionSchema>;

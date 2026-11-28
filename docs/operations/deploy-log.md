@@ -7909,3 +7909,93 @@ deploy o di un rollback che la tocca.
   che il caddy di prima non serve (la pagina a sé lì è su `/app/vault/`).
   Il pacchetto per Mac nuovo arriva comunque solo dopo R3 (vedi sopra). R2 (la pulizia del server) parte solo
   quando R1 è stabile, perché le rotte del web servono a un rollback.
+- **«Il taglio del web vecchio, R2» (28 nov 2026)**: ramo `feat/taglio-r2`
+  (sopra `feat/taglio-r1`), piano
+  `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md` §1.1 (R2) e §3. Solo
+  codice: **nessuna migrazione, nessuna env nuova**. Slack non ha env: le
+  credenziali (signing secret e bot token) stanno cifrate in
+  `instance_settings`, e da R2 nessuno le legge più (le colonne vanno via
+  con R3b, la 0247).
+  **Passo per il maintainer, dopo il deploy**: nell'app Slack del
+  workspace spegnere lo slash command `/stubwise`, l'interactivity e la
+  scorciatoia di messaggio (o disinstallare l'app). Le loro richieste ora
+  rispondono 404, e Slack mostrerebbe un errore a chi li usa.
+  **Cosa si toglie** (le rotte che l'app non chiama, D4):
+  - le 17 del web vecchio senza chiamanti (primo gruppo);
+  - **Slack**: `/api/slack/*`, `PUT/DELETE /api/users/:id/slack`,
+    `GET /api/slack/workspace-users`; il worker non manda più DM né
+    riscrive i DM (`slack_dm`, `slack_update`), e `publish` non li accoda
+    più. Le consegne `slack_*` rimaste in coda il poller le chiude come
+    `skipped`, `channel_not_implemented`;
+  - il gruppo (e): `/api/saved-views`, `/api/settings/mail-admission`,
+    `/api/settings/notifications` (e `…/test`), `…/email-routes`,
+    `…/email-labels`, `POST …/briefs/generate`, `POST/DELETE …/adoption`
+    (le PR già adottate restano, con correzioni e vista),
+    `GET /api/auth/invites` (invito e revoca restano);
+  - le 9 della sola mobile: `POST /api/auth/mobile-login`,
+    `PUT /api/me/devices`, `POST /api/me/devices/delete`,
+    `GET /api/me/mail/:source/:id`, `GET /api/me/mail/rejections`,
+    `GET /api/projects/:projectId/docs/highlights`,
+    `GET /api/search/docs-semantic`, `GET /api/tickets/:id/history`,
+    `GET /api/tickets/:id/questions`.
+  **Il catalogo MCP si restringe, ed è voluto (D4)**: con le rotte
+  spariscono le azioni `savedViews.*`, quelle di Slack e del gruppo (e), e
+  `mail.message`, `mail.rejections`, `docs.projectHighlights`,
+  `docs.semanticSearch`, `tickets.history`, `tickets.questions`,
+  `me.unregisterDevice`. Non si toccano: le 12 rotte dei tool dedicati
+  dell'MCP (D10: restano, dichiarate `config.mcp.owner: "mcp"`, #151), le 2
+  dei Docs di prodotto e la cassaforte. Lo script delle rotte
+  (`apps/server/scripts/route-callers.ts`) su R2 dà 12 «dell'MCP» e 2 senza
+  chiamanti (i Docs di prodotto), e conta il worker fra i chiamanti.
+  **Effetto noto, deciso col gruppo (e)**: il worker legge ancora le
+  regole di posta dei progetti (`project_email_routes`,
+  `apps/worker/src/google/poller.ts`) e i filtri dell'ammissione della
+  posta (`instance_settings.email_admission_deny_*`). Le regole già salvate
+  continuano a valere, ma le rotte per vederle e cambiarle sono tolte: nella
+  nuova app non le vede né le cambia nessuno. Per cambiarle serve SQL.
+  **Resta `GET /api/projects/pulse`**: la legge la chat del worker (le
+  letture del polso), oltre alla mobile.
+  **I campi Slack nelle risposte restano, inerti, fino a R3**
+  (`slackUserId`, `slackDm` delle preferenze, i flag `slack*Set`
+  dell'istanza): li legge l'app mobile, e toglierli dagli schemi condivisi
+  la farebbe smettere di compilare. Le richieste non li accettano più e
+  nessuno li scrive; vanno via con le colonne in R3.
+  **Effetto sulla mobile (D5, accettato)**: niente login (`mobile-login`
+  non c'è più), niente registrazioni push nuove; le sezioni che leggevano
+  le rotte tolte (Slack, storia e domande del ticket, highlights,
+  ricerca semantica, scarti della posta) danno errore. Le push ai telefoni
+  già registrati continuano, e reset e cambio della password revocano
+  ancora i PAT `mobile` già emessi.
+  **Prima del deploy**: tenere le immagini di adesso (R1 stabile):
+  ```sh
+  docker tag stubwise-server:latest stubwise-server:pre-r2
+  docker tag stubwise-worker:latest stubwise-worker:pre-r2
+  ```
+  **Cosa ribuildare e in che ordine**: `server`, poi `worker` (senza lavoro
+  dell'agente in corso, vedi «Worker fail-on-restart»). `caddy` no: il
+  renderer non cambia. Fra i due non c'è una finestra rotta: il worker di
+  prima con il server nuovo manda ancora i DM Slack per qualche minuto, il
+  worker nuovo chiude le consegne Slack che trova.
+  **Controllo dopo il deploy**:
+  ```sh
+  curl -s -o /dev/null -w '%{http_code}\n' https://<istanza>/api/tickets/00000000-0000-0000-0000-000000000000/history   # 404 (rotta inesistente), non 401
+  curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<istanza>/api/auth/mobile-login                              # 404
+  ```
+  ```sql
+  -- nessuna consegna Slack ancora in coda
+  select channel, status, count(*) from notification_deliveries
+   where channel like 'slack%' and status = 'pending' group by 1, 2;
+  ```
+  Dall'app: il polso dei progetti e la chat che lo legge rispondono; da
+  Claude Code, `find_actions` non elenca più `tickets.history`.
+  **Rollback**: le immagini `pre-r2` di `server` e `worker`, insieme:
+  ```sh
+  docker tag stubwise-server:pre-r2 stubwise-server:latest
+  docker tag stubwise-worker:pre-r2 stubwise-worker:latest
+  docker compose up -d --no-build server worker
+  ```
+  Sicuro: R2 non tocca dati né schema. Le consegne Slack chiuse `skipped`
+  durante R2 restano chiuse (i DM di quel periodo non partono), e le
+  scelte fatte nel frattempo (inviti, preferenze) valgono anche per il
+  codice di prima. R3 (le colonne) parte solo con R2 stabile, perché dopo
+  R3 si scende al massimo a R2.

@@ -1,6 +1,4 @@
 import {
-  adoptPrBodySchema,
-  adoptPrResponseSchema,
   requestCorrectionBodySchema,
   requestCorrectionResponseSchema,
 } from "@stubwise/shared";
@@ -10,7 +8,6 @@ import { z } from "zod";
 import type { RouteAccess } from "../auth/access.js";
 import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
-import { adoptPullRequest, releaseAdoption } from "../services/pr-adoption.js";
 import { requestCorrection } from "../services/pr-corrections.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -93,110 +90,6 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
         case "colleague_analysis_only":
           return apiError(reply, 409, "colleague_analysis_only", "This colleague's PR is set to analysis only: Stubwise does not correct it");
       }
-    },
-  );
-
-  // ADOZIONE di una PR aperta da altri (6 ott 2026): SOLO con `prs.adopt`.
-  // `config.access` qui E il controllo dentro il servizio (difesa in
-  // profondità, come la coda di rilascio). Stessa forma di path delle
-  // correzioni: segmenti letterali fra e DOPO i parametri.
-  app.post(
-    "/tickets/:id/repositories/:repositoryId/adoption",
-    {
-      config: { access: onTicket("prs.adopt"), mcp: { action: "pulls.adopt", summary: "Adotta una PR aperta da altri, così Stubwise la può correggere (serve `prs.adopt`).", effect: "write" } },
-      schema: {
-        params: correctionParamsSchema,
-        body: adoptPrBodySchema.nullish(),
-        response: {
-          202: adoptPrResponseSchema,
-          404: errorSchema,
-          409: errorSchema,
-          422: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const result = await adoptPullRequest(
-        { db: app.db, encryptionKey: app.encryptionKey, warn: (m) => request.log.warn(m) },
-        {
-          ticketId: request.params.id,
-          repositoryId: request.params.repositoryId,
-          actor: { id: request.user!.id, permissions: request.access!.permissions },
-          ...(request.body?.note !== undefined ? { note: request.body.note } : {}),
-        },
-      );
-      if (result.ok) {
-        return reply.code(202).send({ correctionId: result.correctionId, reviewApproved: result.reviewApproved });
-      }
-      switch (result.error) {
-        case "forbidden":
-          return apiError(reply, 403, "forbidden", "Only a maintainer can hand a pull request to Stubwise");
-        case "ticket_not_found":
-          return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-        case "pr_not_found":
-          return apiError(reply, 404, "pr_not_found", "There is no reviewed PR for this ticket on this repository");
-        case "not_review_ticket":
-          return apiError(reply, 422, "not_review_ticket", "Only the PR of a review ticket can be adopted");
-        case "already_adopted":
-          return apiError(reply, 409, "already_adopted", "Stubwise is already correcting this PR");
-        case "pr_not_open":
-          return apiError(reply, 409, "pr_not_open", "This PR is no longer open");
-        case "pr_unverifiable":
-          return apiError(reply, 422, "pr_unverifiable", "The PR could not be read from the platform: try again");
-        case "pr_from_fork":
-          return apiError(reply, 422, "pr_from_fork", "This PR comes from a fork: Stubwise cannot push to its branch");
-        case "pr_fork_unverifiable":
-          return apiError(
-            reply,
-            422,
-            "pr_fork_unverifiable",
-            "The platform does not say where this PR's branch lives: Stubwise does not push to it",
-          );
-        case "stubwise_pr":
-          return apiError(reply, 422, "stubwise_pr", "This PR is on a Stubwise branch");
-        case "base_branch":
-          return apiError(
-            reply,
-            422,
-            "base_branch",
-            "This PR's branch is the base branch: Stubwise does not push to it",
-          );
-        case "protected_branch":
-          return apiError(
-            reply,
-            422,
-            "protected_branch",
-            "This PR's branch is protected on this repository: Stubwise does not push to it",
-          );
-      }
-    },
-  );
-
-  // «Smetti di correggere»: rilascia l'adozione. Solo con `prs.adopt`.
-  app.delete(
-    "/tickets/:id/repositories/:repositoryId/adoption",
-    {
-      config: { access: onTicket("prs.adopt"), mcp: { action: "pulls.releaseAdoption", summary: "Rilascia l'adozione di una PR: Stubwise smette di correggerla.", effect: "destructive" } },
-      schema: {
-        params: correctionParamsSchema,
-        response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request, reply) => {
-      const result = await releaseAdoption(
-        { db: app.db, encryptionKey: app.encryptionKey, warn: (m) => request.log.warn(m) },
-        {
-          ticketId: request.params.id,
-          repositoryId: request.params.repositoryId,
-          actor: { id: request.user!.id, permissions: request.access!.permissions },
-        },
-      );
-      if (result.ok) return reply.code(204).send(null);
-      if (result.error === "forbidden") {
-        return apiError(reply, 403, "forbidden", "Only a maintainer can stop Stubwise corrections");
-      }
-      return apiError(reply, 409, "not_adopted", "Stubwise is not correcting this PR");
     },
   );
 }

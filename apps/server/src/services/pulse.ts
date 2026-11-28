@@ -34,7 +34,7 @@ import { z } from "zod";
 import { getContentLanguage } from "../settings.js";
 import { convertBacklogItem } from "./backlog.js";
 import { projectActorForTicket, startRun, type Actor } from "./jobs.js";
-import { mirrorDecision, propagateHandled } from "./notifications-propagation.js";
+import { propagateHandled } from "./notifications-propagation.js";
 
 /** Errori tipizzati di {@link proceedWithProposal}, mappati a HTTP dalle rotte. */
 export type ProceedWithProposalError =
@@ -282,12 +282,6 @@ export async function proceedWithProposal(
     // notizia per chi guarda la card: quella proposta non si può più prendere.
     // Le copie restano CHIUSE — riaprirle rimetterebbe in inbox un invito a
     // un'azione impossibile — con la nota che spiega perché.
-    await mirrorDecision(db, {
-      notificationIds: changedNotificationIds,
-      action: "answer",
-      actorId: actor.id,
-      pulse: { title: proposal.title, outcome: "stale" },
-    });
     return { ok: false, error: "proposal_stale" };
   }
 
@@ -353,16 +347,6 @@ export async function proceedWithProposal(
   });
   if (!run.ok) {
     // Il ticket c'è: la nota lo dice e non promette un run che non esiste.
-    await mirrorDecision(db, {
-      notificationIds: changedNotificationIds,
-      action: "answer",
-      actorId: actor.id,
-      pulse: {
-        title: proposal.title,
-        outcome: "ticket_only",
-        ticketNumber: converted.ticketNumber,
-      },
-    });
     return {
       ok: false,
       error: "run_not_started",
@@ -371,19 +355,6 @@ export async function proceedWithProposal(
     };
   }
 
-  await mirrorDecision(db, {
-    notificationIds: changedNotificationIds,
-    action: "answer",
-    actorId: actor.id,
-    pulse: {
-      title: proposal.title,
-      outcome: run.status === "awaiting_plan_approval" ? "awaiting_approval" : "planning",
-      // Il NUMERO del ticket entra nella nota perché il DM è testo: chi lo
-      // rilegge non ha una card da cui cliccare. Nell'inbox il link arriva
-      // invece dai dati, da `notifications.ticket_id` appena valorizzato.
-      ticketNumber: converted.ticketNumber,
-    },
-  });
   return {
     ok: true,
     ticketId: converted.ticketId,

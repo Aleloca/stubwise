@@ -6,19 +6,14 @@ import {
   calendarEventMoveSchema,
   calendarSeriesItemSchema,
   calendarSeriesPatchSchema,
-  emailLabelsSchema,
   emailRouteSchema,
-  emailRoutesPutSchema,
   mailThreadDetailSchema,
-  emailRoutesSchema,
   googleAccountSchema,
   googleCallbackOutcomes,
   googleOauthScopes,
   googleWorkspaceDraftSchema,
   googleWorkspacePatchSchema,
   googleWorkspaceSchema,
-  mailAdmissionPatchSchema,
-  mailAdmissionSchema,
   mailItemSchema,
   mailRejectionReasonSchema,
   mailRejectionsSchema,
@@ -232,70 +227,6 @@ describe("emailRouteSchema", () => {
     expect(emailRouteSchema.parse({ kind: "sender_domain", value: "Acme.COM" }).value).toBe(
       "Acme.COM",
     );
-  });
-});
-
-describe("emailRoutesPutSchema", () => {
-  it("accetta un insieme vuoto: e come si cancellano tutte le regole", () => {
-    expect(emailRoutesPutSchema.parse({ routes: [] }).routes).toEqual([]);
-  });
-
-  it("rifiuta piu di 200 regole", () => {
-    const routes = Array.from({ length: 201 }, (_, i) => ({
-      kind: "keyword" as const,
-      value: `k${i}`,
-    }));
-    expect(emailRoutesPutSchema.safeParse({ routes }).success).toBe(false);
-  });
-});
-
-describe("emailRoutesSchema / emailLabelsSchema", () => {
-  it("una risposta senza il campo resta parsabile (default)", () => {
-    expect(emailRoutesSchema.parse({}).routes).toEqual([]);
-    expect(emailLabelsSchema.parse({}).labels).toEqual([]);
-  });
-
-  it("fa round-trip col corpo del PUT", () => {
-    const body = { routes: [{ kind: "gmail_label" as const, value: "clienti" }] };
-    expect(emailRoutesSchema.parse(emailRoutesPutSchema.parse(body))).toEqual(body);
-  });
-});
-
-describe("mailAdmissionSchema (fase 6c)", () => {
-  it("una risposta senza nessuno dei campi resta parsabile con i default (anche `classifyV2`, F2: spento)", () => {
-    expect(mailAdmissionSchema.parse({})).toEqual({
-      admitWorkspaceDomains: true,
-      denyLabels: ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
-      denyAutomated: true,
-      classifyV2: false,
-    });
-  });
-
-  it("accetta valori espliciti", () => {
-    const body = {
-      admitWorkspaceDomains: false,
-      denyLabels: ["SPAM"],
-      denyAutomated: false,
-      classifyV2: true,
-    };
-    expect(mailAdmissionSchema.parse(body)).toEqual(body);
-  });
-});
-
-describe("mailAdmissionPatchSchema", () => {
-  it("un body vuoto è valido: assente = non toccare, semantica PATCH", () => {
-    expect(mailAdmissionPatchSchema.parse({})).toEqual({});
-  });
-
-  it("accetta un sottoinsieme dei campi", () => {
-    expect(mailAdmissionPatchSchema.parse({ admitWorkspaceDomains: false })).toEqual({
-      admitWorkspaceDomains: false,
-    });
-  });
-
-  it("rifiuta più di 50 etichette", () => {
-    const denyLabels = Array.from({ length: 51 }, (_, i) => `L${i}`);
-    expect(mailAdmissionPatchSchema.safeParse({ denyLabels }).success).toBe(false);
   });
 });
 

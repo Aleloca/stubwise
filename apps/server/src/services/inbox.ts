@@ -98,7 +98,7 @@ import { z } from "zod";
 import { calendarStatusCaseSql } from "../routes/calendar-status.js";
 import { answerGoogleProposal, handableFrom, handGoogleProposal } from "./google-proposal.js";
 import { projectActorForTicket, resolvePlan, startRun, type Actor } from "./jobs.js";
-import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
+import { propagateDecision } from "./notifications-propagation.js";
 import { proceedWithProposal } from "./pulse.js";
 import { answerQuestion, type AnswerInput } from "./questions.js";
 import { excerpt } from "./task-notify.js";
@@ -555,12 +555,6 @@ export async function executeAction(
     // Il rinvio non "gestisce" nulla, ma il DM Slack della riga va comunque
     // ritoccato (i bottoni spariscono fino alla scadenza) — anche quando a
     // rinviare è stata l'inbox web, che di Slack non sa nulla.
-    await mirrorDecision(db, {
-      notificationIds: [row.id],
-      action,
-      actorId: actor.id,
-      ...(snoozedUntil ? { snoozedUntil } : {}),
-    });
     return {
       ok: true,
       action,
@@ -593,7 +587,6 @@ export async function executeAction(
       .where(and(eq(notifications.id, row.id), ne(notifications.status, "handled")))
       .returning({ id: notifications.id });
     if (updated.length === 0) return alreadyHandled(db, row.id);
-    await mirrorDecision(db, { notificationIds: [row.id], action, actorId: actor.id });
     return {
       ok: true,
       action,
@@ -664,7 +657,6 @@ export async function executeAction(
     outcome.changedNotificationIds ??
     (await propagateDecision(db, {
       target: row.jobId ? { jobId: row.jobId, kind: row.kind } : { notificationId: row.id },
-      action,
       actorId: actor.id,
     }));
   // Rete di sicurezza: `resolvePlan` chiude per (job risolto, kind), quindi una
@@ -675,7 +667,6 @@ export async function executeAction(
     changedNotificationIds.push(
       ...(await propagateDecision(db, {
         target: { notificationId: row.id },
-        action,
         actorId: actor.id,
       })),
     );
@@ -962,7 +953,6 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   // `hiddenFor` ne tiene una per oggetto «chi guarda»: lo stesso per tutta la pagina.
   let pageViewer: Promise<Pick<SessionUser, "id" | "instancePermissions">> | null = null;
   const viewerOfPage = () => (pageViewer ??= instancePermissionsOfUser(db, userId).then((instancePermissions) => ({ id: userId, instancePermissions })));
-
 
   const conditions = [
     eq(notifications.userId, userId),

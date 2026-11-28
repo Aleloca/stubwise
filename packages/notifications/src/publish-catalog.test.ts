@@ -108,12 +108,11 @@ describe("avvisi del catalogo alla pubblicazione (area 8, F2)", () => {
     await db.delete(outgoingWebhooks);
   });
 
-  it("M3: un avviso del catalogo non va mai su Slack (DM); senza progetto il monitor ci va come oggi", async () => {
+  it("M3: nessun avviso va su Slack (DM), né del catalogo né del monitor: i DM non ci sono più (R2)", async () => {
     const s = await scenario();
     await publishNotification(db, failed(s.projectId), { projectId: s.projectId });
-    expect(await deliveriesOf("slack_dm")).toEqual([]);
     await publishNotification(db, monitor(), {});
-    expect((await deliveriesOf("slack_dm")).length).toBeGreaterThan(0);
+    expect(await deliveriesOf("slack_dm")).toEqual([]);
   });
 
   it("M-2 = b: il push segue il Telefono del tipo, non `notify_push` della persona", async () => {

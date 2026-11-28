@@ -1,26 +1,20 @@
 import { appPath } from "@stubwise/shared";
 import { projectCodeOf } from "@stubwise/notifications";
 import {
-  agentQuestionAnswerSchema,
-  aiJobStatusSchema,
   answerBodySchema,
   inboxActionErrorSchema,
   ticketPrioritySchema,
   ticketRepositorySchema,
   ticketStatusSchema,
   answerQuestionResultSchema,
-  commentReplyToSchema,
   planDecisionResultSchema,
   runAiBodySchema,
   runAiResultSchema,
-  ticketQuestionsSchema,
   ticketTypeSchema,
   setContentSchema,
   ticketDetailSchema,
-  ticketHistorySchema,
   ticketPageSchema,
   ticketSchema,
-  type AgentQuestionAnswer,
   type ProjectPermission,
   type TicketStatus,
 } from "@stubwise/shared";
@@ -37,8 +31,6 @@ import {
   type RouteAccess,
 } from "../auth/access.js";
 import { canSeeTicket, fromBody, fromTicket, ticketVisible } from "../auth/project-resolvers.js";
-import { loadTicketHistory } from "../services/ticket-history.js";
-import { loadCommentProjection } from "../services/comments.js";
 import type { Db } from "@stubwise/db";
 import {
   derivePrCycle,
@@ -47,13 +39,10 @@ import {
   publishRequestCreated,
 } from "@stubwise/notifications";
 import {
-  agentQuestions,
   aiJobs,
   comments,
-  commentAuthorType,
   planDigest,
   projects,
-  ticketEventKind,
   ticketEvents,
   ticketLinkKind,
   ticketLinks,
@@ -197,86 +186,6 @@ function relationFromTarget(
     case "relates_to":
       return "relates_to";
   }
-}
-
-/**
- * Item del feed unificato di un ticket. Tre forme discriminate su `kind`:
- *  - "comment": un commento (utente/AI/sistema);
- *  - "event": un evento di audit (la colonna `kind` della tabella diventa
- *    `eventKind` qui per non collidere col discriminante del feed);
- *  - "ai_job": un marker del job AI (solo lo stato e l'eventuale PR; log e
- *    consumi restano negli endpoint dedicati).
- * I nomi utente NON vengono risolti qui: si espongono authorId/actorId e la
- * UI li traduce dalla users query che ha già.
- */
-const activityCommentSchema = z.object({
-  kind: z.literal("comment"),
-  id: z.uuid(),
-  authorType: z.enum(commentAuthorType.enumValues),
-  authorId: z.uuid().nullable(),
-  body: z.string(),
-  createdAt: z.iso.datetime(),
-  /**
-   * Il commento a cui questo risponde (0083), derivato a lettura come su
-   * `GET /comments`: il web disegna i commenti da QUESTO feed, non da
-   * `/comments`. Additivo, `.nullable().default(null)`; il web lo legge con
-   * `?? null` (fa un cast, non un parse).
-   */
-  replyTo: commentReplyToSchema.nullable().default(null),
-  /**
-   * Modifica e cancellazione (0084), gli STESSI campi di `ticketCommentSchema`
-   * e dalla stessa proiezione (`loadCommentProjection`): permessi per CHI
-   * GUARDA, `deletedBy` non nullo se e solo se eliminato, `inDecisionLog` per
-   * le istruzioni di un rifiuto del piano. Additivi; il web li legge con
-   * `?? false`/`?? null` (cast, non parse).
-   */
-  editedAt: z.iso.datetime().nullable().default(null),
-  deletedAt: z.iso.datetime().nullable().default(null),
-  deletedBy: z.object({ name: z.string().nullable() }).nullable().default(null),
-  canEdit: z.boolean().default(false),
-  canDelete: z.boolean().default(false),
-  inDecisionLog: z.boolean().default(false),
-});
-
-const activityEventSchema = z.object({
-  kind: z.literal("event"),
-  id: z.uuid(),
-  eventKind: z.enum(ticketEventKind.enumValues),
-  actorId: z.uuid().nullable(),
-  // payload jsonb arbitrario: { from, to }, { changed: true }, … o null.
-  payload: z.record(z.string(), z.unknown()).nullable(),
-  createdAt: z.iso.datetime(),
-});
-
-const activityAiJobSchema = z.object({
-  kind: z.literal("ai_job"),
-  id: z.uuid(),
-  status: aiJobStatusSchema,
-  prUrl: z.string().nullable(),
-  createdAt: z.iso.datetime(),
-  finishedAt: z.iso.datetime().nullable(),
-});
-
-const activityResponseSchema = z.array(
-  z.discriminatedUnion("kind", [
-    activityCommentSchema,
-    activityEventSchema,
-    activityAiJobSchema,
-  ]),
-);
-
-type ActivityItem = z.infer<typeof activityResponseSchema>[number];
-
-/**
- * Ri-valida la risposta letta dal jsonb: `null` se non è (più) leggibile. La
- * colonna è tipata sulla union ma il DB non la fa rispettare, e una riga scritta
- * da una versione precedente non deve poter far fallire la serializzazione
- * dell'intera lista — la stessa difesa che il worker applica nel prompt.
- */
-function parseStoredAnswer(answer: unknown): AgentQuestionAnswer | null {
-  if (answer == null) return null;
-  const parsed = agentQuestionAnswerSchema.safeParse(answer);
-  return parsed.success ? parsed.data : null;
 }
 
 /**
@@ -809,38 +718,6 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  /**
-   * Storia del ticket: un evento per riga, dal più recente (avvii, domande,
-   * piano, PR, review, correzioni, cambi di stato), al più
-   * `TICKET_HISTORY_LIMIT` (200) eventi più `total`, il numero prima del
-   * taglio. La regola sta nel modulo puro `buildTicketHistory`
-   * (`@stubwise/notifications`), le query in `services/ticket-history.ts`.
-   *
-   * Stessa autorizzazione di `/:id/activity`: autenticato e basta, come ogni
-   * lettura del ticket. Rotta NUOVA e non un campo di `/activity`: quella
-   * risposta l'app installata la parsa con uno schema suo, e cambiarne il
-   * significato è un cambio che non si ritira.
-   *
-   * Registrata PRIMA di `GET /:id` (regola di CLAUDE.md: ogni rotta con una
-   * parte letterale va prima della parametrica sullo stesso prefisso).
-   */
-  app.get(
-    "/:id/history",
-    {
-      config: { access: onTicket("member"), mcp: { action: "tickets.history", summary: "La storia di un ticket: avvii, domande, piano, PR, review, correzioni e cambi di stato, dal più recente.", effect: "read" } },
-      schema: {
-        params: idParamsSchema,
-        response: { 200: ticketHistorySchema, 404: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const [ticket] = await app.db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
-      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      return loadTicketHistory(app.db, id);
-    },
-  );
-
   app.get(
     "/:id",
     {
@@ -860,159 +737,6 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       // vuoto finché l'agente non apre PR): la stessa risposta prodotta dagli
       // endpoint design/plan (helper condiviso, niente duplicazione).
       return ticketDetailResponse(app.db, row, routePermissions(request));
-    },
-  );
-
-  // Feed unificato del ticket: commenti + eventi audit + marker dei job AI,
-  // fusi in un unico array ordinato per createdAt ASC. I volumi per-ticket
-  // sono piccoli, quindi le tre query separate + merge/sort in memoria sono
-  // più semplici (e abbastanza efficienti) di una UNION SQL.
-  app.get(
-    "/:id/activity",
-    {
-      config: { access: onTicket("member"), mcp: { action: "tickets.activity", summary: "Il feed di un ticket: commenti, eventi e marker dei run, in ordine di tempo.", effect: "read" } },
-      schema: {
-        params: idParamsSchema,
-        response: { 200: activityResponseSchema, 404: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const [ticket] = await app.db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
-      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-
-      const [commentRows, eventRows, jobRows] = await Promise.all([
-        app.db.select().from(comments).where(eq(comments.ticketId, id)),
-        app.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, id)),
-        app.db.select().from(aiJobs).where(eq(aiJobs.ticketId, id)),
-      ]);
-      const deriveComment = await loadCommentProjection(app.db, id, commentRows, {
-        id: request.user!.id,
-        permissions: routePermissions(request),
-      });
-
-      const items: ActivityItem[] = [
-        ...commentRows.map(
-          (row): ActivityItem => ({
-            kind: "comment",
-            id: row.id,
-            authorType: row.authorType,
-            authorId: row.authorId,
-            body: row.body,
-            createdAt: row.createdAt.toISOString(),
-            ...deriveComment(row),
-          }),
-        ),
-        ...eventRows.map(
-          (row): ActivityItem => ({
-            kind: "event",
-            id: row.id,
-            eventKind: row.kind,
-            actorId: row.actorId,
-            payload: (row.payload as Record<string, unknown> | null) ?? null,
-            createdAt: row.createdAt.toISOString(),
-          }),
-        ),
-        ...jobRows.map(
-          (row): ActivityItem => ({
-            kind: "ai_job",
-            id: row.id,
-            status: row.status,
-            prUrl: row.prUrl,
-            createdAt: row.createdAt.toISOString(),
-            finishedAt: row.finishedAt?.toISOString() ?? null,
-          }),
-        ),
-      ];
-
-      // Ordine cronologico crescente. A parità di createdAt si spareggia per
-      // id (stabile e deterministico), così i test sull'ordine non dipendono
-      // dall'ordine d'arrivo delle tre query.
-      items.sort((a, b) => {
-        if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
-        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-      });
-      return items;
-    },
-  );
-
-  /**
-   * Q&A dell'agente sul ticket, in ordine cronologico: le domande poste dai run
-   * di pianificazione e le risposte già date. Serve alla pagina ticket, che
-   * mostra la domanda aperta (chi può, risponde) e lo storico di quelle chiuse.
-   *
-   * Sola LETTURA e visibile a chiunque sia autenticato, come `/activity`: la
-   * Q&A è contenuto del ticket. Il permesso di RISPONDERE è un'altra cosa e
-   * vive in `answerQuestion` (il richiedente del run o un maintainer).
-   */
-  app.get(
-    "/:id/questions",
-    {
-      config: { access: onTicket("member"), mcp: { action: "tickets.questions", summary: "Le domande dell'agente su un ticket e le risposte già date.", effect: "read" } },
-      schema: {
-        params: idParamsSchema,
-        response: {
-          200: ticketQuestionsSchema,
-          404: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const [ticket] = await app.db
-        .select({ id: tickets.id })
-        .from(tickets)
-        .where(eq(tickets.id, id));
-      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-
-      const rows = await app.db
-        .select({
-          id: agentQuestions.id,
-          jobId: agentQuestions.jobId,
-          round: agentQuestions.round,
-          question: agentQuestions.question,
-          options: agentQuestions.options,
-          recommendedIndex: agentQuestions.recommendedIndex,
-          allowFreeText: agentQuestions.allowFreeText,
-          askedAt: agentQuestions.askedAt,
-          answer: agentQuestions.answer,
-          answeredAt: agentQuestions.answeredAt,
-          answeredById: users.id,
-          answeredByEmail: users.email,
-        })
-        .from(agentQuestions)
-        // LEFT JOIN: `answered_by_user_id` è ON DELETE SET NULL, e una risposta
-        // di un utente cancellato resta una risposta — solo senza un nome.
-        .leftJoin(users, eq(users.id, agentQuestions.answeredByUserId))
-        .where(eq(agentQuestions.ticketId, id))
-        .orderBy(agentQuestions.askedAt, agentQuestions.round);
-
-      return rows.map((row) => ({
-        // `questionId` e non `id`, e `recommendedIndex` OMESSO invece che
-        // `null`: è la forma condivisa con la card d'inbox
-        // (`inboxQuestionSchema`), che la pagina ticket e l'inbox danno allo
-        // stesso pannello di risposta. La normalizzazione dalla colonna nullable
-        // è compito di questa rotta, non del client.
-        questionId: row.id,
-        jobId: row.jobId,
-        round: row.round,
-        question: row.question,
-        options: row.options,
-        ...(row.recommendedIndex === null ? {} : { recommendedIndex: row.recommendedIndex }),
-        allowFreeText: row.allowFreeText,
-        askedAt: row.askedAt.toISOString(),
-        // Il jsonb viene ri-validato prima di uscire: la colonna è tipata sulla
-        // union ma il DB non la fa rispettare, e una riga di una versione
-        // precedente non deve poter far fallire la SERIALIZZAZIONE dell'intera
-        // lista. `answeredAt` dice comunque che una risposta c'è stata.
-        answer: parseStoredAnswer(row.answer),
-        answeredAt: row.answeredAt?.toISOString() ?? null,
-        answeredBy:
-          row.answeredById && row.answeredByEmail
-            ? { id: row.answeredById, email: row.answeredByEmail }
-            : null,
-      }));
     },
   );
 

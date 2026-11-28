@@ -367,16 +367,8 @@ describe("proceedWithProposal — successo", () => {
     // chi ricarica, alla tab "Gestite", e al collega che non ha premuto lui.
     expect(rows.every((row) => row.ticketId === result.ticketId)).toBe(true);
 
-    // La nota nomina attore e titolo e dice che si aspetta l'approvazione.
-    const notes = await readNotes(ids[1]!);
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain(maintainer.email);
-    expect(notes[0]).toContain("Voce con piano");
-    expect(notes[0]).toMatch(/approval/i);
-    // Il NUMERO del ticket sta nella nota: è l'unica traccia del ticket che
-    // sopravvive alla decisione (il pulse nasce senza `ticket_id`, e l'esito
-    // HTTP con l'id lo vede solo chi ha premuto).
-    expect(notes[0]).toContain(`#${result.ticketNumber}`);
+    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
+    expect(await readNotes(ids[1]!)).toEqual([]);
   });
 
   it("voce senza piano: job queued con planApprovalRequired e nota diversa", async () => {
@@ -397,10 +389,8 @@ describe("proceedWithProposal — successo", () => {
     // Il gate resta: sarà il worker a fermarsi a piano pronto.
     expect(job!.planApprovalRequired).toBe(true);
 
-    // Due esperienze diverse, due note diverse: qui la pianificazione parte.
-    const notes = await readNotes(ids[0]!);
-    expect(notes[0]).toContain("Voce senza piano");
-    expect(notes[0]).toMatch(/planning/i);
+    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
+    expect(await readNotes(ids[0]!)).toEqual([]);
   });
 
   it("un member destinatario può procedere (il pulse è una proposta, non un gate)", async () => {
@@ -516,9 +506,8 @@ describe("proceedWithProposal — corse e proposte scadute", () => {
     // Nessun ticket è nato, quindi NIENTE da ancorare: la riga chiusa non deve
     // portare il link a un ticket che non esiste.
     expect(rows.every((row) => row.ticketId === null)).toBe(true);
-    const notes = await readNotes(ids[1]!);
-    expect(notes[0]).toContain("Voce già convertita");
-    expect(notes[0]).toMatch(/already/i);
+    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
+    expect(await readNotes(ids[1]!)).toEqual([]);
 
     // Nessun ticket è nato dalla voce.
     const links = await db
@@ -580,12 +569,8 @@ describe("proceedWithProposal — convertito ma run non partito", () => {
     // proprio il caso in cui ritrovarlo conta di più (va lanciato a mano).
     expect((await readNotifications(ids)).every((row) => row.ticketId === ticketId)).toBe(true);
 
-    const notes = await readNotes(ids[0]!);
-    expect(notes[0]).toContain("Run mancato");
-    expect(notes[0]).toMatch(/did not start/i);
-    // Anche qui il ticket è nato: la nota lo NOMINA, così resta rintracciabile
-    // da chi dovrà lanciarlo a mano.
-    expect(notes[0]).toContain(`#${result.ticketNumber}`);
+    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
+    expect(await readNotes(ids[0]!)).toEqual([]);
   });
 });
 

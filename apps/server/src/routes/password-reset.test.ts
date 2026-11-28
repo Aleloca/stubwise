@@ -8,9 +8,6 @@ import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { hashPassword } from "../auth/password.js";
 import { randomBytes } from "node:crypto";
-import { generateSync } from "otplib";
-import { regenerateBackupCodes } from "../auth/second-factor/backup-codes.js";
-import { confirmTotp, startTotpEnrollment } from "../auth/second-factor/totp.js";
 import { fullSessionCookie } from "../test/fixtures.js";
 import { createPatForUser } from "./pat.js";
 import { hashServerKey } from "./shared.js";
@@ -73,41 +70,13 @@ beforeEach(async () => {
 });
 
 /**
- * /mobile-login chiede il secondo fattore: all'utente si dà l'app configurata
- * (alla prima chiamata) e ogni login spende un codice di riserva, monouso.
+ * Un PAT `mobile` dell'app mobile, come lo emetteva `/mobile-login` (tolta con
+ * R2): quelli già emessi esistono ancora, e reset e cambio della password li
+ * revocano.
  */
-const backupCodesByEmail = new Map<string, string[]>();
-async function nextCodeFor(email: string): Promise<string> {
-  let codes = backupCodesByEmail.get(email);
-  if (!codes) {
-    const [user] = await testDb.db
-      .select({ id: users.id, email: users.email })
-      .from(users)
-      .where(eq(users.email, email));
-    const { secret } = await startTotpEnrollment(testDb.db, ENCRYPTION_KEY, user!);
-    const past = Date.now() - 5 * 60_000;
-    await confirmTotp(
-      testDb.db,
-      ENCRYPTION_KEY,
-      user!.id,
-      generateSync({ secret, epoch: Math.floor(past / 1000) }),
-      past,
-    );
-    codes = await regenerateBackupCodes(testDb.db, ENCRYPTION_KEY, user!.id);
-    backupCodesByEmail.set(email, codes);
-  }
-  return codes.shift()!;
-}
-
-/** Login dell'app come lo fa l'app: PAT `mobile` emesso da /mobile-login. */
-async function mobileLogin(email: string, password = OLD_PASSWORD) {
-  const res = await app.inject({
-    method: "POST",
-    url: "/api/auth/mobile-login",
-    payload: { email, password, deviceName: "iPhone", code: await nextCodeFor(email) },
-  });
-  expect(res.statusCode).toBe(200);
-  return res.json() as { token: string; patId: string };
+async function mobileLogin(user: { id: string }) {
+  const pat = await createPatForUser(testDb.db, user.id, "Mobile · iPhone", null, "mobile");
+  return { token: pat.token, patId: pat.id };
 }
 
 async function meWithPat(token: string) {
@@ -174,7 +143,7 @@ describe("POST /api/users/:id/password-reset (admin)", () => {
   it("un admin con un PAT (manuale o dell'app) → 403 session_required e nessun link", async () => {
     const target = await createUser("member");
     const manual = await createPatForUser(testDb.db, admin.id, "mcp", null);
-    const phone = await mobileLogin(admin.email);
+    const phone = await mobileLogin(admin);
     for (const token of [manual.token, phone.token]) {
       const res = await app.inject({
         method: "POST",
@@ -332,7 +301,7 @@ describe("GET/POST /api/auth/password-reset/:token (pubbliche)", () => {
 
   it("il reset revoca i token dell'app mobile (e spegne i loro device), non quelli manuali", async () => {
     const member = await createUser("member");
-    const mobile = await mobileLogin(member.email);
+    const mobile = await mobileLogin(member);
     const manual = await createPatForUser(testDb.db, member.id, "Claude Code", null);
     await testDb.db.insert(deviceTokens).values({
       userId: member.id,
@@ -365,18 +334,6 @@ describe("GET/POST /api/auth/password-reset/:token (pubbliche)", () => {
     expect(devices[0]!.disabledAt).not.toBeNull();
     expect(devices[0]!.disabledReason).toBe("pat_revoked");
 
-    // L'app rientra con la password nuova.
-    const relogin = await app.inject({
-      method: "POST",
-      url: "/api/auth/mobile-login",
-      payload: {
-        email: member.email,
-        password: "password-nuova-1",
-        deviceName: "iPhone",
-        code: await nextCodeFor(member.email),
-      },
-    });
-    expect(relogin.statusCode).toBe(200);
   });
 
   it("il reset revoca anche i token del desktop", async () => {
@@ -395,7 +352,7 @@ describe("GET/POST /api/auth/password-reset/:token (pubbliche)", () => {
   it("il reset non tocca i token mobile di ALTRI utenti", async () => {
     const member = await createUser("member");
     const other = await createUser("member");
-    const otherMobile = await mobileLogin(other.email);
+    const otherMobile = await mobileLogin(other);
     const token = await issueToken(member.id);
     await app.inject({
       method: "POST",
@@ -516,8 +473,8 @@ describe("POST /api/auth/me/password (cambio dal profilo)", () => {
   it("ok → i token dell'app mobile sono revocati, quelli manuali no", async () => {
     const member = await createUser("member");
     const cookie = await fullSessionCookie(app, member.id);
-    const phone = await mobileLogin(member.email);
-    const tablet = await mobileLogin(member.email);
+    const phone = await mobileLogin(member);
+    const tablet = await mobileLogin(member);
     const manual = await createPatForUser(testDb.db, member.id, "mcp", null);
 
     const res = await changePassword(
@@ -545,7 +502,7 @@ describe("POST /api/auth/me/password (cambio dal profilo)", () => {
 
   it("con un token MOBILE → 403 e il token resta valido (il cambio è solo dal browser)", async () => {
     const member = await createUser("member");
-    const phone = await mobileLogin(member.email);
+    const phone = await mobileLogin(member);
     const res = await changePassword(
       { authorization: `Bearer ${phone.token}` },
       { currentPassword: OLD_PASSWORD, newPassword: "password-nuova-1" },

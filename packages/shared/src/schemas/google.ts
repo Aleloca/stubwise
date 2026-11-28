@@ -342,94 +342,10 @@ export const emailRouteSchema = z.object({
 });
 export type EmailRoute = z.infer<typeof emailRouteSchema>;
 
-/**
- * L'insieme delle regole di un progetto. È la risposta di GET e di PUT, e ha la
- * stessa forma del corpo del PUT così che faccia round-trip.
- */
-export const emailRoutesSchema = z.object({ routes: z.array(emailRouteSchema).default([]) });
-export type EmailRoutes = z.infer<typeof emailRoutesSchema>;
-
-/**
- * Corpo del PUT: SOSTITUISCE l'insieme completo (le regole assenti spariscono),
- * come il PUT delle abilitazioni dei plugin. La UI ha davanti tutte le regole
- * del progetto e salva la foto intera; un PATCH per-regola inviterebbe solo a
- * stati parziali.
- *
- * Il tetto di 200 regole non è una politica di prodotto: è il limite oltre il
- * quale un errore di copia-incolla diventa un ciclo di match inutilmente lungo
- * su OGNI messaggio di OGNI casella.
- */
-export const emailRoutesPutSchema = z.object({
-  routes: z.array(emailRouteSchema).max(200),
-});
-export type EmailRoutesPut = z.input<typeof emailRoutesPutSchema>;
-
-/**
- * Le etichette Gmail GIÀ OSSERVATE nella posta delle caselle di chi chiede:
- * alimentano il picker delle regole `gmail_label`, così l'admin sceglie da un
- * elenco invece di indovinare il nome esatto di una label.
- *
- * `.default([])` come ogni campo nuovo di una risposta: finché il poller (Task
- * 7) non esiste la lista è vuota, e vuota deve restare una risposta valida.
- */
-export const emailLabelsSchema = z.object({ labels: z.array(z.string()).default([]) });
-export type EmailLabels = z.infer<typeof emailLabelsSchema>;
-
 // ---------------------------------------------------------------------------
 // Ammissione della posta (fase 6c): configurazione D'ISTANZA, separata
 // dall'attribuzione per progetto (le regole sopra, invariate).
 // ---------------------------------------------------------------------------
-
-/**
- * Configurazione d'istanza dell'AMMISSIONE della posta: decide SE un
- * messaggio entra nella pipeline, non A QUALE progetto va (quello resta
- * `project_email_routes`, sopra). È la risposta di `GET
- * /api/settings/mail-admission` e la forma "vista" di
- * `PATCH /api/settings/mail-admission`.
- *
- * Ogni campo è `.default()`: sono TRE campi nuovi su una risposta — nessuna
- * app mobile la consuma oggi (questa rotta non è fra quelle lette dal client
- * mobile), ma la convenzione del repo per campi nuovi in uno schema di
- * risposta è comunque senza eccezioni, vedi CLAUDE.md.
- */
-export const mailAdmissionSchema = z.object({
-  // I mittenti (o destinatari in copia) dei domini di un Google Workspace
-  // registrato ammettono la posta senza bisogno di una regola di progetto.
-  // Default true: allarga il perimetro di oggi, non lo restringe — una
-  // regola di progetto che già ammette un messaggio continua ad ammetterlo.
-  admitWorkspaceDomains: z.boolean().default(true),
-  // Etichette Gmail che escludono SEMPRE, anche quando una regola di
-  // progetto o il dominio del Workspace ammetterebbero.
-  denyLabels: z
-    .array(z.string())
-    .default(["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"]),
-  // Scarta la posta automatica (List-Unsubscribe, List-Id, Precedence: bulk,
-  // Auto-Submitted diverso da "no").
-  denyAutomated: z.boolean().default(true),
-  /**
-   * Area 6, F2: la classificazione nuova è accesa (`MAIL_CLASSIFY_V2`) e ogni
-   * email va al modello: l'ammissione e le regole della posta non si
-   * applicano più, e le superfici che le gestiscono lo dicono invece di
-   * mostrare un modulo che non conta. Solo in lettura; un server di prima non
-   * lo manda.
-   */
-  classifyV2: z.boolean().default(false),
-});
-export type MailAdmission = z.infer<typeof mailAdmissionSchema>;
-
-/**
- * Corpo del PATCH: semantica patch, non put — campo ASSENTE = non toccato,
- * come `PATCH /api/me/notification-prefs` (vedi il docblock in
- * `apps/server/src/routes/me-prefs.ts`). Tutti e tre i campi sono nuovi:
- * renderli obbligatori romperebbe qualunque chiamante che non li conosce
- * ancora, esattamente il caso descritto in CLAUDE.md per un body che cresce.
- */
-export const mailAdmissionPatchSchema = z.object({
-  admitWorkspaceDomains: z.boolean().optional(),
-  denyLabels: z.array(z.string()).max(50).optional(),
-  denyAutomated: z.boolean().optional(),
-});
-export type MailAdmissionPatch = z.input<typeof mailAdmissionPatchSchema>;
 
 // ---------------------------------------------------------------------------
 // Pagina Posta (Task 12): messaggi ed eventi TRATTATI, per utente
@@ -926,20 +842,6 @@ export const mailThreadReadBodySchema = z.object({
   read: z.boolean(),
 });
 export type MailThreadReadBody = z.infer<typeof mailThreadReadBodySchema>;
-
-/**
- * Contatori per il badge di nav e l'intestazione della pagina. `openProposals`
- * è quello che alimenta il badge (le proposte APERTE, cioè le notifiche
- * `google.proposal` non ancora gestite di questo utente — non lo stato delle
- * righe di posta, che può restare `proposed` anche dopo che la notifica è
- * stata archiviata senza confermare un'opzione).
- */
-export const mailSummarySchema = z.object({
-  openProposals: z.number().int().min(0).default(0),
-  failed: z.number().int().min(0).default(0),
-  ignored: z.number().int().min(0).default(0),
-});
-export type MailSummary = z.infer<typeof mailSummarySchema>;
 
 /**
  * Perché il cancello di ammissione (`admit()`, fase 6c) ha tenuto fuori una

@@ -112,7 +112,7 @@ import { enqueueBacklogIntake } from "./backlog-intake.js";
 import { addSystemComment } from "./comments.js";
 import type { Actor } from "./jobs.js";
 import { createMilestone } from "./milestones.js";
-import { mirrorDecision, propagateHandled } from "./notifications-propagation.js";
+import { propagateHandled } from "./notifications-propagation.js";
 import { patchTicket } from "./tickets.js";
 
 /** `Db` o una transazione drizzle già aperta (stessa forma dei servizi del Task 3). */
@@ -1357,13 +1357,6 @@ async function answerMultiple(
     return { ok: false, error: "action_failed" };
   }
 
-  await mirrorDecision(db, {
-    notificationIds: changedNotificationIds,
-    action: "answer",
-    actorId: actor.id,
-    answer: chosen.map((c) => c.label).join("; "),
-  });
-
   return { ok: true, changedNotificationIds };
 }
 
@@ -1527,11 +1520,6 @@ async function handToProject(
     throw err;
   }
 
-  await mirrorDecision(db, {
-    notificationIds: changedNotificationIds,
-    action: "hand_to_project",
-    actorId: actor.id,
-  });
   return { ok: true, changedNotificationIds };
 }
 
@@ -1842,12 +1830,6 @@ export async function answerGoogleProposal(
   // con l'etichetta dell'opzione confermata — nessuna nota dedicata alla
   // posta serve, è la stessa "cosa" che rispondere a una domanda o al pulse:
   // qualcuno ha scelto un'opzione.
-  await mirrorDecision(db, {
-    notificationIds: changedNotificationIds,
-    action: "answer",
-    actorId: actor.id,
-    answer: optionLabel,
-  });
 
   return { ok: true, changedNotificationIds };
 }

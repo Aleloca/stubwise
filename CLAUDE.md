@@ -10,15 +10,14 @@ repo, ricerca vettoriale e chat RAG.
 - `apps/server` — API Fastify + Zod; applica le migrazioni Drizzle all'avvio.
 - `apps/worker` — coda di job durabile (`FOR UPDATE SKIP LOCKED`); esegue fix e
   generazione Docs via l'agente claude CLI. Serializza i job per-progetto.
-- `apps/web` — SPA React + Vite + TanStack Router/Query, Tailwind v4 (estetica
-  "terminal", test in happy-dom). **Servita da caddy** (vedi sotto), non dal server.
 - `apps/docs` — sito Starlight (guida utente), buildato e servito su `/guide`.
 - `apps/mobile` — app React Native **bare** (iOS + Android, niente Expo) di
   Stubwise; build/distribuzione manuali, vedi `apps/mobile/README.md`.
 - `apps/desktop` — l'interfaccia NUOVA (Electron + React), un renderer solo
   per tre build. Nata come **prototipo cliccabile** (aree 1–11, in `main`
-  dal 9 nov 2026), resta la SPECIFICA dell'app vera: web e mobile non sono
-  un riferimento per lui. Dall'integrazione dell'area 2 (fetta 1, 9 nov
+  dal 9 nov 2026), resta la SPECIFICA dell'app vera: la mobile non è un
+  riferimento per lui. Dal ritiro del web vecchio (R1, 28 nov 2026) è
+  l'UNICA interfaccia web: `apps/web` non c'è più. Dall'integrazione dell'area 2 (fetta 1, 9 nov
   2026) gira anche contro il server vero:
   - **`prototype`** (`dev`, `preview:web`, i test): dati finti in memoria,
     nessuna chiamata al server, «vedi come» per cambiare persona;
@@ -26,15 +25,16 @@ repo, ricerca vettoriale e chat RAG.
     puntato all'istanza scelta al primo avvio): il token sta nel Keychain
     (`safeStorage`), mai nel renderer; le richieste passano dal main
     (`api:request`);
-  - **`app` web** (`build:web`, `base: "/app/"`): servita da caddy su
-    `/app`, con il cookie di sessione del web.
+  - **`app` web** (`build:web`, `base: "/"`): servita da caddy alla
+    RADICE dell'istanza (da R1; prima su `/app`), con il cookie di sessione.
   Il livello dati si sceglie al build: `vite.backend.ts` risolve
   `@backend/api` e `@backend/clock` sul finto (`data/api.ts`,
   `data/seed/dates.ts`) o sul vero (`data/backend/real/`, sopra
   `@stubwise/api-client`); le aree non integrate restano «in arrivo».
   `scripts/check-no-seed.mjs` fa fallire un build «app» che contenga dati
   del seed (gira dentro `Dockerfile.caddy`). **Il login del desktop passa
-  dal browser di sistema** (passkey compresa): PKCE, `/app/#/desktop-login`,
+  dal browser di sistema** (passkey compresa): PKCE, `/#/desktop-login` (i
+  Mac di prima di R1 aprono `/app/#/…`, che Caddy porta alla radice),
   ritorno con `stubwise://auth?code=…&state=…`, scambio su
   `POST /api/auth/desktop-exchange` (`apps/desktop/src/main/browserLogin.ts`,
   `docs/invariants/second-factor.md`). **Tutto ciò che l'integrazione ha
@@ -50,7 +50,7 @@ repo, ricerca vettoriale e chat RAG.
   `push-relay` sotto il profilo compose `relay`: **gira solo sul nostro VPS**
   (vedi "Architettura runtime" e "Deploy" sotto).
 - `packages/*` — `api-client` (client HTTP tipato verso l'API server, condiviso
-  da `apps/web` — dependency, non devDependency: vedi il commento in
+  da `apps/desktop` — dependency, non devDependency: vedi il commento in
   `Dockerfile.caddy` — e da `apps/mobile`; dalla App M3 copre anche posta e
   calendario: i gruppi `mail` e `calendar`, verso `/api/me/mail` e
   `/api/me/calendar`; dalla F3 dell'area 6 il gruppo `mail` copre anche
@@ -71,17 +71,16 @@ repo, ricerca vettoriale e chat RAG.
   settimanale (worker): sta in un package che entrambi hanno già come
   dipendenza proprio per non duplicarne le query in due posti che poi
   divergono. `shared` ospita anche `design-tokens.ts` (colori/raggi del
-  design, App M1+M2, 11 set 2026): la fonte VERA resta Tailwind
-  (`apps/web/src/styles.css`, `--color-*`), e `design-tokens.ts` ne è una
-  copia tenuta allineata da un test di parità regex
-  (`apps/web/src/theme-parity.test.ts`, non un passo di codegen — deliberato,
-  per non complicare il build web) — non generarla mai da lì: è `apps/mobile`
-  (`theme/tokens.ts`) a importarla, non il contrario.
+  design, App M1+M2, 11 set 2026): dal ritiro del web vecchio (R1, D9) è LEI
+  la fonte (prima era una copia del Tailwind di `apps/web`, tenuta allineata
+  da un test di parità, andati via insieme al web). È `apps/mobile`
+  (`theme/tokens.ts`) a importarla, non il contrario; la nuova app ha i
+  suoi token nel renderer.
   Dalla **App M3** (12 set 2026) `shared` ospita anche `calendar-grid.ts`: le
   funzioni PURE della griglia del calendario (celle del mese, eventi di un
   giorno, posizionamento orario) più le due costanti della **finestra di
   ingestione** — `CALENDAR_LOOKBACK_DAYS`/`CALENDAR_WINDOW_DAYS`, `now − 30gg
-  → now + 60gg`. Stava in `apps/web/src/lib/`, e le costanti in
+  → now + 60gg`. Stava nel web vecchio (`apps/web/src/lib/`), e le costanti in
   `apps/worker/src/google/calendar.ts` (che le ri-esporta, così
   nessun import esistente cambia, e resta l'unico punto che le usa per
   DECIDERE COSA INGERIRE — la finestra che il poller interroga; l'app le usa
@@ -128,25 +127,27 @@ repo, ricerca vettoriale e chat RAG.
   `pnpm -r build`/`pnpm build` non ne risentono (l'ordinamento topologico
   del root basta da solo): il rischio esisteva solo nella chiamata annidata
   dentro lo script `build` dei tre package.
-- I test E2E Playwright (`apps/web/e2e`) NON girano in `pnpm -r test` (solo in CI):
-  eseguili a mano per modifiche UI rilevanti.
+- I test E2E Playwright della nuova app NON girano in `pnpm -r test` (solo in
+  CI): eseguili a mano per modifiche UI rilevanti. Quelli del web vecchio
+  (`apps/web/e2e`) sono andati via con lui (R1).
 
 ## Architettura runtime (docker-compose)
 
 Servizi: `postgres` (pgvector/pgvector:pg17), `ollama` (embedding bge-m3,
 1024-dim, via API OpenAI-compatibile), `server`, `worker`, `graphify`, `caddy`.
 **Non esiste un servizio `web`.** Caddy fa da reverse proxy verso il server e
-serve gli statici: SPA da `/srv/web` (root), Starlight da `/srv/docs` (`/guide`)
-e, dall'integrazione area 2 (9 nov 2026), la nuova app da `/srv/app` (`/app`:
-il renderer di `apps/desktop` in modo «app», `/app` → 308 su `/app/`).
-Tutti i bundle sono buildati dentro l'immagine caddy (`Dockerfile.caddy`).
-`/docs` (non `/guide`) è la sezione Docs della SPA, sul fallback web.
+serve gli statici: la nuova app da `/srv/app` alla RADICE (il renderer di
+`apps/desktop` in modo «app», dal ritiro del web vecchio, R1, 28 nov 2026) e
+Starlight da `/srv/docs` (`/guide`). `/app` e `/app/*` sono un 308 alla radice
+PER SEMPRE (i link già spediti e i Mac installati), e i percorsi del web
+vecchio vanno ai rimandi `/go/…` o alle pagine dell'app (il blocco «Ritiro del
+web vecchio» del `Caddyfile`). Tutti i bundle sono buildati dentro l'immagine
+caddy (`Dockerfile.caddy`).
 Caddy serve anche `/widget.js` (bundle IIFE embeddabile da `/srv/widget`,
 buildato in `Dockerfile.caddy`); `/widget/*` è la superficie API pubblica del
 widget customer service, proxata al server.
 `/monitor/ingest` e `/monitor/config` sono la superficie pubblica degli agenti
-di monitoraggio (auth con chiave per-server `sk_…`), proxate al server; il resto
-di `/monitor` è la sezione SPA. L'agente (`packages/agent`) gira SUGLI host
+di monitoraggio (auth con chiave per-server `sk_…`), proxate al server. L'agente (`packages/agent`) gira SUGLI host
 monitorati come container a sé (`Dockerfile.agent` → immagine `stubwise/agent`,
 un singolo bundle esbuild), non nel compose di Stubwise.
 `graphify` (`Dockerfile.graphify`) è il server MCP HTTP sui knowledge graph, solo
@@ -157,7 +158,7 @@ produttore) col CLI graphify, `server` e `graphify` lo montano `:ro`. La build �
 un job `build` della coda `graph_jobs`, accodato dal webhook push con debounce,
 sotto il toggle per-repository `graphEnabled` (default off).
 Il consumatore di `graphify` è il **server**: le chat interne (Docs repo e
-progetto, `/docs` di Slack — il widget NO; la chat della voce di backlog non
+progetto — il widget NO, e Slack non c'è più dal R2; la chat della voce di backlog non
 esiste più dal 19 ott 2026) gli chiedono
 via MCP il sottografo della domanda e allegano gli snippet di codice letti dai
 mirror git, che il server monta `:ro` (`apps/server/src/graph-chat`, fail-open:
@@ -336,9 +337,8 @@ percorso sul volume.
 Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 `docker compose up -d --build <servizio>`. Variabili in `/opt/stubwise/.env`.
 
-- Modifica al **frontend** (`apps/web`, `apps/docs`, `packages/widget` o il
-  renderer di `apps/desktop`, che caddy serve su `/app`) → ribuilda
-  **`caddy`**. L'app desktop si rifà a mano (`package:mac`).
+- Modifica al **frontend** (`apps/docs`, `packages/widget` o il renderer di
+  `apps/desktop`, che caddy serve alla radice) → ribuilda **`caddy`**. L'app desktop si rifà a mano (`package:mac`).
 - Modifica al **backend** → ribuilda `server` e/o `worker`.
 - Modifica all'**agente di monitoraggio** (`packages/agent`) → l'immagine
   `alelocadev/stubwise-agent` su Docker Hub (multi-arch, così gli host la pullano
@@ -348,8 +348,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   manuale (fallback / `workflow_dispatch`): `docker buildx build --platform
   linux/amd64,linux/arm64 -f Dockerfile.agent -t alelocadev/stubwise-agent:latest
   --push .` (serve `docker login`). Gli host NON si auto-aggiornano: `docker pull`
-  + ricrea il container. Se cambi anche il comando mostrato dalla UI
-  (`apps/web/.../settings/servers.tsx`), ribuilda pure `caddy`.
+  + ricrea il container. Se cambi anche il comando mostrato dall'app
+  (`packages/shared/src/servers/install.ts`), ribuilda pure `caddy`.
 - Modifica al **grafo** (`apps/worker/src/graph`) → ribuilda `worker`; a
   `Dockerfile.graphify` → ribuilda `graphify`; alla tab UI → `caddy`. Il pin
   `graphifyy==0.9.28` va tenuto ALLINEATO in 4 punti quando si aggiorna:
@@ -508,8 +508,10 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Indurimento di sicurezza dell'origine» (27 nov 2026; migrazione 0238 additiva, server poi caddy, rollback sicuro)
   - «La cassaforte nella nuova app nel browser» (28 nov 2026; server e caddy in qualunque ordine, nessuna migrazione, rollback sicuro)
   - «La cassaforte nel browser, fase 2» (28 nov 2026; solo caddy, prima del pacchetto per Mac nuovo; rollback sicuro solo se nessun Mac nuovo è distribuito)
+  - «Il taglio del web vecchio, R1» (28 nov 2026; server e caddy insieme, nessuna migrazione, il Mac ribuildato; rollback con l'immagine caddy di prima, da TENERE: il web vecchio non è più nel repo)
+  - «Il taglio del web vecchio, R2» (28 nov 2026; server poi worker, nessuna migrazione; via Slack, il gruppo (e), le 9 rotte della sola mobile e le loro azioni MCP; le 12 rotte dei tool dedicati restano, `owner: "mcp"`; campi Slack inerti nelle risposte fino a R3; rollback con le immagini `pre-r2`)
 - Verifica il bundle servito cercando una stringa nuova:
-  `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
+  `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/app'`.
 - Backup del DB prima di operazioni rischiose.
 
 ## Invarianti e trappole
@@ -617,7 +619,7 @@ una voce ti riguarda.
   - Si scrive nella transazione della modifica, non si modifica né si cancella mai; tipi dichiarati, mai un segreto, lettura filtrata nella WHERE.
 - **Secondo fattore sul login → `docs/invariants/second-factor.md`** (23 ott 2026):
   - Una sessione parziale apre SOLO le rotte `second_factor` (test del registro).
-  - Ogni porta che dà una sessione o un token passa dal secondo fattore (`/login`, `/mobile-login`).
+  - Ogni porta che dà una sessione o un token passa dal secondo fattore (`/login`, `/desktop-exchange`; `/mobile-login` è andata via con R2).
   - Ogni verifica di un codice o di una passkey passa da `attemptSecondFactor`.
   - La riconferma si DICHIARA (`config.reauth`, test del registro); un PAT non la soddisfa mai, salvo il PAT `desktop` riconfermato nell'app (10 min, regola unica `browserOrConfirmedDesktop`, decisione del maintainer del 10 nov 2026).
   - `/desktop-reauth` NON è una porta (verifica un codice, non dà sessione né token).
@@ -824,24 +826,10 @@ una voce ti riguarda.
   apposta perché usare la forma giusta non costi la chiusura degli enum
   sottostanti.
 
-  ⚠️ **E quella regola NON protegge il web, che è il caso in cui morde più
-  forte.** `apps/web/src/lib/api.ts` non passa uno schema di risposta al
-  client: fa un **cast**, per scelta dichiarata nel docblock del file
-  (accendere `parse` su ~40 rotte trasformerebbe ogni divergenza latente in
-  un'eccezione in faccia a un utente). Quindi sul web il `.default()` **non
-  gira mai**: un campo che il server non manda non diventa `[]` o `false`,
-  resta `undefined`. L'app, che parsa davvero via `packages/api-client`
-  (`readerSchema(schema).parse`), è coperta; la SPA no.
-  **E il modo in cui si rompe non è un campo degradato**: un `undefined` dove
-  il codice chiama `.map()` fa lanciare il render, e React smonta l'intero
-  sottoalbero — nel caso che l'ha fatto scoprire (App «posta per
-  conversazione», 14 set 2026) spariva il pannello di lettura INTERO, non una
-  riga. E i test della SPA non lo scoprono da soli: usano mock, e un mock
-  scritto insieme al campo ce l'ha sempre.
-  **Regola operativa**: un campo nuovo che il WEB legge va difeso nel punto
-  di lettura (`?? []`, `?? false`), non solo nello schema; e la fixture del
-  test che lo copre va lasciata SENZA quel campo apposta — è la prova che la
-  difesa c'è, non una svista da sistemare.
+  (Fino al ritiro c'era una seconda trappola, sul web vecchio: `apps/web`
+  faceva un cast delle risposte invece del parse, quindi i `.default()` non
+  giravano mai e un campo mancante rompeva il render. È andata via con lui,
+  R1: la nuova app parsa sempre, via `packages/api-client`.)
 
   ⚠️ **E l'app ha il GEMELLO di questa trappola, per una causa diversa — nei
   TEST (21 set 2026).** In produzione l'app è coperta: parsa davvero, quindi
@@ -861,8 +849,8 @@ una voce ti riguarda.
   ma non quelle dietro un `as`), e quando i test di una schermata falliscono
   tutti insieme dopo un cambio di schema, il primo sospetto è una fixture
   incompleta — non il componente.
-  Le due trappole non si deducono una dall'altra: sul web manca il parse **in
-  produzione**, sull'app manca **solo nei test**. La difesa è diversa —
+  Le due trappole non si deducevano una dall'altra: sul web vecchio mancava il
+  parse **in produzione**, sull'app manca **solo nei test**. La difesa è diversa —
   `?? []` nel codice del web, fixture complete nei test dell'app — e
   applicare quella sbagliata non protegge da niente.
 - **E c'è una TERZA trappola nella stessa famiglia, che non fa fallire niente
@@ -1414,7 +1402,7 @@ tutti.
   (nessun piano salvato, o `mode: "ai_plan"`) l'agente può usare il tool
   `ask_user` — un server MCP stdio bundlato nel worker, non in `@stubwise/mcp` —
   per fare una domanda a scelta multipla: il job va in `awaiting_input` e riparte
-  da solo quando il richiedente o un maintainer risponde dall'inbox, dal DM Slack
+  da solo quando il richiedente o un maintainer risponde dall'inbox (il DM Slack non c'è più dal R2)
   o dalla pagina del ticket, e anche dall'MCP (`answer_agent_question`), con
   gli stessi permessi della pagina del ticket. Dopo una domanda **non si
   rilancia `run_ticket`** (409): la pianificazione riprende da sola alla
