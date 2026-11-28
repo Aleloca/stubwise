@@ -195,6 +195,11 @@ describe("Docs — grafo", () => {
   it("nella build web: l'HTML di graphify in un iframe sandbox (solo script) al posto del grafo delle comunità; Espandi e Chiudi", async () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     vi.stubEnv("VITE_STUBWISE_TARGET", "web");
+    // happy-dom caricherebbe davvero l'URL dell'iframe (nessun server: un
+    // ECONNREFUSED nel log). Qui conta l'elemento, non la pagina.
+    const settings = (window as unknown as { happyDOM?: { settings: { disableIframePageLoading: boolean } } }).happyDOM?.settings;
+    const loading = settings?.disableIframePageLoading;
+    if (settings) settings.disableIframePageLoading = true;
     try {
       renderRoute("/p/STW/docs/stubwise/graph", "p-laura");
       const frame = await screen.findByTitle("Interactive graph of stubwise");
@@ -218,6 +223,7 @@ describe("Docs — grafo", () => {
       expect(screen.getByTitle("Interactive graph of stubwise")).toBe(frame);
     } finally {
       vi.unstubAllEnvs();
+      if (settings) settings.disableIframePageLoading = loading ?? false;
     }
   });
 
