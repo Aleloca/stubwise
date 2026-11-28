@@ -3,8 +3,8 @@
 // primitive, avvia il worker della cassaforte e collega SUBITO i segnali
 // della scheda (attività, ritorno, `pagehide`, il canale fra le schede):
 // niente di pigro che uno script arrivato dopo possa intercettare.
-// Per primo: zod senza JIT prima che si valuti uno schema (Trusted Types).
-import "../../../../platform/zodJitless";
+// Per primo: Zod senza eval prima che si valuti uno schema (CSP e Trusted Types).
+import "../../../../csp-init";
 import { harden } from "./primitives";
 import { startVaultWorker } from "./client";
 import { wireVault } from "./key";

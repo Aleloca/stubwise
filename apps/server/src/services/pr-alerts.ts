@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import { notifications, projects, repositories, type Db } from "@stubwise/db";
 import { publishNotification } from "@stubwise/notifications";
 import { and, eq, sql } from "drizzle-orm";
@@ -23,7 +24,7 @@ export async function publishPrOpened(
     .where(eq(repositories.id, input.repositoryId));
   if (!repo) return;
   const base = (publicUrl ?? "").replace(/\/+$/, "");
-  const url = `${base}/app/#/p/${repo.projectCode}/releases?pr=${input.repositoryId}%23${input.prNumber}`;
+  const url = appUrl(base, { to: "pullRequest", projectCode: repo.projectCode, repositoryId: input.repositoryId, prNumber: input.prNumber });
   // Una volta per PR anche con consegne contemporanee: il lock della PR, poi il
   // controllo e la scrittura nella stessa transazione. La chiave è la PR
   // (repository, numero), non il link: `PUBLIC_URL` può cambiare (review F2, 46).

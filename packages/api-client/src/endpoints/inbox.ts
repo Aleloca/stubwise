@@ -1,7 +1,9 @@
+import type { z } from "zod";
 import {
   alertMuteResultSchema,
   inboxActionResultSchema,
   inboxPageSchema,
+  type notificationKindSchema,
   snoozeResultSchema,
   unreadCountSchema,
 } from "@stubwise/shared";
@@ -24,6 +26,8 @@ import { seg, toQuery } from "../query.js";
 export interface InboxFilters {
   status?: InboxStatus;
   projectId?: string;
+  /** Un tipo solo (`project.pulse`: le proposte del pulse), filtrato dal server. */
+  kind?: z.infer<typeof notificationKindSchema>;
 }
 
 /**
@@ -89,6 +93,7 @@ export function createInboxEndpoints(request: ApiRequest) {
       const query = toQuery({
         status: filters.status,
         projectId: filters.projectId,
+        kind: filters.kind,
         cursor,
         limit,
       });

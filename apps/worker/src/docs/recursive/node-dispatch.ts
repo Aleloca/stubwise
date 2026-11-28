@@ -1,3 +1,4 @@
+import { repositoryDocsAppUrl } from "@stubwise/notifications";
 import { DOCS_WORKER_RESTART_ERROR } from "@stubwise/notifications";
 import { docGenerations, projects, repositories, type Db } from "@stubwise/db";
 import type { DocsPauseReason } from "@stubwise/notifications";
@@ -443,7 +444,7 @@ async function notifyLimitPaused(
         kind: "docs.limit_paused",
         projectName: row.projectName,
         repositoryName: row.repositoryName,
-        docsUrl: `${base}/docs/${repositoryId}`,
+        docsUrl: await repositoryDocsAppUrl(db, base, repositoryId),
         reason,
       },
       // Nessun ticket né job dietro una generazione Docs: l'unica ancora è il

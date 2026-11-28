@@ -5,6 +5,7 @@ import * as liveVaultDesktop from "../vaultDesktop";
 import { listPending } from "../vaultDesktop";
 import * as liveVaultReads from "../vaultReads";
 import { setVaultTransport, type VaultTransport } from "../vaultReads";
+import { listMacsOf, removeMacOf } from "../vaultMacsOf";
 
 // La cassaforte della build Electron (`@backend/vault`, target `electron`,
 // design della cassaforte nel browser §4): la chiave sta nel main, e le
@@ -43,4 +44,7 @@ export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vau
   ...liveVaultDesktop,
   // Fetta 2b: elenchi, dettaglio ed entrate, dalle rotte.
   ...liveVaultReads,
+  // Ritiro del web vecchio (inventario 1.2): i Mac di un'altra persona, dal browser.
+  listMacsOf,
+  removeMacOf,
 });

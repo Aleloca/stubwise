@@ -1981,6 +1981,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Trasversali
 
+- **Rinominare il codice di un progetto rompe i link della nuova app già
+  spediti** *(S, revisione dei link M6, 27 nov 2026)*: card, email, push e
+  webhook portano `/app/#/p/<CODICE>/…` (design
+  `docs/plans/2026-11-27-link-nuova-app-design.md`), e un codice cambiato li
+  fa finire su ProjectNotFound. Le card in inbox no: il loro link si deriva a
+  lettura coi codici di adesso (`linkContextsFor`). Nemmeno i rimandi
+  `/go/…` dei link del web vecchio, che vanno per id. Si chiude con un
+  rimando dal codice vecchio (una tabella `project_code_aliases` letta dal
+  router dell'app, o una rotta `/go/p/:code` che risolve l'alias), da fare
+  quando la PATCH del codice diventa un gesto normale.
 - **64 azioni del catalogo MCP senza schema di risposta** *(S ciascuna,
   lotto 6 della parità MCP, 26 nov 2026; decisione di 46)*: client-links
   (4), Support (7), e dai lotti 2–4 rilasci e PR, `drive/files/:id/open`,

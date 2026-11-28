@@ -345,6 +345,19 @@ const ROWS: Row[] = [
       mandatory: [{ personId: "p-stefano", reason: "added" }],
     },
   ],
+  // 27 nov 2026 (PQ-1b, revisione M6): il polso su TRM, fermo da 9 giorni. La
+  // card informa e apre la Home; la proposta si decide in Decide
+  // (`seed/pulse.ts`). In fondo: gli id delle righe di prima non cambiano.
+  [
+    "project.pulse",
+    "TRM",
+    "TRM",
+    "TRM is idle for 9 days",
+    "Two requests are ready to start from: pick one in Home.",
+    3,
+    false,
+    ["p-laura", "p-marco"],
+  ],
 ];
 
 /**
@@ -352,11 +365,12 @@ const ROWS: Row[] = [
  * (solo informazioni) non compaiono mai. Le decisioni vivono in Home, le
  * proposte della posta in Mail. `google.proposal_handed` no (lotto 4,
  * D-2.0): a chi riceve una proposta passata dice che c'è, e apre la Home.
+ * Nemmeno `project.pulse` (27 nov 2026, PQ-1b, revisione M6): la card dice
+ * che il progetto è fermo e apre la Home, dove la proposta si decide.
  */
 export const DECISION_NOTIFICATION_KINDS = [
   "job.plan_review",
   "job.awaiting_input",
-  "project.pulse",
   "google.proposal",
 ] as const;
 
@@ -388,13 +402,17 @@ const FIXED_NOTIFICATIONS: AppNotification[] = ROWS.map(
       read,
       archived: false,
       snoozedUntil: null,
-      link: task
-        ? `#/p/${code}/tasks`
-        : project && objectCode?.startsWith("SRV-")
-          ? `#/p/${project.code}/servers/${objectCode}`
-          : project
-            ? `#/p/${project.code}`
-            : projectlessLink(kind),
+      // Il polso si decide in Home (PQ-1b): la card apre lì.
+      link:
+        kind === "project.pulse"
+          ? "#/home"
+          : task
+            ? `#/p/${code}/tasks`
+            : project && objectCode?.startsWith("SRV-")
+              ? `#/p/${project.code}/servers/${objectCode}`
+              : project
+                ? `#/p/${project.code}`
+                : projectlessLink(kind),
       ...stable,
     };
   },

@@ -7437,3 +7437,64 @@ deploy o di un rollback che la tocca.
   **Rollback**: sicuro, nessun dato nuovo. Scendendo, la chiusura non azzera
   più lo sblocco sul server (vale fino ai suoi 10 minuti), e togliere un Mac
   dal browser torna a volere lo sblocco.
+
+- **«Nuova app: impostazioni di progetto, polso, design e piano» (27 nov
+  2026)**: branch `feat/impostazioni-progetto`, ritiro del web vecchio
+  (inventario `docs/plans/2026-11-27-ritiro-web-inventario.md`). Nella nuova
+  app (`/app` e desktop): Settings → General, AI e Usage del progetto; le
+  proposte del polso in Home → Decide; Remove design / Remove plan su task e
+  richieste, con le sezioni Design e Plan sulla task; i Mac di un'altra
+  persona per il full admin; lo zip dei Docs e il `graph.json` veri.
+  **Cambi di comportamento del server**:
+  - con un design attivo (`tickets.origin_content` non null), la modifica
+    della descrizione va su `origin_content` e non più sul corpo:
+    `PATCH /api/tasks/:id` (descrizione) e `PATCH /api/tickets/:id` (corpo,
+    anche dall'MCP `tickets.update`). Il design resta, e «Remove design»
+    riporta il testo modificato. Prima una modifica riscriveva il design. La
+    regola sta in `descriptionUpdate` (`apps/server/src/services/tickets.ts`);
+  - `GET /api/ai-usage/summary` accetta `projectId`: i soli consumi di quel
+    progetto, nello scope di chi guarda (`usage.view` o
+    `project.usage.view`), 404 per un progetto fuori scope o invisibile
+    (R-G5). Contro un server di prima l'app se ne accorge e chiede di
+    aggiornarlo.
+  **Deploy**: nessuna migrazione, nessuna env, nessun `notification_kind`
+  nuovo. Ribuildare **`server`** e **`caddy`**; il worker non cambia.
+  **Rollback**: sicuro, server e caddy insieme. Scendendo, la descrizione di
+  un ticket con un design attivo torna a scrivere il corpo (cioè il design),
+  come prima; i testi già salvati su `origin_content` restano e «Remove
+  design» li riporta.
+
+- **«I link portano alla nuova app» (27 nov 2026)**: rami
+  `feat/link-nuova-app` e `feat/link-go-routes`, che si appoggia al primo.
+  Primo passo del ritiro del web vecchio; il design è
+  `docs/plans/2026-11-27-link-nuova-app-design.md`. I link che server,
+  worker, notifiche e MCP scrivono nascono da un posto solo
+  (`packages/shared/src/app-links.ts`) e portano alla nuova app (`/app/#/…`):
+  card, email, push, DM, webhook in uscita, risposte di SDK e MCP.
+  - Il consenso Google avviato dalla nuova app nel browser
+    (`client: "web"`) torna a `/app/#/preferences/account`; quello del web
+    vecchio resta su `/settings/account`.
+  - Ci sono i rimandi `GET /go/…`, che dagli id dei link già spediti
+    portano alla nuova app.
+  - Campi additivi: `appPath` su ticket e voce di backlog, `ticketAppPath`,
+    `resultItemAppPath`; `serverId` negli eventi del monitor.
+  **Cosa ribuildare**: `server`, `worker` e `caddy`: il `Caddyfile` proxa
+  `/go/*`, e le regole del ritiro sono scritte ma commentate. Nessuna
+  migrazione, nessuna env. L'MCP esce col suo changeset (patch).
+  **Ordine**: `server`, poi `worker`, poi `caddy`. Niente riavvii del worker
+  con lavoro dell'agente in corso.
+  **Controllo dopo il deploy**: una card nuova (un piano da approvare, un
+  avviso di sicurezza) apre la nuova app dal DM o dall'email. Un percorso
+  vecchio passato a mano dai rimandi, con la sessione, porta all'oggetto:
+  `/go/tickets/<id>`. Senza sessione porta all'ingresso dell'app.
+  **Rollback**: sicuro, server, worker e caddy insieme.
+  - I link già scritti nei jsonb restano quelli della nuova app, che
+    continua a esistere.
+  - Le card `monitor.*` nuove, col server vecchio, perdono il codice del
+    server (l'inbox vecchia lo cerca nell'URL del web vecchio) e si aprono
+    nel web come prima.
+  - Il server vecchio ignora `client: "web"` e rimanda a
+    `/settings/account`.
+  **Al ritiro**: togliere i `#` del blocco «Ritiro del web vecchio» del
+  `Caddyfile` (validato anche acceso) e mandare il resto del web vecchio
+  alla nuova app.

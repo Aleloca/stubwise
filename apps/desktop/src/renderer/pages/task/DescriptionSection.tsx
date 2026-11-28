@@ -19,8 +19,28 @@ import { Section, ghostButton, smallPrimary, smallSecondary } from "./parts";
  * il fuoco [DR 8]: la task non cambia finché la persona non preme «Save»
  * (`updateTask` a mano, nessun `via`). Esc butta la bozza.
  */
-export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boolean }) {
+export function DescriptionSection({
+  task,
+  canEdit,
+  original = null,
+  pending = false,
+}: {
+  task: Task;
+  canEdit: boolean;
+  /** Design e piano si stanno ancora leggendo: finché non si sa, niente modifica (I1). */
+  pending?: boolean;
+  /**
+   * Con un design attivo (shape `design-plan-remove.md`, DP-Q2b): il testo
+   * originale da mostrare. La descrizione non si modifica finché il design
+   * c'è: modificarla riscriverebbe il design.
+   */
+  original?: string | null;
+}) {
   const { t } = useTranslation();
+  // Revisione, I1: col design attivo (o finché non si sa) né la persona né
+  // Claude modificano la descrizione: nella build app il campo conterrebbe
+  // il design, e salvarlo lo riscriverebbe.
+  const editable = canEdit && original === null && !pending;
   const change = useInlineUpdate();
   const [draft, setDraftState] = useState<string | null>(null);
   /** Il testo del campo adesso, letto dal riquadro senza aspettare il render. */
@@ -70,7 +90,7 @@ export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boo
   }, [byClaude]);
 
   useFillableField(
-    canEdit
+    editable
       ? {
           ref: { kind: "taskDescription", taskId: task.id },
           labelKey: "claude.drafts.placed.taskDescription",
@@ -94,6 +114,17 @@ export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boo
         }
       : null,
   );
+
+  if (original !== null) {
+    return (
+      <Section title={title}>
+        {original.trim() ? <Markdown source={original} /> : null}
+        <p data-design-locked className="text-xs text-ink-muted">
+          {t("designPlan.descriptionLocked")}
+        </p>
+      </Section>
+    );
+  }
 
   if (draft !== null) {
     return (
@@ -140,7 +171,7 @@ export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boo
     );
   }
 
-  const edit = canEdit && (
+  const edit = editable && (
     <button
       ref={editRef}
       type="button"

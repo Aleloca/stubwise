@@ -213,6 +213,7 @@ describe("buildPulseEvent", () => {
   const event = buildPulseEvent({
     pulseId,
     projectId,
+    projectCode: "NEG",
     projectName: "negozio-web",
     publicUrl: "https://stubwise.example.com",
     idleDays: 4,
@@ -253,8 +254,8 @@ describe("buildPulseEvent", () => {
     expect(event.idleDays).toBe(4);
   });
 
-  it("il link porta al backlog FILTRATO sul progetto", () => {
-    expect(event.projectUrl).toBe(`https://stubwise.example.com/backlog?projectId=${projectId}`);
+  it("il link porta alle richieste del progetto nella nuova app", () => {
+    expect(event.projectUrl).toBe("https://stubwise.example.com/app/#/p/NEG/requests");
   });
 
   it("il payload regge `inboxQuestionSchema` con pulseId al posto di questionId", () => {
@@ -269,6 +270,7 @@ describe("buildPulseEvent", () => {
       const built = buildPulseEvent({
         pulseId: randomUUID(),
         projectId: randomUUID(),
+        projectCode: "NEG",
         projectName: "negozio-web",
         publicUrl: "",
         idleDays,
@@ -693,7 +695,8 @@ describe("pollPulseOnce — candidati e proposte", () => {
     };
     expect(event.idleDays).toBe(4);
     expect(event.projectName).toBe("negozio-web");
-    expect(event.projectUrl).toBe(`https://stubwise.example.com/backlog?projectId=${projectId}`);
+    const [proj] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
+    expect(event.projectUrl).toBe(`https://stubwise.example.com/app/#/p/${proj!.code}/requests`);
     expect(event.question).toContain("giorni di fermo: 4");
   });
 });

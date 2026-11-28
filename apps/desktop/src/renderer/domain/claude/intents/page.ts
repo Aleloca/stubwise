@@ -72,7 +72,7 @@ const ASSIGNEE = /\b(?:assigned to|assegnate a|by|di|of|for|per)\s+([A-Z][a-zà-
 const WHEN_WORD =
   /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|yesterday|january|february|march|april|may|june|july|august|september|october|november|december|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica|domani|ieri|gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)$/;
 /** Un codice di progetto davanti a «tasks» («show ACQ tasks»), anche di un progetto che non si vede. */
-const CODE_TASKS = /\b([A-Z]{2,4})\s+tasks?\b/;
+const CODE_TASKS = /\b([A-Z][A-Z0-9]{1,5})\s+tasks?\b/;
 /** Il nome del filtro dopo «as/come» (senza virgolette). */
 const NAMED = /\b(?:as|called|named|come|chiamato|col nome)\s+(.+)$/i;
 
@@ -214,7 +214,7 @@ async function saveFilter(text: string, ctx: IntentContext): Promise<Answer> {
   if (!last) return say(t(`${K}.needFilter`));
   const name = filterName(text);
   if (!name) return say(t(`${K}.needName`));
-  const code = /^\/p\/([A-Z]{2,4})\/tasks$/.exec(last.route)?.[1] ?? null;
+  const code = /^\/p\/([A-Z][A-Z0-9]{1,5})\/tasks$/.exec(last.route)?.[1] ?? null;
   const project = code ? (await read.listProjects()).find((p) => p.code === code) : undefined;
   // Il progetto del filtro non si vede più: come uno che non c'è.
   if (code && !project) return say(t("claude.answers.status.projectNotFound", { code }));

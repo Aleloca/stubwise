@@ -324,9 +324,8 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
     (`platform/trustedHtml.guard.test.ts`) vietano le scritture di HTML fuori
     dal modulo, dicono chi importa quale funzione, che i nodi del documento
     inerte non escono (m-6) e che `createPolicy` sta solo lì e nel boot della
-    cassaforte. Zod gira senza JIT (`platform/zodJitless.ts`, il primo
-    import del boot e del worker): la sua sonda `new Function` sarebbe una
-    violazione.
+    cassaforte. Zod gira senza eval (`csp-init.ts`, il primo import del
+    boot e del worker): la sua sonda `new Function` sarebbe una violazione.
   - **Nessun Service Worker sull'origine** (m-7): Caddy risponde 403 a ogni
     richiesta con `Service-Worker: script`, nel primo `handle` del sito.
 - **La cassaforte nella nuova app nel browser (`/app`, 28 nov 2026).** Design

@@ -226,6 +226,10 @@ export type BacklogItem = z.infer<typeof backlogItemSchema>;
  * e il nucleo del dettaglio, che vi aggiunge `tickets` e `refineSession`.
  */
 export const backlogItemBaseSchema = z.object({
+  // Ritiro del web vecchio (additivo): la voce nella nuova app, come percorso
+  // dell'istanza (`app-links`); lo usa chi compone un link fuori dal server
+  // (l'MCP). Lo danno il dettaglio e le scritture di design e piano.
+  appPath: z.string().optional(),
   id: z.uuid(),
   projectId: z.uuid(),
   title: z.string(),
@@ -325,6 +329,8 @@ export const backlogJobResultSchema = z.object({
   status: backlogJobStatusSchema,
   resultItemId: z.uuid().nullable(),
   error: z.string().nullable(),
+  /** Ritiro del web vecchio (additivo): la voce nella nuova app, come percorso dell'istanza. */
+  resultItemAppPath: z.string().optional(),
 });
 export type BacklogJobResult = z.infer<typeof backlogJobResultSchema>;
 
@@ -332,5 +338,7 @@ export type BacklogJobResult = z.infer<typeof backlogJobResultSchema>;
 export const convertBacklogResultSchema = z.object({
   ticketId: z.uuid(),
   ticketNumber: z.number().int(),
+  /** Ritiro del web vecchio (additivo): la task nella nuova app, come percorso dell'istanza. */
+  ticketAppPath: z.string().optional(),
 });
 export type ConvertBacklogResult = z.infer<typeof convertBacklogResultSchema>;

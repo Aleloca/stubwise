@@ -1697,6 +1697,34 @@
         "openHistory": "Open history",
         "forbidden": "Not sent: answering is for people with Edit docs in {{code}}. Nothing was changed.",
         "who": "Who?"
+      },
+      "pulse": {
+        "question_one": "{{code}} has been idle for {{count}} day. Pick what to start.",
+        "question_other": "{{code}} has been idle for {{count}} days. Pick what to start.",
+        "legend": "What to start in {{code}}",
+        "suggested": "Suggested",
+        "urgency": {
+          "low": "Low urgency",
+          "medium": "Medium urgency",
+          "high": "High urgency",
+          "urgent": "Urgent"
+        },
+        "effort": "Effort {{value}}/5",
+        "consequence": "Start creates a task from this item and starts Claude on it. Claude writes a plan first, and it waits for approval before any code changes.",
+        "start": "Start",
+        "notNow": "Not now",
+        "open": "Open",
+        "started": "Started {{code}}: Claude is writing the plan.",
+        "startedApproval": "Started {{code}}: the plan is waiting for approval.",
+        "errors": {
+          "stale": "This proposal is out of date: nothing was started.",
+          "run_not_started": "{{code}} was created, but Claude didn't start. Open it and start it from there.",
+          "forbidden": "You can't start work in this project anymore.",
+          "failed": "Couldn't start. Try again.",
+          "budget_exhausted": "Start is off: the monthly AI budget is used up. It works again when the budget is raised or the month ends."
+        },
+        "startedNoCode": "Started: Claude is writing the plan.",
+        "startedApprovalNoCode": "Started: the plan is waiting for approval."
       }
     },
     "myTasks": {
@@ -2962,7 +2990,10 @@
       "providerGone": "That account no longer exists. Choose another.",
       "runsKeep": "The account is the one each run starts with: runs already started keep theirs.",
       "none": "There are no AI accounts on this instance yet. Claude can't work until someone adds one in Administration → AI.",
-      "noneLink": "Open Administration → AI"
+      "noneLink": "Open Administration → AI",
+      "current": "Current account",
+      "currentName": "the current account",
+      "currentBody": "Chosen by an AI administrator. You can't see the instance's accounts, so it stays as it is."
     },
     "automations": {
       "intro": "What Claude does on its own in {{code}}, without anyone asking.",
@@ -5647,8 +5678,10 @@
       "download": "Download as .zip",
       "downloaded_one": "Downloaded {{file}} ({{count}} page)",
       "downloaded_other": "Downloaded {{file}} ({{count}} pages)",
+      "downloadFailed": "Couldn't download this category. Try again.",
       "empty": "No pages",
-      "error": "Couldn't load the pages."
+      "error": "Couldn't load the pages.",
+      "openedInBrowser": "{{file}} opens in your browser, which saves it."
     },
     "index": {
       "newPage": "New manual page",
@@ -5804,6 +5837,7 @@
       "hint": "Open a community to see its most connected parts.",
       "download": "Download graph.json",
       "downloaded": "Downloaded graph.json",
+      "downloadFailed": "Couldn't download graph.json. Try again.",
       "fromTerminal": "From a terminal",
       "copyCommand": "Copy the command",
       "copied": "Command copied",
@@ -11123,7 +11157,8 @@
         "loadError": "Couldn't load the usage.",
         "noProvider": "No account, or an account that was removed",
         "rangeTooLong": "Choose at most a year.",
-        "invalidRange": "The start date comes after the end date."
+        "invalidRange": "The start date comes after the end date.",
+        "serverOutdated": "This instance's server is older than the app and can't show one project's usage on its own. Update the server to see it here."
       },
       "prototype": {
         "label": "Prototype only"
@@ -13906,5 +13941,32 @@
       "log": "Access log",
       "panel": "Access log of {{code}}"
     }
+  },
+  "designPlan": {
+    "cancel": "Cancel",
+    "confirm": "Remove",
+    "design": {
+      "more": "More for the design",
+      "remove": "Remove design…",
+      "dialogTitle": "Remove the design?",
+      "requestConsequence": "The design goes away; the request keeps its description. A refine with Claude can write it again.",
+      "taskConsequence": "The description goes back to the original text. A design can be written again later.",
+      "removed": "Design removed",
+      "failed": "Couldn't remove the design. Try again.",
+      "title": "Design"
+    },
+    "plan": {
+      "more": "More for the plan",
+      "remove": "Remove plan…",
+      "dialogTitle": "Remove the plan?",
+      "requestConsequence": "The plan goes away. A refine with Claude can write it again.",
+      "taskConsequence": "The next run plans on its own, and the plan goes to approval again.",
+      "removed": "Plan removed",
+      "failed": "Couldn't remove the plan. Try again.",
+      "title": "Plan"
+    },
+    "show": "Show",
+    "hide": "Hide",
+    "descriptionLocked": "Remove the design to edit the description."
   }
 }

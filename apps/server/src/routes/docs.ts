@@ -1,3 +1,4 @@
+import { RESERVED_DOC_PAGE_SLUGS, unreservedSlug } from "@stubwise/shared";
 import {
   docPageLinkSchema,
   docPageSchema,
@@ -1115,7 +1116,8 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       }
 
       // Slug derivato cappato come quello fornito (max 300 char), per coerenza.
-      const resolvedSlug = slug ?? slugify(title).slice(0, 300);
+      // Uno slug che l'indirizzo dei Docs della nuova app usa già (`new`, `brief`…) prende un suffisso.
+      const resolvedSlug = unreservedSlug(slug ?? slugify(title).slice(0, 300), RESERVED_DOC_PAGE_SLUGS, "page");
 
       try {
         const [created] = await app.db

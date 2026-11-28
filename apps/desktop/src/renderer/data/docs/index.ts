@@ -11,6 +11,7 @@ export {
   searchDocs,
 } from "./reads";
 export { askDocs } from "./chat";
+export { downloadGraphJson, exportCategory, type DocDownloadResult } from "./downloads";
 export {
   createManualPage,
   deleteManualPage,

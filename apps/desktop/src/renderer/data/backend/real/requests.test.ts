@@ -13,6 +13,8 @@ import {
   mergeRequest,
   reopenRequest,
   restoreRequest,
+  removeRequestDesign,
+  removeRequestPlan,
   updateRequest,
 } from "./requests";
 
@@ -395,5 +397,35 @@ describe("le Requests dal server", () => {
     await expect(mergeRequest(ITEM, "33333333-3333-4333-8333-333333333398")).rejects.toMatchObject({
       code: "merge_failed",
     });
+  });
+});
+
+describe("togliere design e piano (shape `design-plan-remove.md`)", () => {
+  it("il DELETE della voce, poi la richiesta riletta", async () => {
+    const { seen } = installFakeServer({
+      [`DELETE /api/backlog/${ITEM}/design`]: { body: {} },
+      [`DELETE /api/backlog/${ITEM}/plan`]: { body: {} },
+      [`GET /api/requests/${ITEM}`]: { body: view({ design: null, plan: null, description: "Users want CSV." }) },
+    });
+    expect((await removeRequestDesign(ITEM)).design).toBeNull();
+    expect(seen.some((r) => r.method === "DELETE" && r.path === `/api/backlog/${ITEM}/design`)).toBe(true);
+    expect((await removeRequestPlan(ITEM)).plan).toBeNull();
+    expect(seen.some((r) => r.method === "DELETE" && r.path === `/api/backlog/${ITEM}/plan`)).toBe(true);
+  });
+
+  it("già tolto da un altro (404 `no_active_design`): non è un errore, si rilegge", async () => {
+    installFakeServer({
+      [`DELETE /api/backlog/${ITEM}/design`]: { status: 404, body: { code: "no_active_design", message: "x" } },
+      [`GET /api/requests/${ITEM}`]: { body: view({ design: null, plan: null, description: "Users want CSV." }) },
+    });
+    expect((await removeRequestDesign(ITEM)).design).toBeNull();
+  });
+
+  it("M1: un altro 404 (`not_found`) non è «già tolto»", async () => {
+    installFakeServer({
+      [`DELETE /api/backlog/${ITEM}/design`]: { status: 404, body: { code: "not_found", message: "x" } },
+      [`GET /api/requests/${ITEM}`]: { body: view({ design: null, plan: null, description: "Users want CSV." }) },
+    });
+    await expect(removeRequestDesign(ITEM)).rejects.toThrow();
   });
 });

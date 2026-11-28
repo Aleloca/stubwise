@@ -370,7 +370,7 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
                       key === "pending"
                     ? /^[\w-]+$/.test(value)
                     : key === "projects"
-                      ? /^[A-Z]{2,4}(,[A-Z]{2,4})*$/.test(value)
+                      ? /^[A-Z][A-Z0-9]{1,5}(,[A-Z][A-Z0-9]{1,5})*$/.test(value)
                       : // Releases: l'id della PR; nella build app è `<repository>#<numero>`
                         // (`data/backend/real/releasePrs.ts`).
                         key === "pr"

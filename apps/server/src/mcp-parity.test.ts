@@ -110,7 +110,22 @@ function implied(r: Collected) {
 }
 
 /** Le rotte pubbliche d'infrastruttura: elenco chiuso. */
-const INFRA = new Set(["GET /health", "GET /api/openapi.json"]);
+const INFRA = new Set([
+  "GET /health",
+  "GET /api/openapi.json",
+  // I rimandi del web vecchio (`routes/go.ts`, ritiro del web vecchio): 302 per i
+  // browser che seguono un link già spedito; per Claude Code non servono.
+  "GET /go/tickets/:id",
+  "GET /go/agents/job/:jobId",
+  "GET /go/backlog/:id",
+  "GET /go/backlog",
+  "GET /go/projects/:id",
+  "GET /go/projects/:id/roadmap",
+  "GET /go/projects/:id/backlog",
+  "GET /go/docs/:repositoryId",
+  "GET /go/docs/:repositoryId/:slug",
+  "GET /go/monitor/servers/:id",
+]);
 /** Le rotte del PAT dell'app desktop: elenco chiuso. */
 const DESKTOP_LINK = new Set(["POST /api/auth/desktop-reauth"]);
 /**

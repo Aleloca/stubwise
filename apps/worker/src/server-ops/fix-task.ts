@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { aiJobs, environmentServers, projectEnvironments, projects, serverAnalyses, serverFixes, servers, tickets, type Db } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
@@ -118,7 +119,8 @@ export async function openServerTask(
     serverId: server.id,
     taskCode: created.taskCode,
     title,
-    url: `${input.publicUrl.replace(/\/+$/, "")}/app/#/p/${created.projectCode}/tasks/${created.taskCode}`,
+    // `?task=` e non `/tasks/<codice>`, che il router della nuova app non conosce.
+    url: appUrl(input.publicUrl, { to: "task", projectCode: created.projectCode, taskCode: created.taskCode }),
   };
   try {
     await publish(db, event, {
@@ -165,7 +167,7 @@ export async function notifyAnalysisRequester(
     serverId: server.id,
     taskCode: null,
     title: t(input.language, "server.taskTitleManual", { code, name: server.name }),
-    url: `${input.publicUrl.replace(/\/+$/, "")}/app/#/p/${projectCode}/servers/${code}`,
+    url: appUrl(input.publicUrl, { to: "server", projectCode, serverCode: code }),
     outcome: input.outcome,
   };
   try {
@@ -219,7 +221,7 @@ export async function notifyAnalysisOutcome(
       serverId: server.id,
       taskCode: null,
       title,
-      url: `${input.publicUrl.replace(/\/+$/, "")}/app/#/p/${p.code}/servers/${code}`,
+      url: appUrl(input.publicUrl, { to: "server", projectCode: p.code, serverCode: code }),
       outcome: input.outcome,
     };
     try {

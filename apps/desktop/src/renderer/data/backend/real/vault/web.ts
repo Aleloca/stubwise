@@ -21,6 +21,7 @@ import * as key from "../vaultBrowser/key";
 import { unlockInBrowser } from "../vaultBrowser/unlock";
 import * as liveVaultReads from "../vaultReads";
 import { setVaultTransport } from "../vaultReads";
+import { listMacsOf, removeMacOf } from "../vaultMacsOf";
 
 // La cassaforte della build web servita su `/app` (`@backend/vault`, target
 // `web`, design della cassaforte nel browser; revisione di sicurezza I-1): la
@@ -189,5 +190,8 @@ export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vau
   listPending,
   confirm,
   reject,
+  // Ritiro del web vecchio (inventario 1.2): i Mac di un'altra persona.
+  listMacsOf,
+  removeMacOf,
   ...liveVaultReads,
 });

@@ -40,6 +40,9 @@ project-form.tsx`, chiavi `projects.form.*` e `projects.detail.*`. Riusa
     sguardo che il resto lo legge soltanto. È il caso del «View only».
   - **Chi guarda i conti del progetto** (`project.usage.view`): «quanto è
     costato Claude su ACQ questo mese, e in cosa?».
+    Divergenza dichiarata (R-G5, 27 nov 2026): senza `project.usage.view` il
+    prototipo risponde `forbidden`, la build app `null` (il server dà 404
+    apposta, per non dire nemmeno che i consumi esistono).
 - **Stato d'animo**: manutenzione rara e consapevole. Ogni interruttore dice
   in parole **cosa cambia per chi lavora** e **dove lo si vedrà**.
 
