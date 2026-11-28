@@ -15,6 +15,8 @@ import {
 } from "../../data/queries";
 import { useReauth } from "../../layout/useReauth";
 import { MacsPart } from "../vault/MacsPart";
+import { VaultPasskeyAction } from "../vault/setup/VaultPasskeyAction";
+import { isWebAppBuild } from "../../platform/vaultBridge";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { isAppBuild, isDesktopApp } from "../../data/build";
@@ -41,6 +43,7 @@ import {
   useDayWord,
 } from "./parts";
 import { SecretOnce } from "./SecretOnce";
+import { QrImage } from "../../platform/qrImage";
 
 // Preferenze → Security (shape preferences-account.md): la riga di stato in
 // testa, l'app di autenticazione (configurazione in posto [PR 5]), le
@@ -343,11 +346,10 @@ function AppPart({
                 )}
                 <div className="flex flex-wrap items-start gap-6">
                   <figure className="flex flex-col items-start gap-1.5">
-                    <div
-                      className="size-40 rounded-md border border-rule bg-white p-2 text-black [&>svg]:size-full"
-                      role="img"
-                      aria-label={t("prefs.security.app.qrLabel")}
-                      dangerouslySetInnerHTML={{ __html: setup.qrSvg }}
+                    <QrImage
+                      svg={setup.qrSvg}
+                      label={t("prefs.security.app.qrLabel")}
+                      className="size-40 rounded-md border border-rule bg-white p-2"
                     />
                     <figcaption className="text-xs text-ink-muted">
                       {t("prefs.security.app.qrNote")}
@@ -663,6 +665,8 @@ function PasskeyRow({ passkey: k, removable }: { passkey: Passkey; removable: bo
           </span>
         )}
         <span className="num ml-auto shrink-0 text-sm text-ink-muted">{meta}</span>
+        {/* Fase 2 della cassaforte (design §10): solo nella build web. */}
+        {!editing && isWebAppBuild() && <VaultPasskeyAction passkeyId={k.id} name={k.name} />}
         {!editing && (
           <button
             ref={renameButton}

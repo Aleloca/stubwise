@@ -11,6 +11,13 @@ maintainer.** Si rifà alla chiusura della parità e quando cambiano i tool
 curati, le istruzioni del server (`src/instructions.ts`), la skill o il CLI
 pinnato.
 
+Le dodici rotte che servono i tool dedicati (backlog, design e piano del
+ticket, i brief, il catalogo `/api/mcp/catalog`) sono dell'MCP **per scelta**
+(D10, decisione del maintainer del 28 nov 2026: `owner: "mcp"`, elenco chiuso
+in `apps/server/src/mcp/mcp-owned.test.ts`): l'app non le chiama e restano
+dopo il ritiro del web vecchio. Si rifà il golden anche quando cambia una di
+loro.
+
 ## Prima di cominciare
 
 1. **Un'istanza di prova**, mai la produzione: il compose locale con dati di

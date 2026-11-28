@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { decisionRequests, notifications, projects, ticketFollowers, tickets } from "@stubwise/db";
+import { decisionRequests, notifications, projects, ticketFollowers, tickets, roleUpdate } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { decisionRequestViewSchema } from "@stubwise/shared";
@@ -278,7 +278,7 @@ describe("notifiche ai follower", () => {
     const ticketId = await task();
     await testDb.db.insert(ticketFollowers).values({ ticketId, userId: third.id });
     const { recordTicketStatusChange } = await import("@stubwise/db");
-    await testDb.db.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, ticketId));
+    await testDb.db.update(tickets).set({ ...roleUpdate("in_review") }).where(eq(tickets.id, ticketId));
     await recordTicketStatusChange(testDb.db, { ticketId, from: "open", to: "in_review", actorId: null });
     expect((await notificationsOf(third.id, "ticket.activity")).filter((x) => x.ticketId === ticketId)).toHaveLength(0);
   });

@@ -64,7 +64,7 @@ describe("le menzioni della Chat nell'inbox", () => {
       link: `#/chat/${CH}?message=${MSG}`,
       chatMessageId: MSG,
     });
-    expect(n!.webHref).toBeUndefined();
+    expect(n!).not.toHaveProperty("webHref");
   });
 
   // Registro, A4 r.169 (72, d6a0a83d2): la card di un avviso di gruppo dice

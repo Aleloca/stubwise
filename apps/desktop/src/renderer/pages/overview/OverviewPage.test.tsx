@@ -6,6 +6,7 @@ import i18n from "i18next";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failNext, resetApi, setLatency } from "../../data/api";
 import { state } from "../../data/store";
+import { BRIEFS } from "../../data/seed/briefs";
 import type { ProjectPulse } from "../../data/types";
 import { useProjectSwitches, useSaveProjectAutomations } from "../../data/queries";
 import { ViewerProvider, resetViewerGrants } from "../../data/viewer";
@@ -159,6 +160,31 @@ describe("OverviewPage — Where it stands", () => {
       .catch(() => screen.findByRole("dialog", { name: "Weekly brief" }));
     expect(await within(panel).findByText("What's blocking")).toBeInTheDocument();
     expect(within(panel).getByText("Generated text")).toBeInTheDocument();
+  });
+
+  it("un brief che non è l'ultimo si legge nello stesso pannello, con la riga «non è l'ultimo» e il link all'ultimo", async () => {
+    const router = renderRoute("/p/STW/overview?brief=brief-stw-2026-10-12", "p-giulia");
+    const panel = await screen
+      .findByRole("region", { name: "Weekly brief" })
+      .catch(() => screen.findByRole("dialog", { name: "Weekly brief" }));
+    expect(await within(panel).findByText(/Brief of Oct 12 · not the latest/)).toBeInTheDocument();
+    expect(within(panel).getByText("Generated text")).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole("button", { name: "Open the latest" }));
+    await waitFor(() => expect(search(router).brief).toBe("brief-stw-2026-10-19"));
+    await waitFor(() => expect(within(panel).queryByText(/not the latest/)).toBeNull());
+  });
+
+  it("un brief di un progetto invisibile, o ignoto: il pannello lo dice, senza contenuto", async () => {
+    renderRoute("/p/ACQ/overview?brief=brief-aud-2026-10-12", "p-sara");
+    const panel = await screen
+      .findByRole("region", { name: "Weekly brief" })
+      .catch(() => screen.findByRole("dialog", { name: "Weekly brief" }));
+    expect(await within(panel).findByText("This brief isn't available.")).toBeInTheDocument();
+    expect(within(panel).queryByText("Generated text")).toBeNull();
+    // Né il titolo né il testo di quel brief (M6).
+    const hidden = BRIEFS.find((b) => b.id === "brief-aud-2026-10-12")!;
+    expect(document.body.textContent).not.toContain(hidden.headline);
+    expect(document.body.textContent).not.toContain(hidden.summary.slice(0, 60));
   });
 
   it("«Copy as text» copia il brief senza markdown, col periodo e «Generated text»", async () => {

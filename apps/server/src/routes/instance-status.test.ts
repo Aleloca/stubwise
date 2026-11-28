@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { aiJobs, changeLog, docPageCodes, instanceSettings, productDocJobs, productPageUpdates, productPages, productWireframes, projectMembers, projects, roles, tickets, users, workerHeartbeats, type Db, agentRuns } from "@stubwise/db";
+import { aiJobs, changeLog, docPageCodes, instanceSettings, productDocJobs, productPageUpdates, productPages, productWireframes, projectMembers, projects, roles, tickets, users, workerHeartbeats, type Db, agentRuns, roleUpdate } from "@stubwise/db";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { InstanceStatus } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
@@ -208,7 +208,7 @@ describe("lo Stato dell'istanza", () => {
   it("un ticket chiuso non si rilancia", async () => {
     const s = await seedTicket(db);
     const f = await job(s.ticketId, { status: "failed", finishedAt: minutesAgo(1) });
-    await db.update(tickets).set({ status: "done" }).where(eq(tickets.id, s.ticketId));
+    await db.update(tickets).set({ ...roleUpdate("done") }).where(eq(tickets.id, s.ticketId));
     expect((await status()).body.jobs.find((j) => j.id === f.id)).toMatchObject({ retry: "unavailable" });
   });
 });
@@ -271,7 +271,7 @@ describe("il rilancio (Task 6)", () => {
     expect((await retry(old.id)).statusCode).toBe(422);
     const c3 = await seedTicket(db, { projectId: s.projectId, repositoryId: s.repositoryId, number: 22 });
     const closedJob = await job(c3.ticketId, { status: "failed", finishedAt: minutesAgo(1) });
-    await db.update(tickets).set({ status: "done" }).where(eq(tickets.id, c3.ticketId));
+    await db.update(tickets).set({ ...roleUpdate("done") }).where(eq(tickets.id, c3.ticketId));
     expect((await retry(closedJob.id)).statusCode).toBe(422);
     const c4 = await seedTicket(db, { projectId: s.projectId, repositoryId: s.repositoryId, number: 23 });
     const f = await job(c4.ticketId, { status: "failed", finishedAt: minutesAgo(1) });

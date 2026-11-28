@@ -209,8 +209,9 @@ describe("rotte con riconferma recente", () => {
       "DELETE /api/users/:id/second-factor",
       "DELETE /api/users/:id/slack",
       // Lotto 10: togliere un Mac dalla cassaforte (il proprio, o di un altro da un full admin).
-      "DELETE /api/vault/device-seals/:id (vault)",
-      "DELETE /api/vault/users/:userId/device-seals/:id (vault)",
+      // m-2: la riconferma normale (non usa la chiave, procedura d'incidente).
+      "DELETE /api/vault/device-seals/:id",
+      "DELETE /api/vault/users/:userId/device-seals/:id",
       "PATCH /api/roles/:id",
       "PATCH /api/users/:id/email",
       "PATCH /api/users/:id/instance-role",
@@ -246,7 +247,7 @@ describe("rotte con riconferma recente", () => {
       "POST /api/users/:id/git-identities",
       "POST /api/users/:id/password-reset",
       "POST /api/users/:id/reactivate",
-      "POST /api/vault/activate (vault)",
+      "POST /api/vault/activate",
       // Review 2, M4: chiedere l'associazione di un Mac (la riconferma del desktop, dichiarata).
       "POST /api/vault/device-pairings",
       // Lotto 10: sigillare la propria chiave per un Mac (dal browser).
@@ -254,9 +255,9 @@ describe("rotte con riconferma recente", () => {
       "POST /api/vault/keys (vault)",
       "POST /api/vault/keys/:id/seals (vault)",
       "POST /api/vault/recovery-key (vault)",
-      "POST /api/vault/recovery/challenge (vault)",
-      "POST /api/vault/recovery/confirm/:personKeyId (vault)",
-      "POST /api/vault/recovery/pending (vault)",
+      "POST /api/vault/recovery/challenge",
+      "POST /api/vault/recovery/confirm/:personKeyId",
+      "POST /api/vault/recovery/pending",
       "PUT /api/projects/:projectId/members/:userId",
       "PUT /api/repositories/:id/env-files/:fileId/vars/:key",
       "PUT /api/users/:id/bitbucket",

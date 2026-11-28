@@ -8,35 +8,49 @@
 import { fromBase32, toBase32, toBase64Url } from "./encoding.js";
 import { unwrapItemKey, wrapItemKey } from "./items.js";
 import { generateExportableKeyPair, importPrivateKey } from "./keys.js";
+import { subtle } from "./runtime.js";
 
 const CHECKSUM_BYTES = 5;
 const GROUP = 5;
 
 async function checksum(pkcs8: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", pkcs8);
+  const digest = await subtle().digest("SHA-256", pkcs8);
   return new Uint8Array(digest, 0, CHECKSUM_BYTES);
 }
 
 export async function generateRecoveryKit(): Promise<{ publicKey: string; kitText: string }> {
   const { publicKey, privateKeyPkcs8 } = await generateExportableKeyPair();
   const payload = new Uint8Array(privateKeyPkcs8.length + CHECKSUM_BYTES);
-  payload.set(privateKeyPkcs8);
-  payload.set(await checksum(privateKeyPkcs8), privateKeyPkcs8.length);
-  const text = toBase32(payload);
-  const groups = text.match(new RegExp(`.{1,${GROUP}}`, "g")) ?? [];
-  return { publicKey, kitText: groups.join("-") };
+  try {
+    payload.set(privateKeyPkcs8);
+    payload.set(await checksum(privateKeyPkcs8), privateKeyPkcs8.length);
+    const text = toBase32(payload);
+    const groups = text.match(new RegExp(`.{1,${GROUP}}`, "g")) ?? [];
+    return { publicKey, kitText: groups.join("-") };
+  } finally {
+    // m-7: la privata in chiaro non resta in memoria più del necessario (il
+    // testo del kit è una stringa, e quella non si azzera: lo dice il design §12).
+    privateKeyPkcs8.fill(0);
+    payload.fill(0);
+  }
 }
 
 /** Ricava la privata (non estraibile) dal testo del kit; lancia se non torna. */
 export async function parseRecoveryKit(kitText: string): Promise<CryptoKey> {
   const normalized = kitText.toUpperCase().replace(/[\s-]/g, "");
   const payload = fromBase32(normalized);
-  if (payload.length <= CHECKSUM_BYTES) throw new Error("kit di recupero non valido");
-  const pkcs8 = payload.slice(0, payload.length - CHECKSUM_BYTES);
-  const expected = await checksum(pkcs8);
-  const actual = payload.subarray(payload.length - CHECKSUM_BYTES);
-  if (!expected.every((b, i) => b === actual[i])) throw new Error("kit di recupero: checksum errato");
-  return importPrivateKey(pkcs8);
+  const pkcs8 = payload.slice(0, Math.max(0, payload.length - CHECKSUM_BYTES));
+  try {
+    if (payload.length <= CHECKSUM_BYTES) throw new Error("kit di recupero non valido");
+    const expected = await checksum(pkcs8);
+    const actual = payload.subarray(payload.length - CHECKSUM_BYTES);
+    if (!expected.every((b, i) => b === actual[i])) throw new Error("kit di recupero: checksum errato");
+    return await importPrivateKey(pkcs8);
+  } finally {
+    // m-7: i byte della privata si azzerano appena importata (non estraibile).
+    pkcs8.fill(0);
+    payload.fill(0);
+  }
 }
 
 // Sfida di possesso del kit: il server cifra per la pubblica di recupero un
@@ -60,7 +74,7 @@ export async function wrapRecoveryChallenge(
   challengeId: string,
 ): Promise<string> {
   if (secret.length !== CHALLENGE_BYTES) throw new Error("la sfida vuole un segreto di 32 byte");
-  const key = await globalThis.crypto.subtle.importKey(
+  const key = await subtle().importKey(
     "raw",
     new Uint8Array(secret),
     { name: "AES-GCM", length: 256 },
@@ -77,5 +91,5 @@ export async function openRecoveryChallenge(
   challengeId: string,
 ): Promise<string> {
   const key = await unwrapItemKey(wrapped, recoveryPrivateKey, challengeAad(challengeId), "recovery");
-  return toBase64Url(await globalThis.crypto.subtle.exportKey("raw", key));
+  return toBase64Url(await subtle().exportKey("raw", key));
 }

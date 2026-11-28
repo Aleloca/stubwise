@@ -1,4 +1,4 @@
-import { projects, projectStatuses, tickets, type Db } from "@stubwise/db";
+import { projects, projectStatuses, tickets, type Db, ticketStatusSql } from "@stubwise/db";
 import type { AgentSessionEvent } from "@stubwise/shared";
 import { eq, inArray } from "drizzle-orm";
 import { isAllProjects, visibleProjectIds } from "../auth/access.js";
@@ -62,7 +62,7 @@ export async function enrichAsides(db: Db, viewer: Pick<SessionUser, "id" | "ins
     ticketIds.size > 0
       ? (
           await db
-            .select({ id: tickets.id, number: tickets.number, status: tickets.status, family: projectStatuses.family })
+            .select({ id: tickets.id, number: tickets.number, status: ticketStatusSql, family: projectStatuses.family })
             .from(tickets)
             .leftJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
             .where(inArray(tickets.id, [...ticketIds]))

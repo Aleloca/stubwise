@@ -15,7 +15,7 @@ import {
   roles,
   tickets,
 } from "./schema.js";
-import { expectSqlState, firstStatusOf, seedBacklogItem, seedRepository, startTestDb, type TestDb } from "./testing.js";
+import { expectSqlState, firstStatusOf, seedBacklogItem, seedRepository, startTestDb, type TestDb, legacyTicketStatus } from "./testing.js";
 
 /**
  * Migrazione 0169 (13 nov 2026, area 7, fetta 1): le Automations di progetto
@@ -94,7 +94,7 @@ describe("migrazione 0169: i trigger degli eventi", () => {
     expect(await kinds()).toEqual(["task_created", "task_closed"]);
     await t.db.update(tickets).set({ statusId: active }).where(eq(tickets.id, row!.id));
     // L'enum vecchio: il trigger di sync traduce `status` in `status_id`.
-    await t.db.update(tickets).set({ status: "done" }).where(eq(tickets.id, row!.id));
+    await t.db.update(legacyTicketStatus).set({ status: "done" }).where(eq(tickets.id, row!.id));
     expect(await kinds()).toEqual(["task_created", "task_closed", "task_closed"]);
   });
 

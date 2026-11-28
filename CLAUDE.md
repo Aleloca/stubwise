@@ -505,6 +505,9 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Workspace» (27 nov 2026; migrazione 0239 additiva, server poi worker poi caddy, permesso nuovo `workspaces.manage`, rollback sicuro prima che esista una workspace, dopo toglie l'accesso dato solo dalla workspace)
   - «Parità MCP con la nuova app» (26 nov 2026; migrazione 0237 additiva, server poi caddy, worker invariato, rollback sicuro con server e caddy insieme)
   - «Nuova app: impostazioni di progetto, polso, design e piano» (27 nov 2026; server e caddy, nessuna migrazione, rollback sicuro)
+  - «Indurimento di sicurezza dell'origine» (27 nov 2026; migrazione 0238 additiva, server poi caddy, rollback sicuro)
+  - «La cassaforte nella nuova app nel browser» (28 nov 2026; server e caddy in qualunque ordine, nessuna migrazione, rollback sicuro)
+  - «La cassaforte nel browser, fase 2» (28 nov 2026; solo caddy, prima del pacchetto per Mac nuovo; rollback sicuro solo se nessun Mac nuovo è distribuito)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -1450,6 +1453,17 @@ tutti.
   un **fix nuovo** dal branch di default. Si riprende da «Riprendi la
   correzione» sul ticket, che manda `resumeCorrectionJobId`. La descrizione
   del tool e la skill lo dicono.
+- **Le rotte dei tool dedicati sono dell'MCP PER SCELTA (D10, 28 nov
+  2026).** Dodici rotte (voce di backlog: lettura, modifica, conversione,
+  design, piano, creazione da un design, job; design e piano del ticket; i
+  brief di un progetto; `/api/mcp/catalog` e `/:action`) le chiamano solo i
+  tool dedicati di `@stubwise/mcp`, non l'app, e il maintainer ha deciso che
+  restano come superficie propria dell'MCP: lo dichiarano con
+  `config.mcp.owner: "mcp"` (elenco chiuso in
+  `apps/server/src/mcp/mcp-owned.test.ts`), e lo script delle rotte non le
+  propone da togliere. Chi ne cambia una cambia un tool del plugin: lo provi
+  col golden dell'MCP (`packages/mcp/scripts/golden/README.md`), e chi
+  aggiunge una rotta per un tool dedicato la aggiunge all'elenco apposta.
 - **Modalità collaboratore (20 ott 2026,** `docs/plans/2026-10-19-mcp-collaboratori-design.md`**)**:
   un utente non tecnico (anche senza permessi di sviluppo, es. `Contributor`) usa Claude Code senza repo né
   `/stubwise:init`. Tool nuovi di `@stubwise/mcp`: `search_project_docs`,

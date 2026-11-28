@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   credentialKeyCopies,
   credentials,
+  sessions,
   users,
   RECOVERY_RECIPIENT_ID,
   userPasskeys,
@@ -247,7 +248,8 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/activate",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
+      // Riconferma normale, non sblocco (I-3): chi chiama può non avere ancora una chiave da sbloccare.
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
       schema: {
         body: vaultActivateBodySchema,
         response: { 204: z.null(), ...errorResponses },
@@ -441,6 +443,29 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
       const key = await currentPersonKey(app.db, user.id);
       if (!key) return keyNotFound(reply);
       return reply.code(200).send({ ...key, seals: await sealsOf(key.id) });
+    },
+  );
+
+  /**
+   * La cassaforte si chiude (seconda revisione di sicurezza della cassaforte
+   * nel browser, m-3): il worker della scheda la chiama a ogni chiusura,
+   * best-effort. Azzera lo sblocco (`vaultUnlockedAt`) della SOLA sessione
+   * che chiama, così le rotte `config.reauth: "vault"` tornano a volerne uno
+   * nuovo anche nei minuti che restavano. Idempotente; da un PAT non c'è uno
+   * sblocco di sessione, ed è un 204 senza effetto.
+   */
+  app.post(
+    "/lock",
+    {
+      config: { access: { kind: "user" } },
+      schema: { response: { 204: z.null(), ...errorResponses } },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      if (!isPat(user) && user.sessionId) {
+        await app.db.update(sessions).set({ vaultUnlockedAt: null }).where(eq(sessions.id, user.sessionId));
+      }
+      return reply.code(204).send(null);
     },
   );
 
@@ -692,7 +717,8 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery/challenge",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
+      // Riconferma normale, non sblocco (I-3): chi chiama può non avere ancora una chiave da sbloccare.
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
       schema: { response: { 201: vaultRecoveryChallengeResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
@@ -712,7 +738,8 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery/pending",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
+      // Riconferma normale, non sblocco (I-3): chi chiama può non avere ancora una chiave da sbloccare.
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
       schema: {
         body: vaultRecoveryPendingBodySchema,
         response: { 200: vaultPendingResponseSchema, ...errorResponses },
@@ -733,7 +760,8 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery/confirm/:personKeyId",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
+      // Riconferma normale, non sblocco (I-3): chi chiama può non avere ancora una chiave da sbloccare.
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
       schema: {
         params: personKeyParams,
         body: vaultRecoveryConfirmBodySchema,
@@ -901,11 +929,16 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
    * cassaforte è aperta, quindi il Touch ID è passato; la riconferma dice che
    * è la persona). Il proprio sigillo il Mac lo toglie con `DELETE .../mine`
    * (409 `use_mine`). Un Mac di un'altra persona → 404.
+   *
+   * Dal browser la riconferma NORMALE, non lo sblocco (seconda revisione di
+   * sicurezza della cassaforte nel browser, m-2): togliere un sigillo non
+   * usa la chiave ed è un passo della procedura d'incidente, che deve
+   * riuscire anche a chi non può o non vuole aprire la cassaforte.
    */
   app.delete(
     "/device-seals/:id",
     {
-      config: { access: { kind: "user" }, reauth: "vault", desktopVault: true },
+      config: { access: { kind: "user" }, reauth: true, desktopVault: true },
       schema: {
         params: z.object({ id: z.uuid() }),
         // Dal browser il corpo non serve; dal Mac `actorProof` è obbligatorio (sotto).
@@ -959,11 +992,15 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  /** Un full admin toglie il Mac di un'altra persona (Mac perso): il solo sigillo, registro e avviso (D-6). */
+  /**
+   * Un full admin toglie il Mac di un'altra persona (Mac perso): il solo
+   * sigillo, registro e avviso (D-6). La riconferma normale (m-2): non usa
+   * la chiave, ed è un passo della procedura d'incidente.
+   */
   app.delete(
     "/users/:userId/device-seals/:id",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
       schema: {
         params: z.object({ userId: z.uuid(), id: z.uuid() }),
         response: { 204: z.null(), ...errorResponses },

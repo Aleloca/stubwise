@@ -1,6 +1,7 @@
 import type { InlineMark, ProductBlock, ProductTableRow, RichText } from "../../data/model";
 import { guessLanguage, normalizeLanguage } from "./codeLanguages";
 import { deleteRange, normalize, SKIP_TAGS, styleOf, type Style } from "./richText";
+import { parseInertHtml } from "../../platform/trustedHtml";
 
 // L'HTML degli appunti in blocchi della doc di prodotto (prove a mano del
 // 7 nov 2026, decisione del maintainer: l'incolla tiene la struttura; prima
@@ -163,7 +164,8 @@ function checkboxOf(li: Element): { checked: boolean } | null {
  * paragrafi). Un HTML senza testo dà `[]`.
  */
 export function blocksFromHtml(html: string, makeId: () => string): ProductBlock[] {
-  const doc = new DOMParser().parseFromString(html, "text/html");
+  // Un documento inerte (Trusted Types, revisione I-4): non esegue niente.
+  const doc = parseInertHtml(html);
   const out: ProductBlock[] = [];
   const line = new Line();
   let ctx: Ctx = PARAGRAPH;

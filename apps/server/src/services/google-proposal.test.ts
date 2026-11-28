@@ -19,8 +19,7 @@ import {
   ticketEvents,
   tickets,
   users,
-  type Db,
-} from "@stubwise/db";
+  type Db, ticketColumns } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { GoogleProposalAction, GoogleProposalEvent } from "@stubwise/notifications";
@@ -647,7 +646,7 @@ describe("answerGoogleProposal — update_ticket", () => {
     const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 });
     expect(result.ok).toBe(true);
 
-    const [updated] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    const [updated] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticket.id));
     expect(updated!.status).toBe("in_progress");
     expect(updated!.priority).toBe("high");
 

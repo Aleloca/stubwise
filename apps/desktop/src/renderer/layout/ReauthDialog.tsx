@@ -25,6 +25,7 @@ import { Dialog } from "../tasks-ui/Dialog";
 import { copyText, downloadText } from "../tasks-ui/exportFile";
 import { useToast } from "../tasks-ui/Toast";
 import { settleReauth, useReauthRequest, type ReauthRequest } from "./useReauth";
+import { QrImage } from "../platform/qrImage";
 
 /**
  * L'host del dialogo «Confirm it's you», montato una volta nell'`AppLayout`:
@@ -439,11 +440,10 @@ function EnrollDuringReauth({
           ) : setup ? (
             <>
               <figure className="flex flex-col items-start gap-1.5">
-                <div
-                  className="size-40 rounded-md border border-rule bg-white p-2 text-black [&>svg]:size-full"
-                  role="img"
-                  aria-label={t("entry.reauth.enroll.qrLabel")}
-                  dangerouslySetInnerHTML={{ __html: setup.qrSvg }}
+                <QrImage
+                  svg={setup.qrSvg}
+                  label={t("entry.reauth.enroll.qrLabel")}
+                  className="size-40 rounded-md border border-rule bg-white p-2"
                 />
                 <figcaption className="text-xs text-ink-muted">
                   {t("entry.reauth.enroll.qrNote")}
