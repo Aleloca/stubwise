@@ -13,7 +13,8 @@
  *     metodi e i percorsi che chiamano (`request("VERB", \`/api/…\`)`, o un
  *     percorso `/api/…` restituito, come `imagePath`);
  *  3. i chiamanti: nel codice NON di test del desktop (renderer e main), del
- *     widget, dell'agente di monitoraggio e dell'SDK, le chiamate
+ *     widget, dell'agente di monitoraggio, dell'SDK e del worker (la chat di
+ *     Claude legge il server col token del turno, solo GET), le chiamate
  *     `.<gruppo>.<metodo>(` e i percorsi `/api/…` scritti a mano;
  *  4. le rotte «esterne» per dichiarazione (`mcp.exclude`: webhook in
  *     ingresso, login, infra, stream, …) sono a parte: le chiama qualcuno
@@ -277,7 +278,17 @@ const CALLER_ROOTS = [
   "packages/widget/src",
   "packages/agent/src",
   "packages/sdk/src",
+  // Il worker chiama il server: la chat di Claude (`claude-chat/`) legge col
+  // token del turno. Senza, `GET /api/projects/pulse` risultava da togliere (R2).
+  "apps/worker/src",
 ];
+
+/**
+ * Le radici dove un percorso scritto senza verbo è una LETTURA: la chat di
+ * Claude nel worker elenca i percorsi che legge (`bridge.ts`), e il token del
+ * turno accetta solo GET (`apps/server/src/auth/chat-tool-routes.ts`, provato da `chat-tool-token.test.ts`).
+ */
+const GET_ONLY_ROOTS = ["apps/worker/src/claude-chat/"];
 
 interface Callers {
   methods: Set<string>; // gruppo.metodo usati
@@ -307,7 +318,8 @@ function callers(known: Map<string, unknown>, roots: readonly string[] = CALLER_
       for (const m of code.matchAll(/appClient\(\)\.(\w+)(?!\s*\.\s*\w+\s*\(|\w)/g)) {
         for (const k of known.keys()) if (k.startsWith(`${m[1]}.`)) methods.add(k);
       }
-      for (const c of callsIn(code)) literals.push({ ...c, file });
+      const getOnly = GET_ONLY_ROOTS.some((r) => file.startsWith(r));
+      for (const c of callsIn(code)) literals.push({ ...c, method: c.method ?? (getOnly ? "GET" : null), file });
     }
   }
   return { methods, literals };
@@ -317,10 +329,11 @@ function callers(known: Map<string, unknown>, roots: readonly string[] = CALLER_
 
 const EXTERNAL = new Set(["inbound", "infra", "login", "stream", "desktop_link", "session_only", "secret_once", "chat_tool", "vault"]);
 
-async function main() {
-  const args = process.argv.slice(2);
-  const outIdx = args.indexOf("--out");
-  const jsonIdx = args.indexOf("--json");
+/**
+ * Ogni rotta del server col suo esito: «usata», «esterna», «dubbio» o «senza
+ * chiamanti», e chi la chiama. Il rapporto (`main`) e il test la leggono da qui.
+ */
+export async function classifyRoutes() {
   const all = await routes();
   const clientMethods = apiClientMethods();
   const used = callers(clientMethods);
@@ -372,6 +385,14 @@ async function main() {
     const onlyWild = status === "usata" && wild.has(k) && !exact.has(k);
     return { ...r, key: k, client, literal, status, onlyWild, mcpTool: byMcpTools(r), mobile: byMobile(r) };
   });
+  return rows;
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const outIdx = args.indexOf("--out");
+  const jsonIdx = args.indexOf("--json");
+  const rows = await classifyRoutes();
 
   const by = (s: string) => rows.filter((r) => r.status === s);
   const unused = by("senza chiamanti");
@@ -410,4 +431,5 @@ async function main() {
   process.exit(0);
 }
 
-void main();
+// Solo da riga di comando: il test importa `classifyRoutes` senza scrivere il rapporto.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) void main();
