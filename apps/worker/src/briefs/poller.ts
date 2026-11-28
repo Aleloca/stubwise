@@ -43,7 +43,8 @@ import { buildBriefPrompt, parseBriefOutput } from "./prompt.js";
  *     `(project_id, period_start)`: due tick concorrenti non fanno due brief.
  *  3. **generazione** di tutti i brief `queued`, dentro o fuori dalla finestra.
  *     Fuori dalla finestra la fase 2 non accoda nulla, ma la 3 gira lo stesso:
- *     è così che la rigenerazione manuale (`POST /briefs/generate`, Task 12)
+ *     un brief `queued` fuori finestra (oggi nessuno lo accoda: la
+ *     rigenerazione manuale, `POST /briefs/generate`, è andata via con R2)
  *     parte al tick successivo invece di aspettare lunedì.
  *
  * IL CLAIM È GUARDATO (`queued → running` con il `WHERE` sullo stato): due

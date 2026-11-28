@@ -267,27 +267,6 @@ async function aggregate(
   return { totals, byDay, byModel, byProject, byProvider };
 }
 
-const breakdownRowSchema = z.object({
-  key: z.string().nullable(),
-  // Nome del progetto per `project`, altrimenti null (l'etichetta delle
-  // operazioni la traduce il web).
-  label: z.string().nullable(),
-  subKey: z.string().nullable(),
-  subLabel: z.string().nullable(),
-  // Esecuzioni distinte: `count(distinct coalesce(run_id, id))`.
-  runs: z.number().int(),
-  inputTokens: z.number().int(),
-  outputTokens: z.number().int(),
-  cacheReadTokens: z.number().int(),
-  cacheCreationTokens: z.number().int(),
-  // Null = nessuna riga del gruppo ha riportato un costo (non è «zero»).
-  costUsd: z.number().nullable(),
-  avgTokensPerRun: z.number(),
-});
-
-export const aiUsageBreakdownSchema = z.object({ rows: z.array(breakdownRowSchema) });
-export type AiUsageBreakdown = z.infer<typeof aiUsageBreakdownSchema>;
-
 /**
  * I progetti di cui chi chiede vede i consumi: `"all"` con `usage.view`
  * d'istanza (anche le righe senza progetto: posta, operazioni d'istanza),

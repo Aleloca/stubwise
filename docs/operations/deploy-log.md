@@ -7928,11 +7928,14 @@ deploy o di un rollback che la tocca.
   caddy prima i link restano `/app/#/…` e passano dal redirect; col server
   prima il caddy vecchio serve il web vecchio alla radice, e un link `/#/…`
   apre la sua Home per qualche minuto, mai un errore. Niente riavvii del
-  worker con lavoro dell'agente in corso. **Il Mac va ribuildato e
-  installato nello stesso rilascio** (`package:mac`): quello di prima legge
-  `webHref` come obbligatorio nel lavoro di Claude di una task, nelle
-  richieste e nelle decisioni, e col server nuovo quelle letture
-  fallirebbero (il suo login invece funziona, via `/app/#/desktop-login`).
+  worker con lavoro dell'agente in corso. **Il Mac installato smette di
+  funzionare dal deploy di R1 fino all'installazione nuova, ed è accettato**
+  (decisione del maintainer, 28 nov 2026): quello di prima legge `webHref`
+  come obbligatorio nel lavoro di Claude di una task, nelle richieste e nelle
+  decisioni, e col server nuovo quelle letture falliscono (il suo login invece
+  funziona, via `/app/#/desktop-login`). Il pacchetto nuovo, FIRMATO, lo
+  costruisce il maintainer UNA volta, dallo stato finale dopo R3 (non dopo
+  R1): fino ad allora si usa l'app nel browser.
   **Controllo dopo il deploy**:
   ```sh
   curl -sI https://<istanza>/ | grep -iE 'content-security-policy|cross-origin-opener|cache-control'
@@ -7964,14 +7967,19 @@ deploy o di un rollback che la tocca.
   prima, finché non si risale. **Durante il rollback non funziona nemmeno
   l'associazione di un Mac nuovo alla cassaforte**: apre `/vault/#/pair`,
   che il caddy di prima non serve (la pagina a sé lì è su `/app/vault/`).
-  Il pacchetto per Mac di R1 va quindi distribuito solo con R1 stabile. R2 (la pulizia del server) parte solo
+  Il pacchetto per Mac nuovo arriva comunque solo dopo R3 (vedi sopra). R2 (la pulizia del server) parte solo
   quando R1 è stabile, perché le rotte del web servono a un rollback.
 - **«Il taglio del web vecchio, R2» (28 nov 2026)**: ramo `feat/taglio-r2`
   (sopra `feat/taglio-r1`), piano
   `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md` §1.1 (R2) e §3. Solo
-  codice: **nessuna migrazione, nessuna env nuova**; le env `SLACK_*` non
-  le legge più nessuno (si possono togliere da `/opt/stubwise/.env` dopo
-  che R2 è stabile, non prima: servono a un rollback).
+  codice: **nessuna migrazione, nessuna env nuova**. Slack non ha env: le
+  credenziali (signing secret e bot token) stanno cifrate in
+  `instance_settings`, e da R2 nessuno le legge più (le colonne vanno via
+  con R3b, la 0247).
+  **Passo per il maintainer, dopo il deploy**: nell'app Slack del
+  workspace spegnere lo slash command `/stubwise`, l'interactivity e la
+  scorciatoia di messaggio (o disinstallare l'app). Le loro richieste ora
+  rispondono 404, e Slack mostrerebbe un errore a chi li usa.
   **Cosa si toglie** (le rotte che l'app non chiama, D4):
   - le 17 del web vecchio senza chiamanti (primo gruppo);
   - **Slack**: `/api/slack/*`, `PUT/DELETE /api/users/:id/slack`,
@@ -7999,6 +8007,12 @@ deploy o di un rollback che la tocca.
   dei Docs di prodotto e la cassaforte. Lo script delle rotte
   (`apps/server/scripts/route-callers.ts`) su R2 dà 12 «dell'MCP» e 2 senza
   chiamanti (i Docs di prodotto), e conta il worker fra i chiamanti.
+  **Effetto noto, deciso col gruppo (e)**: il worker legge ancora le
+  regole di posta dei progetti (`project_email_routes`,
+  `apps/worker/src/google/poller.ts`) e i filtri dell'ammissione della
+  posta (`instance_settings.email_admission_deny_*`). Le regole già salvate
+  continuano a valere, ma le rotte per vederle e cambiarle sono tolte: nella
+  nuova app non le vede né le cambia nessuno. Per cambiarle serve SQL.
   **Resta `GET /api/projects/pulse`**: la legge la chat del worker (le
   letture del polso), oltre alla mobile.
   **I campi Slack nelle risposte restano, inerti, fino a R3**

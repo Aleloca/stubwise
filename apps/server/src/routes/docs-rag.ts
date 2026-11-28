@@ -1,28 +1,16 @@
 /**
- * Cuore RAG condiviso sui Docs di un progetto (M6.5).
- *
- * Questo modulo isola le parti del flusso RAG che NON dipendono dal trasporto
- * (streaming SSE, sessione/persistenza, AbortSignal) così possono essere riusate
- * da più consumatori:
- *  - la chat web ({@link ../routes/docs-chat.ts}) — streaming + history + sessione;
- *  - integrazioni one-shot (es. Slack) — accumulo non-streaming, nessuna history.
+ * Cuore RAG condiviso sui Docs di un progetto (M6.5): le parti del flusso che
+ * NON dipendono dal trasporto (streaming SSE, sessione, AbortSignal).
  *
  * Espone:
  *  - {@link buildDocsSystemPrompt}: il system prompt anti-allucinazione + doppio
  *    registro + obbligo citazioni (UNICA definizione, condivisa);
- *  - {@link buildCitations}: dedup delle citazioni per slug (UNICA definizione);
- *  - {@link answerDocsQuestion}: il flusso RAG completo NON-streaming (retrieval →
- *    prompt → accumulo dello stream LLM → testo + citazioni).
+ *  - {@link buildCitations}: dedup delle citazioni per slug (UNICA definizione).
  *
- * Il retrieval (scope/ranking) resta in {@link ./docs-retrieval.ts}: qui lo si
- * richiama con gli stessi parametri della chat web.
- *
- * PERIMETRO (fase 2b): il retrieval dal knowledge graph è appeso al system
- * prompt SOLO se il chiamante passa le deps `graph` ({@link DocsGraphDeps}).
- * Oggi lo fa il solo consumatore di questo modulo, Slack `/docs` (superficie
- * interna al team). La chat pubblica del widget NON passa da qui — ha il suo
- * prompt in {@link ./widget-chat.ts} — e comunque, senza `graph`, non vedrebbe
- * nulla del codice.
+ * Il consumatore è la chat dei Docs ({@link ./docs-chat.ts}); il retrieval
+ * (scope/ranking) resta in {@link ./docs-retrieval.ts}. La chat pubblica del
+ * widget NON passa da qui: ha il suo prompt in {@link ./widget-chat.ts}.
+ * (Il flusso non-streaming di Slack `/docs` è andato via con R2.)
  */
 
 import { escapeUntrusted } from "../services/untrusted.js";
@@ -37,7 +25,7 @@ export interface Citation {
    * Repository d'origine della pagina citata. Valorizzato sia nella chat per-repo
    * (costante) sia in quella cross-repo di progetto (Fase 2), dove disambigua da
    * QUALE repository proviene la fonte (link "Fonti" col `repositoryId`, nome repo
-   * nella UI/Slack).
+   * nella UI).
    */
   repositoryId: string;
   repositorySlug: string;
@@ -133,10 +121,4 @@ export function buildCitations(chunks: RetrievedChunk[]): Citation[] {
     }
   }
   return [...byKey.values()];
-}
-
-/** Risposta RAG non-streaming: testo accumulato + citazioni. */
-export interface DocsAnswer {
-  text: string;
-  citations: Citation[];
 }
