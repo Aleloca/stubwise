@@ -254,8 +254,20 @@ function sessionTagKey(key: Buffer): Buffer {
   return sub;
 }
 
-function sessionTagOf(key: Buffer, user: { sessionId?: string; patId?: string }): string | null {
+/**
+ * La chiave si legge solo per una sessione del cookie: il getter di
+ * `app.encryptionKey` LANCIA su un'app costruita senza chiave (i test), e
+ * un PAT non deve passarci. Senza chiave l'etichetta è `null`, mai un 500 di
+ * `/me` (in produzione la chiave è obbligatoria, `config.ts`).
+ */
+function sessionTagOf(keyOf: () => Buffer, user: { sessionId?: string; patId?: string }): string | null {
   if (!user.sessionId || user.patId !== undefined) return null;
+  let key: Buffer;
+  try {
+    key = keyOf();
+  } catch {
+    return null;
+  }
   return createHmac("sha256", sessionTagKey(key)).update(`stubwise:session-tag:v1:${user.sessionId}`).digest("base64url").slice(0, 32);
 }
 
@@ -566,7 +578,7 @@ export async function authRoutes(
       projectPermissions: await projectPermissionsMap(app.db, request.user!),
       departmentPermissions: await departmentPermissionsMap(app.db, request.user!.id),
       // La cassaforte nel browser (I-3): l'etichetta opaca della sessione del cookie.
-      sessionTag: sessionTagOf(app.encryptionKey, request.user!),
+      sessionTag: sessionTagOf(() => app.encryptionKey, request.user!),
       // Rimandi, lotto 5: i reparti, nell'ordine della persona (il primo colora le iniziali).
       departments: await app.db
         .select({ id: departments.id, name: departments.name, colorToken: departments.colorToken })

@@ -76,7 +76,8 @@ describe("il pacchetto del Mac", () => {
     // Una regola sola per il seme (72, fd12ed443): il controllo su tutto `out/`.
     for (const name of ["package:mac", "package:mac:unsigned"])
       expect(scripts[name], name).toMatch(/pnpm check:seed:app && /);
-    expect(scripts["check:seed:app"]).toMatch(/check-no-seed\.mjs out$/);
+    // Poi il bersaglio della cassaforte (check-vault-target), sullo stesso `out/`.
+    expect(scripts["check:seed:app"]).toMatch(/check-no-seed\.mjs out && node scripts\/check-vault-target\.mjs out electron$/);
   });
 
   it("l'helper del Secure Enclave si compila prima del pacchetto, come bundle in Contents/Helpers", () => {
