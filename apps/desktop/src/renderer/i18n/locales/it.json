@@ -1110,8 +1110,6 @@
     },
     "claude": {
       "web": {
-        "open": "Apri nel web",
-        "hint": "Piano, approvazioni, domande di Claude e sessione dal vivo sono nell'app web.",
         "pr": {
           "open": "Aperta",
           "merged": "Mergiata",
@@ -1642,7 +1640,6 @@
       "turnIntoTaskLabel": "Trasforma in task: {{title}}",
       "created": "{{code}} creata dalla richiesta.",
       "openRequest": "Apri la richiesta {{title}}",
-      "openRequestInWeb": "Apri {{title}} nel web",
       "claude": {
         "asks": "Claude chiede",
         "plan": "Il piano di Claude aspetta la tua approvazione",

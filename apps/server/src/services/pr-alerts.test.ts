@@ -31,7 +31,7 @@ describe("pr.opened (area 8, F2, S4)", () => {
     await publishPrOpened(t.db, "https://s.example/", input);
     const cards = await cardsOf(sub);
     expect(cards).toHaveLength(1);
-    expect(cards[0]!.event).toMatchObject({ prNumber: 12, url: expect.stringMatching(new RegExp(`/app/#/p/[A-Z0-9]+/releases\\?pr=${repositoryId}%2312$`)) });
+    expect(cards[0]!.event).toMatchObject({ prNumber: 12, url: expect.stringMatching(new RegExp(`/#/p/[A-Z0-9]+/releases\\?pr=${repositoryId}%2312$`)) });
   });
 
   it("le PR di Stubwise (`stubwise/…`) e le riaperture non avvisano", async () => {

@@ -28,8 +28,7 @@ import type {
   ProjectRequest,
   Task,
 } from "../../../data/types";
-import { featureIntegrated, isIntegrated } from "../../../data/integration";
-import { openInWeb } from "../../../platform/openWeb";
+import { featureIntegrated } from "../../../data/integration";
 import { relativeTime } from "../../../notifications/time";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import { Avatar } from "../../../tasks-ui/PersonChip";
@@ -415,18 +414,7 @@ export function RequestItem({
           <span className="num shrink-0 text-xs font-semibold tracking-[0.02em] text-ink">
             {request.code}
           </span>
-          {/* Requests è della fetta 4: nella build app la richiesta si apre nel web vecchio. */}
-          {request.webHref && !isIntegrated({ kind: "projectSection", name: "requests" }) ? (
-            <button
-              type="button"
-              onClick={() => openInWeb(request.webHref!)}
-              aria-label={t("home.decide.openRequestInWeb", { title: request.title })}
-              title={request.title}
-              className="min-w-0 truncate text-left text-md text-ink hover:underline hover:underline-offset-4"
-            >
-              {request.title}
-            </button>
-          ) : project ? (
+          {project ? (
             <Link
               to="/p/$code/$section"
               params={{ code: project.code, section: "requests" }}

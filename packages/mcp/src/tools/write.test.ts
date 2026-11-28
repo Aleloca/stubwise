@@ -33,8 +33,8 @@ const TICKET_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const JOB_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const BASE_URL = "https://stubwise.example.com";
 /** I percorsi della nuova app che il server dà (`appPath`, ritiro del web vecchio). */
-const TASK_PATH = "/app/#/p/ACQ/tasks?task=ACQ-42";
-const requestPath = (id: string) => `/app/#/p/ACQ/requests?request=${id}`;
+const TASK_PATH = "/#/p/ACQ/tasks?task=ACQ-42";
+const requestPath = (id: string) => `/#/p/ACQ/requests?request=${id}`;
 
 /** Progetto finto (solo i campi che i tool usano; forma reale di GET /api/projects). */
 function fakeProject(

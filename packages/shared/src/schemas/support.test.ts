@@ -95,7 +95,6 @@ describe("le altre forme", () => {
       status: "new",
       urgency: null,
       createdAt: minimal.createdAt,
-      webHref: "/requests/x",
     });
     expect(req.origin).toBeNull();
     const shape = taskViewSchema.shape as Record<string, unknown>;

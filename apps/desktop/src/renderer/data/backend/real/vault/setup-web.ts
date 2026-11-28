@@ -4,7 +4,7 @@ import { request } from "../vaultBrowser/client";
 // `@backend/vault-setup` nella build web (`/app`): dalla revisione della fase
 // 2 (I-2) attivare, la propria chiave, il kit, il recupero, l'associazione e
 // «Use for the vault» stanno nella pagina A SÉ della cassaforte
-// (`vault.html`, `/app/vault/`, `vaultPage/`), con la sua CSP. Qui resta solo
+// (`vault.html`, `/vault/`, `vaultPage/`), con la sua CSP. Qui resta solo
 // lo stato, per dire nell'app quali passkey aprono la cassaforte.
 
 export const vaultSetupAvailable: boolean = true;

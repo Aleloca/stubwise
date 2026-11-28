@@ -255,7 +255,7 @@ describe("buildPulseEvent", () => {
   });
 
   it("il link porta alle richieste del progetto nella nuova app", () => {
-    expect(event.projectUrl).toBe("https://stubwise.example.com/app/#/p/NEG/requests");
+    expect(event.projectUrl).toBe("https://stubwise.example.com/#/p/NEG/requests");
   });
 
   it("il payload regge `inboxQuestionSchema` con pulseId al posto di questionId", () => {
@@ -696,7 +696,7 @@ describe("pollPulseOnce — candidati e proposte", () => {
     expect(event.idleDays).toBe(4);
     expect(event.projectName).toBe("negozio-web");
     const [proj] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
-    expect(event.projectUrl).toBe(`https://stubwise.example.com/app/#/p/${proj!.code}/requests`);
+    expect(event.projectUrl).toBe(`https://stubwise.example.com/#/p/${proj!.code}/requests`);
     expect(event.question).toContain("giorni di fermo: 4");
   });
 });

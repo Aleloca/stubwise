@@ -6,10 +6,10 @@ import { vaultReturn } from "./vaultReturn";
 
 describe("vaultReturn", () => {
   it("le quattro pagine della cassaforte, e l'associazione solo con uno state valido", () => {
-    expect(vaultReturn("vault-setup")).toBe("/app/vault/#/setup");
-    expect(vaultReturn("vault-recover")).toBe("/app/vault/#/recover");
-    expect(vaultReturn("vault-passkeys")).toBe("/app/vault/#/passkeys");
-    expect(vaultReturn("vault-pair", "c3Rh-dGU_")).toBe("/app/vault/#/pair?state=c3Rh-dGU_");
+    expect(vaultReturn("vault-setup")).toBe("/vault/#/setup");
+    expect(vaultReturn("vault-recover")).toBe("/vault/#/recover");
+    expect(vaultReturn("vault-passkeys")).toBe("/vault/#/passkeys");
+    expect(vaultReturn("vault-pair", "c3Rh-dGU_")).toBe("/vault/#/pair?state=c3Rh-dGU_");
     expect(vaultReturn("vault-pair")).toBeNull();
     expect(vaultReturn("vault-pair", "a/b?c")).toBeNull();
   });
@@ -20,7 +20,7 @@ describe("vaultReturn", () => {
       "//evil.example",
       "/\\evil.example",
       "javascript:alert(1)",
-      "/app/vault/#/setup",
+      "/vault/#/setup",
       "vault-setup/../x",
       "toString",
       "__proto__",

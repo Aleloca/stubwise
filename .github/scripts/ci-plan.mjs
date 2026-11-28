@@ -33,10 +33,11 @@ import { join } from "node:path";
  * passato con l'env `VITEST_SHARD` allo script `test` del pacchetto); tutto
  * il resto con test va in «resto», su una sola. I numeri vengono dai tempi
  * di vitest nella CI del 27 nov 2026 (run 46077933739): desktop 1163 s,
- * server 1179 s, worker 455 s; web e mobile stanno sotto i 3 minuti.
+ * server 1179 s, worker 455 s; mobile sta sotto i 3 minuti. Il web
+ * vecchio (`@stubwise/web`) aveva un gruppo suo fino al ritiro (R1).
  * Ogni parte di server e worker avvia i suoi testcontainers.
  */
-const SHARDS = { server: 3, worker: 2, desktop: 4, web: 1, mobile: 1 };
+const SHARDS = { server: 3, worker: 2, desktop: 4, mobile: 1 };
 const OWN_GROUPS = Object.keys(SHARDS);
 const OUTSIDE_PACKAGES = /^(apps|packages|plugins)\//;
 const IGNORED_OUTSIDE = /^(docs|graphify-out)\/|\.md$/;

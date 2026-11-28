@@ -7,8 +7,7 @@ import { taskSizeSchema } from "./task-view.js";
 /**
  * Una richiesta da trasformare in task (integrazione area 2, fetta 3): la
  * forma minima di `ProjectRequest` del prototipo che servono a «Da decidere»
- * e al blocco «Richieste nuove» della Home. La sezione Requests arriva con la
- * fetta 4: fino ad allora la voce si apre nel web vecchio (`webHref`).
+ * e al blocco «Richieste nuove» della Home.
  */
 export const requestToConvertViewSchema = z.object({
   id: z.uuid(),
@@ -22,8 +21,6 @@ export const requestToConvertViewSchema = z.object({
   requesterIds: z.array(personRefSchema).default([]),
   requestCount: z.number().int().default(1),
   createdAt: z.iso.datetime(),
-  /** La voce nel web vecchio. */
-  webHref: z.string(),
 });
 export type RequestToConvertView = z.infer<typeof requestToConvertViewSchema>;
 
@@ -93,7 +90,6 @@ export const projectRequestViewSchema = z.object({
     })
     .nullable()
     .default(null),
-  webHref: z.string(),
 });
 export type ProjectRequestView = z.infer<typeof projectRequestViewSchema>;
 

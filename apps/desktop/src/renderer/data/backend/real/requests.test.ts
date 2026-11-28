@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 describe("le richieste da trasformare dal server", () => {
-  it("nella forma del prototipo, col link al web; «urgent» si legge «high», senza stima «medium»", async () => {
+  it("nella forma del prototipo, senza il link al web vecchio; «urgent» si legge «high», senza stima «medium»", async () => {
     installFakeServer({
       "GET /api/requests/to-convert": { body: [view(), view({ id: "33333333-3333-4333-8333-333333333334", urgency: null })] },
     });
@@ -60,8 +60,9 @@ describe("le richieste da trasformare dal server", () => {
       taskIds: [],
       similarToId: null,
       mergedIntoId: null,
-      webHref: "/backlog/" + ITEM,
     });
+    // Un server di prima di R1 manda ancora `webHref`: l'app non lo legge più.
+    expect(first).not.toHaveProperty("webHref");
     expect(second!.urgency).toBe("medium");
   });
 

@@ -146,7 +146,7 @@ function mandatoryOf(item: InboxItem, ctx: PresentContext): Pick<AppNotification
 
 /**
  * Area 8, F2 (R4): le card dei tipi del catalogo arrivano senza ticket, col
- * link all'app nel campo `url` (`/app/#/p/<PRJ>/…`, il server lo scrive alla
+ * link all'app nel campo `url` (`/#/p/<PRJ>/…`, prima di R1 `/app/#/…`; il server lo scrive alla
  * pubblicazione). Diventa il percorso nell'app (`#/p/…`) solo se è
  * dell'istanza e porta a una pagina ACCESA in questa build: il rilascio
  * (`releases`), il pannello di una PR (`releases-prs`, `?pr=<repository>#<n>`)
@@ -162,7 +162,9 @@ export function appLinkFor(rawUrl: string | null | undefined, instanceOrigin?: s
   }
   const relative = rawUrl.startsWith("/") && !rawUrl.startsWith("//");
   if (!relative && url.origin !== instanceOrigin) return null;
-  if (url.pathname !== "/app/" && url.pathname !== "/app") return null;
+  // L'app sta alla radice (R1); `/app/` è dei link scritti prima, che restano
+  // nei jsonb delle card già pubblicate.
+  if (url.pathname !== "/" && url.pathname !== "/app/" && url.pathname !== "/app") return null;
   // Link della nuova app (54): la sicurezza delle Preferenze, il brief (solo
   // un UUID), lo spazio Docs d'un repository (uno slug).
   if (url.hash === "#/preferences/security") return url.hash;

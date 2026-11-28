@@ -232,7 +232,7 @@ const confirmLoginEnrollment: Auth["confirmLoginEnrollment"] = async (code) => {
 };
 
 /**
- * La conferma del login del desktop (`/app/#/desktop-login`, Task 21): il
+ * La conferma del login del desktop (`/#/desktop-login`, Task 21): il
  * codice monouso legato al challenge PKCE del desktop. Si chiede SOLO dal
  * clic su «Allow». Il server vuole la riconferma (`config.reauth`): un
  * `reauth_required` torna nella forma che `useReauth()` riconosce, e il

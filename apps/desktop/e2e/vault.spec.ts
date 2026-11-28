@@ -6,10 +6,10 @@ import { clientIpHeaders, nextTotpCode, signInWithRequest } from "./second-facto
  * La cassaforte nella nuova app nel browser (fase 1, #144), sullo stack vero:
  * una passkey registrata DALLA UI (Preferenze → Security) su un
  * autenticatore virtuale di Chromium con la PRF; l'attivazione e la prima
- * chiave dalla pagina a sé della cassaforte (fase 2, `/app/vault/#/setup`,
+ * chiave dalla pagina a sé della cassaforte (fase 2, `/vault/#/setup`,
  * con la sua CSP: il kit e la chiave nascono nel worker); una credenziale
  * creata dalla UI (cifrata nel worker), poi lo sblocco con la passkey e
- * «Show» dalla UI di `/app`.
+ * «Show» dalla UI dell'app.
  */
 
 const PROJECT_CODE = "VAULT";
@@ -60,7 +60,7 @@ test.afterAll(async () => {
 });
 
 test("una passkey si registra dalla UI (Preferenze → Security), con la PRF dell'autenticatore", async () => {
-  await page.goto("/app/#/preferences/security");
+  await page.goto("/#/preferences/security");
   await page.getByRole("button", { name: "Add passkey" }).click();
   await page.getByLabel("Name this passkey").fill("Chromium E2E");
   await page.getByRole("button", { name: "Continue" }).click();
@@ -71,9 +71,9 @@ test("una passkey si registra dalla UI (Preferenze → Security), con la PRF del
   expect(credentials).toHaveLength(1);
 });
 
-test("l'attivazione e la prima chiave dalla pagina a sé della cassaforte (/app/vault/, la sua CSP)", async () => {
+test("l'attivazione e la prima chiave dalla pagina a sé della cassaforte (/vault/, la sua CSP)", async () => {
   // Una navigazione completa, come dalla barra: un documento suo, con la sua CSP e la sua COOP.
-  const response = await page.goto("/app/vault/#/setup");
+  const response = await page.goto("/vault/#/setup");
   const headers = response!.headers();
   expect(headers["content-security-policy"]).toContain("default-src 'none'");
   expect(headers["content-security-policy"]).toContain("trusted-types stubwise-vault-worker");
@@ -111,7 +111,7 @@ test("l'attivazione e la prima chiave dalla pagina a sé della cassaforte (/app/
 });
 
 test("una credenziale si crea dalla UI (la cifra il worker, a cassaforte chiusa)", async () => {
-  await page.goto(`/app/#/p/${PROJECT_CODE}/credentials`);
+  await page.goto(`/#/p/${PROJECT_CODE}/credentials`);
   await expect(page.getByText("Locked.")).toBeVisible();
   await page.getByRole("button", { name: "New credential" }).click();
   await page.getByLabel("Service").fill(SERVICE);
@@ -122,7 +122,7 @@ test("una credenziale si crea dalla UI (la cifra il worker, a cassaforte chiusa)
   await expect(page.getByText(SERVICE).first()).toBeVisible();
 });
 
-test("lo sblocco con la passkey e «Show» dalla UI di /app; «Lock» la richiude e la password sparisce", async () => {
+test("lo sblocco con la passkey e «Show» dalla UI dell'app; «Lock» la richiude e la password sparisce", async () => {
   await page.reload();
   await expect(page.getByText("Locked.")).toBeVisible();
   await page.getByRole("button", { name: "Open with passkey" }).click();

@@ -10,9 +10,19 @@ import { defineRouteMiddleware } from "@astrojs/starlight/route-data";
 const PRIMARY_BASE = "/docs";
 const base = process.env.DOCS_BASE ?? "/guide";
 
+/**
+ * D6 of the old web retirement (R1): the guide still describes the old web
+ * app, and is rewritten on the new app right after the switch. Until then
+ * every page says so, from one place. Remove this when the rewrite lands.
+ */
+export const REWRITE_NOTICE =
+  "This guide still describes the previous web app, which has been replaced by the new Stubwise app. It is being rewritten: some screens, names and paths may differ from what you see.";
+
 export const onRequest = defineRouteMiddleware(({ locals }) => {
+  const data = locals.starlightRoute.entry.data;
+  data.banner ??= { content: REWRITE_NOTICE };
   if (base === PRIMARY_BASE) return;
-  const { hero } = locals.starlightRoute.entry.data;
+  const { hero } = data;
   for (const action of hero?.actions ?? []) {
     if (action.link === PRIMARY_BASE || action.link?.startsWith(`${PRIMARY_BASE}/`)) {
       action.link = base + action.link.slice(PRIMARY_BASE.length);

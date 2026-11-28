@@ -246,7 +246,7 @@ describe("runReleaseItem", () => {
     const item = (await claimNext(db, repositoryId, "release"))!;
     expect((await runReleaseItem(deps, repoFor(gen), item)).status).toBe("done");
     expect(publish).toHaveBeenCalledTimes(1);
-    expect((publish.mock.calls[0] as unknown[])[1]).toMatchObject({ kind: "docs.release_note", projectId, title: "Login rifatto", url: expect.stringMatching(/\/app\/#\/p\/[A-Z0-9]+\/docs$/) });
+    expect((publish.mock.calls[0] as unknown[])[1]).toMatchObject({ kind: "docs.release_note", projectId, title: "Login rifatto", url: expect.stringMatching(/\/#\/p\/[A-Z0-9]+\/docs$/) });
   });
 
   it("output non valido → failed, nessuna pagina; planPages procede con la sola mappa", async () => {

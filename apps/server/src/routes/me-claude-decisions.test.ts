@@ -127,7 +127,6 @@ describe("GET /api/me/claude-decisions", () => {
       conversationKind: "task_run",
       blockedReason: null,
       serverCode: null,
-      webHref: `/tickets/${planTask.id}`,
     });
   });
 

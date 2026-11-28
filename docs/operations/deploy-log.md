@@ -7815,3 +7815,97 @@ deploy o di un rollback che la tocca.
   ⚠️ La migrazione è la **0240** perché la **0239** è delle workspace
   (#141), che entra prima. Se l'ordine si invertisse, rinumera chi entra per
   secondo.
+- **«Il taglio del web vecchio, R1» (28 nov 2026)**: ramo `feat/taglio-r1`,
+  piano `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md` §1.1 (R1) e §2.
+  ⚠️ **NON si mergia finché i prerequisiti non sono chiusi**: la suite E2E
+  della nuova app verde in CI contro la radice (D3), il blocco P (plugin e
+  tool MCP sulle rotte dell'app), R0 stabile. La fase 2 della cassaforte nel
+  browser è già in main (la pagina a sé): R1 la sposta da `/app/vault/` a
+  `/vault/`.
+  Cosa cambia:
+  - **Caddy**: la nuova app alla RADICE (`/srv/app`, CSP stretta, COOP,
+    `index.html` `no-store`). `/app` e `/app/*` sono un 308 alla radice PER
+    SEMPRE (il browser tiene il frammento dei link già spediti, `/app/#/…`,
+    e del login dei Mac installati). Il blocco «Ritiro del web vecchio» è
+    acceso: i percorsi con un id (`/tickets/*`, `/backlog*`, `/projects/*`,
+    `/docs/*`, `/monitor/servers/*`, `/agents/job/*`) vanno ai rimandi
+    `/go/…`, `/settings/security|account|notifications` e `/inbox` alle
+    pagine dell'app. `@graphHtml`, `/api`, `/go`, `/widget.js`,
+    `/widget/*`, `/monitor/ingest|config` e `/guide` invariati. Il web
+    vecchio non si builda né si serve più (`Dockerfile.caddy`, stage
+    `static-build`).
+  - **La pagina a sé della cassaforte** passa da `/app/vault/` a `/vault/`
+    (`handle_path /vault/*`, PRIMA del fallback dell'app: la SUA CSP sola,
+    COOP `noopener-allow-popups`, `vault.html` `no-store`; build con `base`
+    da `APP_ENTRY`). Il vecchio `/app/vault/#/…` lo porta a destinazione il
+    308 di `/app/*`; i Mac di prima della fase 2, che aprono
+    `/vault-pair?state=…`, vanno con un 302 a `/vault/#/pair?state=…`.
+    `scripts/caddy-csp.mjs` vuole `--app` e `--vault` (il `--web` non c'è più).
+  - **I link nuovi sono `/#/…`** (`APP_ENTRY = "/"`): card, email, push,
+    webhook in uscita, MCP, i rimandi `/go`. Il link di reset della password
+    (`url` di `POST /api/users/:id/password-reset`) è quello dell'app, e il
+    ritorno di Google senza `client` va a Preferenze → Account dell'app.
+  - **Risposte**: `webHref` non c'è più in `GET /api/tasks/:id/work`, nelle
+    richieste (`/api/requests/to-convert`, l'elenco del progetto) e nelle
+    decisioni di Claude (`/api/me/claude-decisions`).
+  - **Il Mac**: il login apre `<istanza>/#/desktop-login`.
+  - **`apps/web` cancellato**, con il job E2E del web vecchio, il suo gruppo
+    nel piano della CI e la voce nei changeset. `design-tokens.ts` è la
+    fonte dei colori (D9). La guida ha un banner che dice che descrive
+    ancora il web vecchio (D6), finché non è riscritta.
+  Nessuna migrazione, nessuna env.
+  **Prima del deploy**: TENERE le immagini di adesso, perché il codice del
+  web vecchio non è più nel repo e il caddy di prima non si ricostruisce:
+  ```sh
+  docker tag stubwise-caddy:latest stubwise-caddy:pre-r1
+  docker tag stubwise-server:latest stubwise-server:pre-r1
+  docker tag stubwise-worker:latest stubwise-worker:pre-r1
+  ```
+  **Cosa ribuildare e in che ordine**: `server` e `caddy` nello stesso
+  deploy, poi `worker` (scrive anche lui i link delle card; finché è quello
+  di prima scrive `/app/#/…`, che il redirect porta a destinazione). In
+  nessuno dei due ordini fra server e caddy c'è una finestra rotta: col
+  caddy prima i link restano `/app/#/…` e passano dal redirect; col server
+  prima il caddy vecchio serve il web vecchio alla radice, e un link `/#/…`
+  apre la sua Home per qualche minuto, mai un errore. Niente riavvii del
+  worker con lavoro dell'agente in corso. **Il Mac installato smette di
+  funzionare dal deploy di R1 fino all'installazione nuova, ed è accettato**
+  (decisione del maintainer, 28 nov 2026): quello di prima legge `webHref`
+  come obbligatorio nel lavoro di Claude di una task, nelle richieste e nelle
+  decisioni, e col server nuovo quelle letture falliscono (il suo login invece
+  funziona, via `/app/#/desktop-login`). Il pacchetto nuovo, FIRMATO, lo
+  costruisce il maintainer UNA volta, dallo stato finale dopo R3 (non dopo
+  R1): fino ad allora si usa l'app nel browser.
+  **Controllo dopo il deploy**:
+  ```sh
+  curl -sI https://<istanza>/ | grep -iE 'content-security-policy|cross-origin-opener|cache-control'
+  curl -sI https://<istanza>/app/ | grep -iE '^HTTP|location'           # 308, Location: /
+  curl -sI https://<istanza>/app/assets/x.js | grep -i location         # /assets/x.js
+  curl -sI https://<istanza>/settings/security | grep -i location       # /#/preferences/security
+  curl -sI https://<istanza>/widget.js | grep -ci content-security-policy   # 0
+  curl -sI https://<istanza>/vault/ | grep -iE 'content-security-policy|cross-origin-opener|cache-control'   # UNA CSP (la sua), COOP noopener-allow-popups, no-store
+  curl -sI https://<istanza>/app/vault/ | grep -iE '^HTTP|location'     # 308, Location: /vault/
+  curl -sI 'https://<istanza>/vault-pair?state=x' | grep -i location    # /vault/#/pair?state=x
+  ```
+  E in locale, sul bundle che va in produzione:
+  `pnpm --filter @stubwise/desktop verify:vault-isolation`.
+  Nel browser: un link vecchio (`/app/#/p/<CODICE>/tasks?task=<CODICE-n>`)
+  e uno del web vecchio (`/tickets/<id>`) aprono la task nell'app; `/guide`
+  mostra il banner; dal Mac nuovo il login dal browser riapre l'app.
+  **Rollback**: le immagini `pre-r1` di `caddy` e `server` (e del `worker`
+  se è già salito), insieme:
+  ```sh
+  docker tag stubwise-caddy:pre-r1 stubwise-caddy:latest
+  docker tag stubwise-server:pre-r1 stubwise-server:latest
+  docker compose up -d --no-build server caddy
+  ```
+  Il web vecchio torna alla radice e la nuova app su `/app`. Durante il
+  rollback un link `/#/…` scritto dopo R1 apre la Home del web vecchio
+  invece della pagina: un degrado, non un errore, che dura finché non si
+  risale. Il Mac nuovo, col caddy di prima, apre `/#/desktop-login` sul web
+  vecchio e non riesce a fare il login: si usa il browser, o il Mac di
+  prima, finché non si risale. **Durante il rollback non funziona nemmeno
+  l'associazione di un Mac nuovo alla cassaforte**: apre `/vault/#/pair`,
+  che il caddy di prima non serve (la pagina a sé lì è su `/app/vault/`).
+  Il pacchetto per Mac nuovo arriva comunque solo dopo R3 (vedi sopra). R2 (la pulizia del server) parte solo
+  quando R1 è stabile, perché le rotte del web servono a un rollback.

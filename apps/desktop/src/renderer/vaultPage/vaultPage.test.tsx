@@ -76,8 +76,8 @@ describe("l'ingresso della pagina a sé", () => {
   it("senza una sessione: il login dell'app con `next` (e lo state del Mac)", async () => {
     m.me = null;
     at("#/pair?state=c3Rh-dGU_");
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/app/#/login?next=vault-pair&state=c3Rh-dGU_"));
-    expect(loginPath(parseRoute("#/recover"))).toBe("/app/#/login?next=vault-recover");
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/#/login?next=vault-pair&state=c3Rh-dGU_"));
+    expect(loginPath(parseRoute("#/recover"))).toBe("/#/login?next=vault-recover");
   });
 
   it("i rimandi: all'app (navigazione completa) e fra le pagine; il recupero solo al full admin", async () => {
@@ -85,7 +85,7 @@ describe("l'ingresso della pagina a sé", () => {
     m.status = { activated: true, key: "confirmed", sealedPasskeyIds: ["pk-1"] };
     at("#/setup");
     expect(await screen.findByText("You have a vault key.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to Stubwise" })).toHaveAttribute("href", "/app/#/vault");
+    expect(screen.getByRole("link", { name: "Back to Stubwise" })).toHaveAttribute("href", "/#/vault");
     expect(screen.getByRole("link", { name: "Passkeys for the vault" })).toHaveAttribute("href", "#/passkeys");
     expect(screen.queryByRole("link", { name: "Use the recovery kit" })).toBeNull();
   });

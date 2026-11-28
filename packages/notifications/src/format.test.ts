@@ -1380,9 +1380,9 @@ describe("sampleEvents", () => {
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
       if (event.kind === "docs.limit_paused" || event.kind === "docs.nightly_attention") {
-        expect(event.docsUrl.startsWith("https://app.example.com/app/#/p/")).toBe(true);
+        expect(event.docsUrl.startsWith("https://app.example.com/#/p/")).toBe(true);
       } else if (event.kind === "monitor.alert" || event.kind === "monitor.recovered") {
-        expect(event.url.startsWith("https://app.example.com/app/#/p/")).toBe(true);
+        expect(event.url.startsWith("https://app.example.com/#/p/")).toBe(true);
       } else if (
         event.kind === "release.failed" ||
         event.kind === "release.merged" ||
@@ -1395,13 +1395,13 @@ describe("sampleEvents", () => {
         event.kind === "server.diagnosis_ready"
       ) {
         // Area 8: la pagina nell'app (rilascio, pannello della PR, Docs, Support, la task del server).
-        expect(event.url.startsWith("https://app.example.com/app/")).toBe(true);
+        expect(event.url.startsWith("https://app.example.com/#/")).toBe(true);
       } else if (
         event.kind === "project.pulse" ||
         event.kind === "project.brief" ||
         event.kind === "google.proposal_handed"
       ) {
-        expect(event.projectUrl.startsWith("https://app.example.com/app/#/p/")).toBe(true);
+        expect(event.projectUrl.startsWith("https://app.example.com/#/p/")).toBe(true);
       } else if (event.kind === "request.created") {
         expect(event.url.startsWith("https://app.example.com/")).toBe(true);
       } else if (event.kind === "google.proposal") {
@@ -1424,7 +1424,7 @@ describe("sampleEvents", () => {
         // Nessun link nell'evento: si legge in inbox (o «Apri» lo deriva).
         expect(Object.values(event).some((v) => typeof v === "string" && v.startsWith("http"))).toBe(false);
       } else {
-        expect(event.ticketUrl.startsWith("https://app.example.com/app/#/p/NEG/tasks?task=NEG-")).toBe(true);
+        expect(event.ticketUrl.startsWith("https://app.example.com/#/p/NEG/tasks?task=NEG-")).toBe(true);
       }
     }
   });
@@ -1626,10 +1626,10 @@ describe("review.completed: il ciclo di correzione", () => {
 describe("gli avvisi di Support (area 8, F3)", () => {
   const P = "3d2a9c1b-7777-4888-8999-aaaabbbbcccc";
   it("support.request: codice, titolo e cliente; senza nome «Anonymous visitor»", () => {
-    const named = formatNotificationText({ kind: "support.request", projectId: P, requestCode: "NEG-R14", title: "Export PDF", customerName: "Mario", url: "https://x/app/#/p/NEG/requests" }, "en");
+    const named = formatNotificationText({ kind: "support.request", projectId: P, requestCode: "NEG-R14", title: "Export PDF", customerName: "Mario", url: "https://x/#/p/NEG/requests" }, "en");
     expect(named).toContain("Mario");
     expect(named).toContain("NEG-R14");
-    const anon = formatNotificationText({ kind: "support.request", projectId: P, requestCode: "NEG-R14", title: "Export PDF", customerName: null, url: "https://x/app/#/p/NEG/requests" }, "it");
+    const anon = formatNotificationText({ kind: "support.request", projectId: P, requestCode: "NEG-R14", title: "Export PDF", customerName: null, url: "https://x/#/p/NEG/requests" }, "it");
     expect(anon).toContain("Visitatore anonimo");
   });
 });

@@ -137,7 +137,7 @@ messaggi (403 `not_yours`).
 Vale per `chat.mention` e `chat.question`. Nel jsonb della notifica ci sono solo gli id (`chatMessageId`, `channelId`) e
 il testo vero al momento della publish (`channelName`, `authorName`). Il blocco
 `chat` della card (canale, messaggio, radice del thread, autore, estratto) e
-l'url `/app/#/chat/…` li ricostruisce `chatMentionsFor`
+l'url `/#/chat/…` (`/app/#/…` prima di R1) li ricostruisce `chatMentionsFor`
 (`apps/server/src/chat/service.ts`) a ogni lettura. Lo fa con la regola di
 LETTURA (chi è tolto da un privato perde anche il link), e con una query per
 pagina, non una per card.

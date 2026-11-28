@@ -76,7 +76,7 @@ describe("la parte Vault nella pagina di una persona", () => {
       const p = await part();
       await user.click(p.getByRole("button", { name: "Manage Laura Costa's Macs in the browser" }));
       // Ritiro del web vecchio (inventario 1.2): il web vecchio quella pagina non ce l'ha.
-      expect(openWeb).toHaveBeenCalledWith("/app/#/admin/people/p-laura");
+      expect(openWeb).toHaveBeenCalledWith("/#/admin/people/p-laura");
       expect(spy).not.toHaveBeenCalled();
     } finally {
       spy.mockRestore();

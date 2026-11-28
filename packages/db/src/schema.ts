@@ -5536,7 +5536,7 @@ export const oauthStates = pgTable(
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     /**
      * Rimandi, lotto 4 (§6, 0221): dove torna il callback. `desktop` = la pagina
-     * `/app/#/desktop-google` con `returnState` (lo state dell'app, non quello
+     * `/#/desktop-google` con `returnState` (lo state dell'app, non quello
      * firmato); null = il web di sempre. Li decide `beginConnect`, MAI la query
      * del callback.
      */

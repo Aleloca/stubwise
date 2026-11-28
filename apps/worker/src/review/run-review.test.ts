@@ -324,7 +324,7 @@ describe("runPrReview", () => {
     expect(fakes.dispatched.find((d) => d.event.kind === "pr.analysis_issues")!.event).toMatchObject({
       prNumber: 7,
       title: "Fix login flow",
-      url: expect.stringMatching(new RegExp(`/app/#/p/[A-Z0-9]+/releases\\?pr=${repositoryId}%237$`)),
+      url: expect.stringMatching(new RegExp(`/#/p/[A-Z0-9]+/releases\\?pr=${repositoryId}%237$`)),
     });
     const event = fakes.dispatched.find((d) => d.event.kind === "review.completed")!.event;
     expect(event.kind).toBe("review.completed");

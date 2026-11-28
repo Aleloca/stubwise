@@ -230,7 +230,7 @@ describe("il cassetto Google: «Collega»", () => {
     await vi.waitFor(() => expect(tab.location.href).toBe("https://accounts.google.com/x"));
     expect(tab.opener).toBeNull();
     expect(opened).not.toHaveBeenCalled();
-    // Link della nuova app (54): il ritorno va su /app/#/preferences/account, non sul web vecchio.
+    // Link della nuova app (54): il ritorno va su /#/preferences/account, non sul web vecchio.
     expect(seen.find((r) => r.path === "/api/me/google/connect")!.body).toMatchObject({ client: "web" });
   });
 

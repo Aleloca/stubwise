@@ -5,7 +5,7 @@ import { renderRoute } from "../../test/renderRoute";
 
 // Lotto 4, §6: la pagina dell'istanza su cui il callback di Google porta il
 // browser quando il collegamento è partito dal desktop
-// (`/app/#/desktop-google?outcome&state`). Dice l'esito con i testi del
+// (`/#/desktop-google?outcome&state`). Dice l'esito con i testi del
 // dialogo e riapre l'app con `stubwise://google?outcome=…&state=…`: SOLO quei
 // due parametri, e solo se validi. Nessuna sessione richiesta.
 

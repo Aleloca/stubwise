@@ -138,7 +138,7 @@ _Screenshots coming soon. For now, the UI is explorable by starting the stack
         │ errors/feedback       │ browser                 │ metrics
         ▼                       ▼                         ▼
   ┌───────────────┐   ┌──────────────────┐   ┌─────────────────────┐
-  │ @stubwise/sdk │   │  SPA + /guide +  │   │  @stubwise/agent    │
+  │ @stubwise/sdk │   │  app + /guide +  │   │  @stubwise/agent    │
   │ + widget.js   │   │  /widget.js      │   │  (per-host container)│
   └───────┬───────┘   └────────┬─────────┘   └──────────┬──────────┘
           │                    │                        │
@@ -184,7 +184,8 @@ The monorepo (pnpm, Node 22):
 
 - `apps/server` — Fastify API: auth, ticketing, ingestion, docs, backlog,
   monitoring, OpenAPI.
-- `apps/web` — React web app (TanStack Router/Query, Tailwind).
+- `apps/desktop` — the Stubwise app (React): the desktop app (Electron) and
+  the web app served at the root of every instance.
 - `apps/worker` — AI pipeline on top of the `claude` CLI.
 - `apps/docs` — documentation site (Astro Starlight), served at `/guide`.
 - `packages/sdk` — browser/Node SDK (published to npm).
@@ -394,8 +395,7 @@ locally:
 pnpm --filter @stubwise/docs dev
 ```
 
-On a deployed stack it's served by Caddy under `/guide` (the `/docs` path is
-the SPA's "Docs" section — the per-project AI-generated documentation).
+On a deployed stack it's served by Caddy under `/guide`.
 
 Project documents: [designs and implementation plans](docs/plans/).
 

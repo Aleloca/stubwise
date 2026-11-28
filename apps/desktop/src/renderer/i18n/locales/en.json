@@ -1110,8 +1110,6 @@
     },
     "claude": {
       "web": {
-        "open": "Open in web",
-        "hint": "The plan, approvals, Claude's questions and the live session are in the web app.",
         "pr": {
           "open": "Open",
           "merged": "Merged",
@@ -1642,7 +1640,6 @@
       "turnIntoTaskLabel": "Turn into task: {{title}}",
       "created": "{{code}} created from the request.",
       "openRequest": "Open request {{title}}",
-      "openRequestInWeb": "Open {{title}} in the web",
       "claude": {
         "asks": "Claude asks",
         "plan": "Claude's plan waits for your approval",

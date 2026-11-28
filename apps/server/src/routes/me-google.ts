@@ -3,7 +3,6 @@ import { GMAIL_MODIFY_SCOPE, missingGoogleScopes, revokeToken, type FetchImpl } 
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import {
   appPath,
-  legacyWebPath,
   GOOGLE_OAUTH_CALLBACK_PATH,
   GOOGLE_SYNC_REQUEST_CHANNEL,
   GOOGLE_SYNC_REQUEST_MIN_SECONDS,
@@ -153,7 +152,7 @@ export async function meGoogleRoutes(
 
   /**
    * Rimandi, lotto 4 (§6, D-6.1 = a): un collegamento avviato dall'app torna
-   * alla pagina dell'istanza `/app/#/desktop-google`, che dice l'esito e apre
+   * alla pagina dell'istanza `/#/desktop-google`, che dice l'esito e apre
    * `stubwise://google`. SOLO l'esito e lo state dell'app: niente code, token,
    * state firmato, email o id.
    */
@@ -162,21 +161,16 @@ export async function meGoogleRoutes(
   }
 
   /**
-   * Redirect alla pagina Account con l'esito nel query param: quella della
-   * nuova app nel browser (`client: "web"`), o quella del web vecchio (che non
-   * manda `client`) finché esiste.
+   * Redirect alla pagina Account della nuova app con l'esito nel query param.
+   * Anche per chi non manda `client` (il web vecchio, fino a R1): un consenso
+   * avviato prima del ritiro torna comunque nell'app.
    */
-  function redirectWithOutcome(reply: FastifyReply, outcome: GoogleCallbackOutcome, newApp: boolean) {
+  function redirectWithOutcome(reply: FastifyReply, outcome: GoogleCallbackOutcome) {
     // Path RELATIVO e non `publicUrl` + path: la SPA è servita da caddy sullo
     // stesso origin dell'API, e un Location relativo la raggiunge comunque —
     // mentre `publicUrl` mal configurato manderebbe l'utente su un host
     // sbagliato proprio nel momento in cui il collegamento è appena riuscito.
-    return reply.redirect(
-      newApp
-        ? appPath({ to: "preferences", section: "account", search: { google: outcome } })
-        : legacyWebPath.googleAccountSettings(outcome),
-      302,
-    );
+    return reply.redirect(appPath({ to: "preferences", section: "account", search: { google: outcome } }), 302);
   }
 
   /**
@@ -281,7 +275,7 @@ export async function meGoogleRoutes(
       // Lotto 4 (§6): dove torna lo dice la riga dello state (verificato), mai la query.
       const back = await connectReturnOf(deps(), state);
       const finish = (outcome: GoogleCallbackOutcome) =>
-        back?.client === "desktop" ? redirectToDesktop(reply, outcome, back.returnState) : redirectWithOutcome(reply, outcome, back?.client === "web");
+        back?.client === "desktop" ? redirectToDesktop(reply, outcome, back.returnState) : redirectWithOutcome(reply, outcome);
       // L'utente ha premuto "Annulla" sulla schermata di consenso: non è un
       // errore nostro, ma non c'è nulla da collegare (D-6.2 = a: resta `error`).
       if (error) {

@@ -8,7 +8,7 @@ import type { Pairing } from "./vaultRemote";
 //
 // 1. `start()`: il main genera la coppia del dispositivo, chiede
 //    l'accoppiamento COL SUO PAT (`POST /api/vault/device-pairings`), apre nel
-//    browser `<istanza>/app/vault/#/pair?state=<s>` (`vaultPageUrl`: la pagina a sé della cassaforte
+//    browser `<istanza>/vault/#/pair?state=<s>` (`vaultPageUrl`: la pagina a sé della cassaforte
 //    nel browser, fase 2 della cassaforte; prima era il web vecchio,
 //    `/vault-pair`) — nell'URL SOLO lo state
 //    (pubblica e nome il browser li legge dal server) — e restituisce

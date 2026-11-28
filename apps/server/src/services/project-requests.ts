@@ -1,4 +1,3 @@
-import { legacyWebPath } from "@stubwise/shared";
 import { backlogItemRequesters, backlogItemTickets, backlogItems, projects, type Db } from "@stubwise/db";
 import { REQUEST_EXCERPT_LENGTH, sizeFromEffort, type ProjectRequestSummary, type ProjectRequestView } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
@@ -146,7 +145,6 @@ async function decorate<R extends CommonRow>(db: Db, viewer: Viewer, rows: R[]):
             reason: suggested.reason ?? "",
           }
         : null,
-      webHref: legacyWebPath.backlogItem(r.id),
     };
     return { row: r, view };
   });

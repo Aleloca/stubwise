@@ -1219,7 +1219,6 @@ export async function getTaskWorkSummary(taskId: string): Promise<TaskWorkSummar
       url: `https://github.com/${e.repo}/pull/${e.number}`,
       state: e.kind === "pr_merged" ? "merged" : e.kind === "pr_closed" ? "closed" : "open",
     })),
-    webHref: null,
   };
 }
 

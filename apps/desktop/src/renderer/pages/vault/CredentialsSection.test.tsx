@@ -251,7 +251,7 @@ describe("Credentials — la voce della colonna", () => {
       // Fase 2: la pagina della cassaforte della nuova app (dall'helper dei link), non il web vecchio.
       const assign = vi.spyOn(window.location, "assign").mockImplementation(() => undefined);
       await userEvent.click(within(bar()).getByRole("button", { name: "Open the vault page" }));
-      expect(assign).toHaveBeenCalledWith("/app/#/vault");
+      expect(assign).toHaveBeenCalledWith("/#/vault");
       assign.mockRestore();
     });
 

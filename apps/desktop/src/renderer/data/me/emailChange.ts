@@ -151,7 +151,7 @@ export async function getEmailChangeLink(
     : { status: "invalid" };
 }
 
-/** La conferma, col clic sulla pagina del link (`<PUBLIC_URL>/app/#/email-change/<token>`). */
+/** La conferma, col clic sulla pagina del link (`<PUBLIC_URL>/#/email-change/<token>`). */
 export async function confirmEmailChange(token: string): Promise<MeResult<{ email: string }>> {
   await gate("auth.confirmEmailChange");
   const hit = matchSecret("email_change_link", token.trim());

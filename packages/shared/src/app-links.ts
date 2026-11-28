@@ -5,10 +5,11 @@
  *
  * Chi scrive un link verso Stubwise (una card, un'email, una push, un webhook
  * in uscita, la risposta dell'SDK o dell'MCP, un DM Slack) lo costruisce QUI,
- * mai a mano. Il giorno in cui `/app` passa alla radice si cambia
- * {@link APP_ENTRY} e basta. Il test di registro
+ * mai a mano. Dal ritiro del web vecchio (R1) l'app sta alla radice:
+ * {@link APP_ENTRY} è `/`, e `/app/…` resta solo un redirect di Caddy per i
+ * link già spediti. Il test di registro
  * `apps/server/src/app-links-registry.test.ts` fa fallire chi scrive a mano un
- * percorso del web vecchio o un `/app/#` fuori da qui.
+ * percorso del web vecchio o un `/#` fuori da qui.
  *
  * La grammatica è quella del router del renderer
  * (`apps/desktop/src/renderer/router.tsx`, `data/routes.ts`): le pagine di un
@@ -26,8 +27,8 @@
  */
 export const PROJECT_CODE_PATTERN = "[A-Z][A-Z0-9]{1,5}";
 
-/** L'ingresso della nuova app nell'origine: l'unica riga da cambiare quando passa alla radice. */
-export const APP_ENTRY = "/app/";
+/** L'ingresso della nuova app nell'origine: la radice, dal ritiro del web vecchio (R1). */
+export const APP_ENTRY = "/";
 
 /** Una sezione delle Preferenze (`#/preferences/<sezione>`). */
 export type AppPreferenceSection = "notifications" | "account" | "security" | "tokens" | "claude-code" | "look";
@@ -63,8 +64,20 @@ export type AppTarget =
   | { to: "preferences"; section: AppPreferenceSection; search?: Record<string, string> }
   /** Le pagine fuori dall'app vera e propria (link d'accesso dalle email, ritorno di Google). */
   | { to: "resetPassword"; token: string }
+  | { to: "register"; token: string }
   | { to: "emailChange"; token: string }
   | { to: "desktopGoogle"; search: Record<string, string> }
+  /** La conferma nel browser del login del Mac (PKCE): `#/desktop-login?challenge&state&device`. */
+  | { to: "desktopLogin"; search: Record<string, string> }
+  /** Una persona nell'Amministrazione: `#/admin/people/<id>`. */
+  | { to: "adminPerson"; personId: string }
+  /**
+   * Un indirizzo dell'app GIÀ composto dal suo router (percorso e ricerca,
+   * `/projects?view=person`), per aprire nel browser la pagina che si sta
+   * guardando. Deve iniziare con `/`; non è un modo per scrivere a mano un
+   * indirizzo che ha già il suo bersaglio qui sopra.
+   */
+  | { to: "route"; route: string }
   /** Il login, con un ritorno in elenco chiuso (`next`, lo valida la pagina del login). */
   | { to: "login"; search?: Record<string, string> }
   /** La cassaforte (`#/vault`). La fase 2 sta nella pagina a sé: {@link vaultPagePath}. */
@@ -132,10 +145,18 @@ export function appRoute(target: AppTarget): string {
       return `/preferences/${target.section}${target.search ? query(target.search) : ""}`;
     case "resetPassword":
       return `/reset-password/${seg(target.token)}`;
+    case "register":
+      return `/register/${seg(target.token)}`;
     case "emailChange":
       return `/email-change/${seg(target.token)}`;
     case "desktopGoogle":
       return `/desktop-google${query(target.search)}`;
+    case "desktopLogin":
+      return `/desktop-login${query(target.search)}`;
+    case "adminPerson":
+      return `/admin/people/${seg(target.personId)}`;
+    case "route":
+      return target.route.startsWith("/") ? target.route : "/home";
     case "login":
       return `/login${target.search ? query(target.search) : ""}`;
     case "vault":
@@ -143,14 +164,14 @@ export function appRoute(target: AppTarget): string {
   }
 }
 
-/** Il percorso nell'origine (`/app/#/p/ACQ/tasks?task=ACQ-12`), per un `Location` o un link relativo. */
+/** Il percorso nell'origine (`/#/p/ACQ/tasks?task=ACQ-12`), per un `Location` o un link relativo. */
 export function appPath(target: AppTarget): string {
   return `${APP_ENTRY}#${appRoute(target)}`;
 }
 
 /**
  * L'indirizzo intero, con la radice pubblica dell'istanza (`PUBLIC_URL`).
- * Senza radice il link resta RELATIVO (`/app/#/…`): l'app lo apre lo stesso,
+ * Senza radice il link resta RELATIVO (`/#/…`): l'app lo apre lo stesso,
  * e chi non può usare un link relativo (un'email, Slack) lo controlla prima.
  */
 export function appUrl(publicUrl: string | null | undefined, target: AppTarget): string {
@@ -160,8 +181,7 @@ export function appUrl(publicUrl: string | null | undefined, target: AppTarget):
 /**
  * La pagina A SÉ della cassaforte (revisione di sicurezza della fase 2, I-2;
  * design della cassaforte nel browser §10): un documento suo, con la sua CSP
- * stretta, sotto l'ingresso dell'app (`/app/vault/`, e con l'app alla radice
- * `/vault/`). Ci si entra SEMPRE con una navigazione completa, mai con un
+ * stretta, sotto l'ingresso dell'app (con l'app alla radice, R1, `/vault/`). Ci si entra SEMPRE con una navigazione completa, mai con un
  * cambio di frammento dall'app.
  */
 export type VaultPage = "setup" | "recover" | "pair" | "passkeys";
@@ -173,18 +193,3 @@ export function vaultPagePath(page: VaultPage, search?: Record<string, string>):
 export function vaultPageUrl(publicUrl: string | null | undefined, page: VaultPage, search?: Record<string, string>): string {
   return `${(publicUrl ?? "").replace(/\/+$/, "")}${vaultPagePath(page, search)}`;
 }
-
-/**
- * I percorsi del WEB VECCHIO che qualcuno deve ancora poter scrivere, finché
- * il web vecchio esiste: il «Apri nel web» dell'app (`webHref` di task,
- * richieste e decisioni) e il ritorno di Google per chi l'ha avviato dal web
- * vecchio. Stanno qui per lo stesso motivo dei link dell'app: al ritiro si
- * cancella questo blocco, e il compilatore trova chi lo usava ancora.
- */
-export const legacyWebPath = {
-  ticket: (ticketId: string) => `/tickets/${seg(ticketId)}`,
-  backlogItem: (itemId: string) => `/backlog/${seg(itemId)}`,
-  /** Il link di reset della password che il web vecchio mostra all'admin (la nuova app lo compone dal `token`). */
-  resetPassword: (token: string) => `/reset-password/${seg(token)}`,
-  googleAccountSettings: (outcome: string) => `/settings/account${query({ google: outcome })}`,
-} as const;

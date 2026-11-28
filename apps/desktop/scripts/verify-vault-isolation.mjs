@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // La pagina a sé della cassaforte non si governa dall'app (seconda revisione
-// di sicurezza della fase 2, I-1, dai PoC della revisione): `/app` e
-// `/app/vault/` sono la STESSA origine, e COOP `same-origin` non le separa.
+// di sicurezza della fase 2, I-1, dai PoC della revisione): l'app (alla
+// radice da R1) e `/vault/` sono la STESSA origine, e COOP `same-origin` non
+// le separa. I percorsi vengono da `APP_ENTRY`, come quelli di Caddy.
 // Uno script iniettato nell'app che apre la pagina (`window.open`) o segue la
 // sua scheda quando va lì (`location.assign`) ne terrebbe un riferimento, e
 // PRIMA del boot sostituirebbe `Worker.prototype.postMessage` e
@@ -20,7 +21,12 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import { chromium } from "@playwright/test";
+import { APP_ENTRY } from "@stubwise/shared/app-links";
 import { VAULT_PAGE_COOP, VAULT_PAGE_CSP, cspHeader } from "../../../scripts/caddy-csp.mjs";
+
+/** L'app e la pagina a sé, come le serve Caddy: `/` e `/vault/` da R1. */
+const APP = APP_ENTRY;
+const VAULT = `${APP_ENTRY}vault/`;
 
 const desktop = resolve(import.meta.dirname, "..");
 const APP_CSP = [cspHeader([]), "require-trusted-types-for 'script'; trusted-types stubwise-vault-worker stubwise-html; worker-src 'self'"];
@@ -36,11 +42,11 @@ function serve(vaultCoop) {
     if (path === "/api/auth/me") return json(res, { user: { id: "u1", email: "a@x" }, instancePermissions: ["instance.full_admin"], sessionTag: "st1" });
     if (path === "/api/vault/status") return json(res, { activated: false, myKey: null, seals: [], passkeys: [] });
     let dist, file, csp, coop;
-    if (path.startsWith("/app/vault/")) {
-      [dist, file, csp, coop] = [join(desktop, "dist-vault"), path.slice("/app/vault/".length), [VAULT_PAGE_CSP], vaultCoop];
+    if (path.startsWith(VAULT)) {
+      [dist, file, csp, coop] = [join(desktop, "dist-vault"), path.slice(VAULT.length), [VAULT_PAGE_CSP], vaultCoop];
       if (!file || !extname(file)) file = "vault.html";
-    } else if (path.startsWith("/app/")) {
-      [dist, file, csp, coop] = [join(desktop, "dist-web"), path.slice("/app/".length), APP_CSP, "same-origin"];
+    } else if (path.startsWith(APP)) {
+      [dist, file, csp, coop] = [join(desktop, "dist-web"), path.slice(APP.length), APP_CSP, "same-origin"];
       if (!file || !extname(file)) file = "index.html";
     } else {
       res.writeHead(404);
@@ -63,16 +69,16 @@ function serve(vaultCoop) {
 async function attempt(browser, port, variant) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
-  await page.goto(`http://localhost:${port}/app/`);
+  await page.goto(`http://localhost:${port}${APP}`);
   await page.waitForLoadState("load");
   const popupP = ctx.waitForEvent("page");
-  await page.evaluate((target) => {
+  await page.evaluate(({ target, vault }) => {
     const log = (window.__log = []);
     const w = window.open(target, "_blank");
     window.__w = w;
     const tick = () => {
       try {
-        if (w && w.location.pathname.startsWith("/app/vault/") && !w.__patched && w.Worker) {
+        if (w && w.location.pathname.startsWith(vault) && !w.__patched && w.Worker) {
           w.__patched = true;
           const post = w.Worker.prototype.postMessage;
           w.Worker.prototype.postMessage = function (m, t) {
@@ -98,12 +104,12 @@ async function attempt(browser, port, variant) {
       if (!w || !w.__patched) setTimeout(tick, 0);
     };
     tick();
-  }, variant === "opener" ? "/app/vault/#/setup" : "/app/#/home");
+  }, { target: variant === "opener" ? `${VAULT}#/setup` : `${APP}#/home`, vault: VAULT });
   const popup = await popupP;
   await popup.waitForLoadState("load");
   if (variant === "follow") {
-    await popup.evaluate(() => window.location.assign("/app/vault/#/setup"));
-    await popup.waitForURL(/\/app\/vault\//);
+    await popup.evaluate((url) => window.location.assign(url), `${VAULT}#/setup`);
+    await popup.waitForURL((url) => url.pathname.startsWith(VAULT));
     await popup.waitForLoadState("load");
   }
   // La persona genera il kit nella pagina a sé.

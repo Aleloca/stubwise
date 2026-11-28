@@ -21,15 +21,15 @@ afterEach(() => vi.restoreAllMocks());
 describe("/login?next=…", () => {
   it("già dentro, `next=vault-setup`: navigazione completa alla pagina a sé", async () => {
     renderRoute("/login?next=vault-setup", "p-laura");
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/app/vault/#/setup"));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/vault/#/setup"));
   });
 
   it("`next=vault-pair` porta con sé lo state, se valido", async () => {
     renderRoute("/login?next=vault-pair&state=c3Rh-dGU_", "p-laura");
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/app/vault/#/pair?state=c3Rh-dGU_"));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/vault/#/pair?state=c3Rh-dGU_"));
   });
 
-  it.each(["https://evil.example/", "//evil.example", "/app/vault/#/setup", "nope"])("`next=%s` porta alla Home", async (next) => {
+  it.each(["https://evil.example/", "//evil.example", "/vault/#/setup", "nope"])("`next=%s` porta alla Home", async (next) => {
     const router = renderRoute(`/login?next=${encodeURIComponent(next)}`, "p-laura");
     await waitFor(() => expect(router.state.location.pathname).toBe("/home"));
     expect(assign).not.toHaveBeenCalled();

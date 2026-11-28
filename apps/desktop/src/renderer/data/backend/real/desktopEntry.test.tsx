@@ -73,7 +73,7 @@ afterEach(() => {
   delete (window as { stubwise?: unknown }).stubwise;
 });
 
-describe("/app/#/desktop-login (la conferma nel browser)", () => {
+describe("/#/desktop-login (la conferma nel browser)", () => {
   it("desktop-login senza sessione chiede prima il login, poi la conferma", async () => {
     server();
     const ue = userEvent.setup();

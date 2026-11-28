@@ -585,8 +585,6 @@ export interface PullRequestEvent {
 export interface TaskWorkSummary {
   claude: ClaudeWorkState;
   pullRequests: { repo: string; number: number | null; url: string; state: "open" | "merged" | "closed" }[];
-  /** Il dettaglio del ticket nel web vecchio; `null` nel prototipo (non c'è un web vecchio). */
-  webHref: string | null;
 }
 
 /** Una PR: repository (`owner/repo`) e numero. */
@@ -728,8 +726,6 @@ export interface ProjectRequest {
   mergedIntoId: string | null;
   taskIds: string[];
   createdAt: string;
-  /** Solo sul server vero (fetta 3): la voce nel web vecchio, finché Requests non è integrata (fetta 4). */
-  webHref?: string;
   /**
    * Solo sul server vero (fetta 4): la risposta a «Nuova richiesta» è questa
    * richiesta perché l'intake vi ha fuso quella appena mandata («Unita a R12»).

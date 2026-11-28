@@ -77,7 +77,6 @@ describe("endpoints me: «Da decidere» di Claude (area 3, fetta 3b)", () => {
               projectId: "7f1c2a1e-0000-4000-8000-0000000000a1",
               taskId: "7f1c2a1e-0000-4000-8000-0000000000a2",
               at: "2026-11-10T10:00:00.000Z",
-              webHref: "/tickets/x",
             },
           ]),
           { status: 200, headers: { "content-type": "application/json" } },

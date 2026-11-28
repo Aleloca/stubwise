@@ -44,7 +44,5 @@ export const claudeDecisionViewSchema = z.object({
   /** Solo la correzione di un server (area 8b) lo usa: qui sempre `null`. */
   blockedReason: z.string().nullable().default(null),
   serverCode: z.string().nullable().default(null),
-  /** Il dettaglio del ticket nel web vecchio, dove si decide oggi. */
-  webHref: z.string(),
 });
 export type ClaudeDecisionView = z.infer<typeof claudeDecisionViewSchema>;

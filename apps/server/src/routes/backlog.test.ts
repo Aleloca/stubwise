@@ -652,7 +652,7 @@ describe("POST /api/backlog/from-design", () => {
     expect(res.statusCode).toBe(201);
     const body = res.json();
     expect(typeof body.itemId).toBe("string");
-    expect(body.url).toMatch(new RegExp(`^https://stubwise\\.example\\.com/app/#/p/[A-Z0-9]+/requests\\?request=${body.itemId}$`));
+    expect(body.url).toMatch(new RegExp(`^https://stubwise\\.example\\.com/#/p/[A-Z0-9]+/requests\\?request=${body.itemId}$`));
 
     const [item] = await testDb.db
       .select()
@@ -734,7 +734,7 @@ describe("GET /api/backlog/jobs/:jobId", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ status: "done", resultItemId: item.id, error: null, resultItemAppPath: expect.stringMatching(new RegExp(`^/app/#/p/[A-Z0-9]+/requests\\?request=${item.id}$`)) });
+    expect(res.json()).toEqual({ status: "done", resultItemId: item.id, error: null, resultItemAppPath: expect.stringMatching(new RegExp(`^/#/p/[A-Z0-9]+/requests\\?request=${item.id}$`)) });
   });
 
   it("404 se il job non esiste", async () => {
@@ -1007,7 +1007,7 @@ describe("ritiro del web vecchio: design e piano rispondono col link della voce 
   it("PUT e DELETE di design e piano portano `appPath` (le richieste del progetto, con l'id)", async () => {
     const item = await insertItem({ document: "# Vecchio" });
     const headers = { cookie: adminCookie };
-    const path = new RegExp(`^/app/#/p/[A-Z0-9]+/requests\\?request=${item.id}$`);
+    const path = new RegExp(`^/#/p/[A-Z0-9]+/requests\\?request=${item.id}$`);
     const calls = [
       { method: "PUT" as const, url: `/api/backlog/${item.id}/design`, payload: { content: "# Nuovo" } },
       { method: "DELETE" as const, url: `/api/backlog/${item.id}/design` },

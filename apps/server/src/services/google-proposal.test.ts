@@ -2009,7 +2009,7 @@ describe("answerGoogleProposal — proprietario senza il permesso nel progetto (
     const event = handed[0]!.event as Record<string, unknown>;
     // L'ancora è la RIGA, non il `proposalId` (casuale) della card d'origine.
     expect(event.proposalId).toBe(child.id);
-    expect(event.projectUrl).toMatch(/^https:\/\/stubwise\.example\.com\/app\/#\/p\/[A-Z0-9]+\/overview$/);
+    expect(event.projectUrl).toMatch(/^https:\/\/stubwise\.example\.com\/#\/p\/[A-Z0-9]+\/overview$/);
     // Restano solo le scelte da decisore: «Passa» e «Sposta» sono del proprietario.
     expect((event.actions as { type: string }[]).map((a) => a.type)).toEqual(["create_backlog_item", "ignore"]);
     expect(event.sourceOptionIndices).toEqual([0, 2]);

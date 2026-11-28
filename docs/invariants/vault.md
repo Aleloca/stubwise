@@ -271,15 +271,16 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   finché la chiave non viene ricreata. Nessuna regola del server lo impedisce
   dopo il fatto: si difende **prima** (niente script estranei nella pagina) e
   si **limita e si vede** il danno. Le difese, e dove stanno:
-  - **CSP dell'origine** (C1/M1): header di Caddy su `/`, `/app` e `/guide`,
+  - **CSP dell'origine** (C1/M1): header di Caddy sull'app (alla radice `/`
+    da R1, prima su `/app`) e su `/guide`,
     `script-src 'self'` senza `unsafe-inline` né `unsafe-eval`, più
     `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` e
     `connect-src 'self'`. `connect-src` chiude solo `fetch`, XHR, WebSocket e
     EventSource verso altri host: uno script che gira nella pagina ha ancora
     immagini, navigazioni e form verso fuori per portare via un segreto. La
     difesa vera è `script-src`, cioè che uno script estraneo non giri. La guida ammette per hash solo gli script inline
-    di Starlight. Il build di caddy fallisce se il web o l'app hanno uno
-    script inline (`scripts/caddy-csp.mjs`, test in CI). Su `/app` anche COOP
+    di Starlight. Il build di caddy fallisce se l'app ha uno
+    script inline (`scripts/caddy-csp.mjs`, test in CI). Sull'app anche COOP
     `same-origin` e `index.html` `no-store`. Chi aggiunge uno script inline,
     o un `eval`, rompe la pagina in produzione, non solo una regola: la
     strada è un file `.js` servito dall'origine.
@@ -313,7 +314,7 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
     (o `Origin` con lo stesso host), altrimenti 403 `cross_origin_request`;
     copre l'altro sottodominio dello stesso sito, che `SameSite=Lax` non
     ferma. Il PAT non è toccato.
-  - **Trusted Types su `/app`** (I-4, 27 nov 2026): `require-trusted-types-for
+  - **Trusted Types sull'app** (alla radice da R1, prima su `/app`) (I-4, 27 nov 2026): `require-trusted-types-for
     'script'; trusted-types stubwise-vault-worker stubwise-html; worker-src
     'self'`, nell'header di Caddy e nel meta della build web. L'HTML si
     scrive o si interpreta in UN modulo, `platform/trustedHtml.tsx`, con la
@@ -328,7 +329,7 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
     boot e del worker): la sua sonda `new Function` sarebbe una violazione.
   - **Nessun Service Worker sull'origine** (m-7): Caddy risponde 403 a ogni
     richiesta con `Service-Worker: script`, nel primo `handle` del sito.
-- **La cassaforte nella nuova app nel browser (`/app`, 28 nov 2026).** Design
+- **La cassaforte nella nuova app nel browser (alla radice da R1, prima su `/app`; 28 nov 2026).** Design
   in `docs/plans/2026-11-27-cassaforte-browser-design.md` (§5 e §12), tre
   revisioni di sicurezza. Le regole:
   - **Chiave, rete e crittografia stanno in un Dedicated Worker**
@@ -414,7 +415,7 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
      aperto la cassaforte in quella pagina: i passi 2–5 vanno ripetuti per
      ciascuna.
 
-- **La pagina a sé della cassaforte (fase 2, `/app/vault/`, 28 nov 2026).**
+- **La pagina a sé della cassaforte (fase 2, `/vault/` da R1, prima `/app/vault/`; 28 nov 2026).**
   Revisioni di sicurezza della fase 2 (I-1, I-2, poi la seconda). Le regole:
   - **Attivare, la propria chiave, il kit, il recupero, l'associazione di un
     Mac e «Use for the vault» stanno in un documento suo** (`vault.html`,

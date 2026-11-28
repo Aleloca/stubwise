@@ -1,5 +1,5 @@
 // La conferma del login del desktop dal browser (integrazione area 2, Task
-// 21): la pagina `/app/#/desktop-login` chiede il codice monouso con un clic.
+// 21): la pagina `/#/desktop-login` chiede il codice monouso con un clic.
 // Nel prototipo non c'è un desktop che lo aspetti: la pagina esiste (si può
 // aprire a mano), e «Allow» risponde che qui non si può.
 

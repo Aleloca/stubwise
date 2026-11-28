@@ -36,6 +36,8 @@ const TARGETS: AppTarget[] = [
   { to: "preferences", section: "security" },
   { to: "preferences", section: "account" },
   { to: "preferences", section: "notifications" },
+  // Un indirizzo già composto dal router (la pagina che si sta guardando).
+  { to: "route", route: "/p/ACQ/tasks?task=ACQ-12" },
   { to: "vault" },
 ];
 
@@ -57,6 +59,9 @@ const OUTSIDE: { target: AppTarget; routerPath: string }[] = [
   { target: { to: "resetPassword", token: "t" }, routerPath: "/reset-password/$token" },
   { target: { to: "emailChange", token: "t" }, routerPath: "/email-change/$token" },
   { target: { to: "desktopGoogle", search: { outcome: "ok", state: "s" } }, routerPath: "/desktop-google" },
+  { target: { to: "register", token: "t" }, routerPath: "/register/$token" },
+  { target: { to: "desktopLogin", search: { challenge: "c", state: "s", device: "Mac" } }, routerPath: "/desktop-login" },
+  { target: { to: "adminPerson", personId: UUID }, routerPath: "/admin/people/$personId" },
   // Il login, col ritorno alla pagina a sé della cassaforte (I-2).
   { target: { to: "login", search: { next: "vault-setup" } }, routerPath: "/login" },
   { target: { to: "preferences", section: "account", search: { google: "ok" } }, routerPath: "/preferences/$section" },
@@ -83,7 +88,7 @@ describe("i link del server (app-links) e la grammatica del router", () => {
       home: true, task: true, requests: true, project: true, projectMembers: true, docs: true, productPage: true,
       server: true, adminServer: true, release: true, pullRequest: true, chatMessage: true, automation: true,
       preferences: true, resetPassword: true, emailChange: true, desktopGoogle: true,
-      vault: true, login: true,
+      register: true, desktopLogin: true, adminPerson: true, route: true, vault: true, login: true,
     };
     expect([...covered].sort()).toEqual(Object.keys(all).sort());
   });

@@ -1,23 +1,16 @@
 /**
  * Palette CANONICA del tema Stubwise — v1 è SOLO dark, un solo accento ambra
- * (`signal`), IBM Plex per i font. Le chiavi sono il suffisso esatto della
- * variabile CSS del sito (`--color-<chiave>`, blocco `@theme` in
- * `apps/web/src/styles.css`), non un nome a piacere: così un test di parità
- * (`apps/web/src/theme-parity.test.ts`) può confrontare le due liste 1:1
- * senza una tabella di corrispondenza a parte che potrebbe divergere lei
- * stessa.
+ * (`signal`), IBM Plex per i font. Le chiavi sono il suffisso della variabile
+ * CSS (`--color-<chiave>`) del sito di prima.
  *
- * App M1 (11 set 2026): prima di questo modulo, `apps/mobile/src/theme/
- * tokens.ts` RICOPIAVA questi valori a mano — e ne aveva persi cinque per
- * strada (`ink-850`, `ink-700`, `line-strong`, `signal-bright`,
- * `signal-dim`), proprio quelli che sul sito creano la profondità: superfici
- * rialzate, bordi degli elementi interattivi, l'ambra viva contro quella
- * spenta. Ora l'app li legge da qui, e il test di parità impedisce che si
- * riapra lo stesso scarto.
- *
- * **Non generare il CSS del sito da qui**: il sito resta sul blocco `@theme`
- * di Tailwind v4, che DEVE restare la fonte diretta per lui — questo modulo
- * è la rete di sicurezza che tiene l'app allineata, non l'inverso.
+ * **È la fonte** (D9 del ritiro del web vecchio, R1): fino a R1 la fonte vera
+ * era il blocco `@theme` di Tailwind di `apps/web`, e questo modulo ne era la
+ * copia tenuta allineata da un test di parità. Col web vecchio sono andati
+ * via il blocco e il test: chi cambia un colore lo cambia QUI. L'unico
+ * lettore è `apps/mobile` (`theme/tokens.ts`), che lo importa invece di
+ * ricopiarlo: la copia a mano ne aveva persi cinque per strada (`ink-850`,
+ * `ink-700`, `line-strong`, `signal-bright`, `signal-dim`, App M1, 11 set
+ * 2026). La nuova app ha i suoi token, nel renderer di `apps/desktop`.
  */
 export const designColors = {
   /** Sfondo primario (schermo). */

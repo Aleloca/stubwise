@@ -8,7 +8,7 @@ import { useVaultSetupStatus } from "./useVaultSetup";
  * Accanto a una passkey (Preferenze → Security, solo nella build web; design
  * §10): «Opens the vault» se la apre, altrimenti «Use for the vault», che
  * porta con una navigazione COMPLETA alla pagina a sé della cassaforte
- * (`/app/vault/#/passkeys`, revisione I-2): i due tocchi si fanno lì, con la
+ * (`/vault/#/passkeys`, revisione I-2): i due tocchi si fanno lì, con la
  * sua CSP. Senza una chiave viva aperta da un'altra passkey, niente.
  */
 export function VaultPasskeyAction({ passkeyId, name }: { passkeyId: string; name: string }) {

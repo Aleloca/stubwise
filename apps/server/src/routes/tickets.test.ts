@@ -142,7 +142,7 @@ describe("POST /api/tickets", () => {
     const body = res.json() as TicketBody;
     expect(body).toEqual({
       // Ritiro del web vecchio: la task nella nuova app, come percorso (additivo).
-      appPath: expect.stringMatching(/^\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-1$/),
+      appPath: expect.stringMatching(/^\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-1$/),
       id: expect.any(String),
       projectId,
       number: 1,

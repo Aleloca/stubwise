@@ -106,7 +106,7 @@ describe("la task dell'analisi attribuita", () => {
         serverId: s.server.id,
         taskCode: `${code}-${ticket!.number}`,
         title: ticket!.title,
-        url: `https://stubwise.example.com/app/#/p/${code}/tasks?task=${code}-${ticket!.number}`,
+        url: `https://stubwise.example.com/#/p/${code}/tasks?task=${code}-${ticket!.number}`,
       },
       opts: { projectId: s.a.projectId, ticketId: ticket!.id },
     });

@@ -178,7 +178,7 @@ describe("evaluateMonitorAlertsOnce — offline", () => {
     // Ritiro del web vecchio: il server nella nuova app (nessun progetto univoco:
     // dall'Amministrazione), e il suo id nell'evento per chi legge la card.
     const [srv] = await db.select({ number: servers.number }).from(servers).where(eq(servers.id, serverId));
-    expect(ev.url).toBe(`${PUBLIC_URL}/app/#/admin/servers/SRV-${srv!.number}`);
+    expect(ev.url).toBe(`${PUBLIC_URL}/#/admin/servers/SRV-${srv!.number}`);
     expect(ev.serverId).toBe(serverId);
     const alerts1 = await readActiveAlerts(db, serverId);
     expect(alerts1.offline).toMatchObject({ notifiedAt: expect.any(String) });
@@ -599,7 +599,7 @@ describe("evaluateMonitorAlertsOnce — robustezza", () => {
     expect(offline).toBeDefined();
     expect(offline!.serverName).toBe("srv-good");
     const [good] = await db.select({ number: servers.number }).from(servers).where(eq(servers.id, goodId));
-    expect(offline!.url).toBe(`${PUBLIC_URL}/app/#/admin/servers/SRV-${good!.number}`);
+    expect(offline!.url).toBe(`${PUBLIC_URL}/#/admin/servers/SRV-${good!.number}`);
   });
 
   it("una publish che lancia non propaga e lo stato anti-spam risulta comunque persistito", async () => {

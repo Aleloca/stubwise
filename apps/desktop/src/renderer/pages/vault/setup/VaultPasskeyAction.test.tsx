@@ -23,7 +23,7 @@ describe("Use for the vault", () => {
   it("una passkey senza sigillo: un link (navigazione completa) alla pagina a sé, `#/passkeys`", async () => {
     renderWithData(<VaultPasskeyAction passkeyId="pk-2" name="YubiKey" />, { personId: "p-laura" });
     const link = await screen.findByRole("link", { name: "Use passkey YubiKey for the vault" });
-    expect(link).toHaveAttribute("href", "/app/vault/#/passkeys");
+    expect(link).toHaveAttribute("href", "/vault/#/passkeys");
   });
 
   it("una passkey che apre già: «Opens the vault», nessun link", async () => {

@@ -40,7 +40,6 @@ import {
 } from "../../components/InstanceBlock";
 import { WhoCanLink } from "../../components/WhoCanLink";
 import { featureIntegrated } from "../../data/integration";
-import { openInWeb } from "../../platform/openWeb";
 import { Dialog, inputClass } from "../../tasks-ui/Dialog";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
@@ -179,14 +178,6 @@ function ClaudeSummarySection({ task }: { task: Task }) {
             </li>
           ))}
         </ul>
-      )}
-      {w.webHref && (
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className={smallSecondary} onClick={() => openInWeb(w.webHref!)}>
-            {t(`${K}.web.open`)}
-          </button>
-          <span className="text-xs text-ink-muted">{t(`${K}.web.hint`)}</span>
-        </div>
       )}
     </Section>
   );

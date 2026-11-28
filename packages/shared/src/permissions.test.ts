@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
 import {
   DEPARTMENT_PERMISSIONS,
   effectiveInstancePermissions,
@@ -10,27 +9,9 @@ import {
   PROJECT_PERMISSIONS,
 } from "./permissions.js";
 
-// Le etichette stanno nei locali del web; si leggono da file (non con un import
-// JSON) perché stanno fuori dal `rootDir` di questo package.
-const loadLocale = (lang: string): unknown =>
-  JSON.parse(
-    readFileSync(
-      new URL(`../../../apps/web/src/i18n/locales/${lang}.json`, import.meta.url),
-      "utf8",
-    ),
-  );
-const en = loadLocale("en");
-const it_ = loadLocale("it");
-
 const CREDENTIAL_PERMISSIONS = ["credentials.create", "credentials.edit", "credentials.share"];
 
 const preset = (name: string) => PRESET_ROLES.find((r) => r.name === name)!;
-
-function label(tree: unknown, key: string): unknown {
-  return key
-    .split(".")
-    .reduce<unknown>((node, part) => (node as Record<string, unknown> | undefined)?.[part], tree);
-}
 
 describe("catalogo dei permessi", () => {
   it("non ha chiavi duplicate, né fra i livelli", () => {
@@ -208,19 +189,6 @@ describe("catalogo dei permessi", () => {
     expect(isSubsetOf(["a"], new Set(["a", "b"]))).toBe(true);
     expect(isSubsetOf(["a", "c"], new Set(["a", "b"]))).toBe(false);
     expect(isSubsetOf([], new Set())).toBe(true);
-  });
-
-  it("ogni chiave ha un'etichetta in it e en", () => {
-    for (const key of [...INSTANCE_PERMISSIONS, ...PROJECT_PERMISSIONS, ...DEPARTMENT_PERMISSIONS]) {
-      for (const [lang, tree] of [
-        ["en", en],
-        ["it", it_],
-      ] as const) {
-        const value = label((tree as Record<string, unknown>).permissions, `label.${key}`);
-        expect(typeof value, `${lang}: ${key}`).toBe("string");
-        expect((value as string).trim().length, `${lang}: ${key} vuota`).toBeGreaterThan(0);
-      }
-    }
   });
 });
 

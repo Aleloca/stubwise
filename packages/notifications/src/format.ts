@@ -338,7 +338,7 @@ interface PrEventBase {
   /** Il titolo della PR (scritto da chi l'ha aperta). */
   title: string;
   /**
-   * Il pannello della PR nell'app: `/app/#/p/<PRJ>/releases?pr=<repositoryId>%23<n>`
+   * Il pannello della PR nell'app: `/#/p/<PRJ>/releases?pr=<repositoryId>%23<n>`
    * (l'id della vista della PR è `repositoryId#numero`, univoco anche con più
    * repository; `#` codificato perché sta dentro l'hash — richiesta di 94).
    */

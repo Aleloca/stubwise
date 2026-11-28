@@ -9,7 +9,7 @@ import { SetupPage } from "./SetupPage";
 import { Column, ErrorLine, Heading, secondaryButton } from "./ui";
 
 // La pagina A SÉ della cassaforte (revisione di sicurezza della fase 2, I-2;
-// design §10): un documento suo (`vault.html`, `/app/vault/`), con la sua CSP
+// design §10): un documento suo (`vault.html`, `/vault/`), con la sua CSP
 // stretta, e dentro solo il worker della cassaforte, il login che rimanda a
 // quello dell'app, la riconferma e quattro pagine (attivare e la propria
 // chiave, il recupero col kit, l'associazione di un Mac, le passkey della

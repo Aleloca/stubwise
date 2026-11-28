@@ -409,7 +409,6 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
       status: "ready",
       urgency: null,
       createdAt: "2026-11-09T10:00:00.000Z",
-      webHref: "/backlog/00000000-0000-4000-8000-0000000000e1",
     };
     const fetchImpl = mockFetch(async () => jsonResponse(200, [ROW]));
     const [row] = await clientWith(fetchImpl).requests.toConvert();
@@ -530,7 +529,6 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
       status: "new",
       urgency: null,
       createdAt: "2026-11-09T10:00:00.000Z",
-      webHref: `/backlog/${R}`,
     };
     const calls: [string, string, unknown][] = [];
     const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {

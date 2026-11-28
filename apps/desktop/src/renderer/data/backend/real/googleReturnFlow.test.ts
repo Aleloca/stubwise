@@ -90,7 +90,7 @@ describe("il ritorno da Google al desktop, dal main al renderer", () => {
       expect(seen.find((r) => r.path === "/api/me/google/connect")!.body).toMatchObject({
         client: "desktop",
       });
-      // Il browser: Google → callback del server → `/app/#/desktop-google` → l'app.
+      // Il browser: Google → callback del server → `/#/desktop-google` → l'app.
       if (outcome === "ok") accounts = [account];
       expect(
         main.handleGoogleUrl(`stubwise://google?outcome=${outcome}&state=${returnState}`),

@@ -52,7 +52,7 @@ import { CANCELLABLE_STATUSES } from "./cancel-run.js";
  *   pausa» del prototipo.
  */
 
-type Extras = Omit<TaskWorkView, "claude" | "pullRequests" | "webHref">;
+type Extras = Omit<TaskWorkView, "claude" | "pullRequests">;
 type Run = Extras["runs"][number];
 type Availability = Extras["actions"]["start"];
 

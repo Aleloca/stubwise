@@ -15,7 +15,7 @@ import { appClient, session } from "./client";
 // configurazione obbligatoria dell'app per chi non ce l'ha. Sulle rotte cookie
 // di oggi (`/api/auth/login`, `/api/auth/second-factor/*`): il server non
 // cambia. Modulo a sé perché lo riusa la conferma del login del desktop
-// dal browser (`/app/#/desktop-login`, Task 21).
+// dal browser (`/#/desktop-login`, Task 21).
 
 /** Lo stadio della sessione parziale dopo la password. */
 export type PartialStage = "second_factor" | "enrollment";

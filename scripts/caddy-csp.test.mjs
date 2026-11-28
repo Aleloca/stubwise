@@ -48,13 +48,24 @@ describe("il Caddyfile", () => {
     assert.ok(!/unsafe-inline|unsafe-eval/.test(caddyfile.replace(/#.*$/gm, "")), "nessun unsafe-inline/unsafe-eval fuori dai commenti");
   });
 
-  it("le pagine statiche la mandano: il web vecchio, la nuova app (con COOP e index.html no-store), la guida (il frammento generato)", () => {
-    assert.ok(block("\thandle {").includes("import csp_strict"), "il web vecchio");
-    const app = block("handle_path /app/*");
+  it("le pagine statiche la mandano: la nuova app alla radice (con COOP e index.html no-store), la guida (il frammento generato)", () => {
+    const app = block("\thandle {");
+    assert.ok(app.includes("root * /srv/app"), "l'app alla radice (R1)");
     assert.ok(app.includes("import csp_strict"));
     assert.ok(app.includes('header Cross-Origin-Opener-Policy "same-origin"'));
     assert.ok(app.includes("@appDocument not path /assets/*") && app.includes('header @appDocument Cache-Control "no-store"'));
     assert.ok(block("handle_path /guide/*").includes("import /etc/caddy/csp-guide.caddy"));
+  });
+
+  it("il web vecchio non c'è più: /app è un redirect permanente alla radice, e i percorsi vecchi vanno ai rimandi", () => {
+    // Solo le righe di commento: un `#` dentro un indirizzo (`/#/preferences/…`) è un frammento.
+    const live = caddyfile.replace(/^\s*#.*$/gm, "");
+    assert.ok(!live.includes("/srv/web"), "nessun web vecchio servito");
+    assert.match(live, /redir \/app \/ 308/);
+    assert.ok(block("handle_path /app/*").includes("redir * {uri} 308"));
+    assert.ok(block("handle @legacyById").includes("rewrite * /go{uri}"));
+    assert.match(live, /redir \/settings\/security \/#\/preferences\/security 302/);
+    assert.match(live, /redir \/inbox \/#\/home 302/);
   });
 
   it("le risposte del server e il widget NON la ricevono (il grafo si incornicia, il widget si incorpora sui siti dei clienti)", () => {
@@ -72,7 +83,7 @@ describe("il Caddyfile", () => {
       VAULT_PAGE_CSP,
       "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; worker-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'; require-trusted-types-for 'script'; trusted-types stubwise-vault-worker",
     );
-    const vault = block("handle_path /app/vault/*");
+    const vault = block("handle_path /vault/*");
     assert.ok(vault.includes(`header Content-Security-Policy "${VAULT_PAGE_CSP}"`), vault);
     assert.ok(!vault.includes("csp_strict"), "una CSP sola, la sua (non quella dell'origine)");
     // Seconda revisione, I-1: `same-origin` non separa una pagina della STESSA
@@ -81,15 +92,25 @@ describe("il Caddyfile", () => {
     assert.ok(vault.includes(`header Cross-Origin-Opener-Policy "${VAULT_PAGE_COOP}"`), vault);
     assert.ok(vault.includes("@vaultDocument not path /assets/*") && vault.includes('header @vaultDocument Cache-Control "no-store"'));
     assert.ok(vault.includes("root * /srv/vault") && vault.includes("try_files {path} /vault.html"));
-    assert.match(caddyfile, /redir \/app\/vault \/app\/vault\/ 308/);
-    assert.ok(caddyfile.indexOf("handle_path /app/vault/*") < caddyfile.indexOf("handle_path /app/*"), "prima del blocco dell'app");
+    assert.match(caddyfile, /redir \/vault \/vault\/ 308/);
+    // Con l'app alla radice (R1), la pagina a sé sta su /vault/, PRIMA del
+    // fallback dell'app (i `handle` sono valutati in ordine): dopo, il
+    // catch-all servirebbe l'index dell'app con la CSP dell'origine.
+    assert.ok(caddyfile.indexOf("handle_path /vault/*") < caddyfile.indexOf("\thandle {"), "prima del catch-all dell'app");
+    assert.ok(caddyfile.indexOf("handle_path /vault/*") < caddyfile.indexOf("handle_path /app/*"), "prima del redirect di /app/*");
+    assert.ok(!caddyfile.includes("handle_path /app/vault/*"), "il vecchio /app/vault/ lo copre il redirect di /app/*");
+    // I Mac di prima della fase 2 aprono /vault-pair?state=…: l'associazione
+    // ora è una pagina della pagina a sé.
+    assert.match(caddyfile, /@vaultPair path \/vault-pair\n\s*redir @vaultPair \/vault\/#\/pair\?\{query\} 302/);
   });
 
   it("il Dockerfile di caddy genera il frammento della guida e lo copia dove il Caddyfile lo importa", () => {
     const docker = readFileSync(join(here, "..", "Dockerfile.caddy"), "utf8");
-    assert.match(docker, /RUN node scripts\/caddy-csp\.mjs --web apps\/web\/dist --app apps\/desktop\/dist-web --vault apps\/desktop\/dist-vault --docs apps\/docs\/dist --out \/repo\/csp-guide\.caddy/);
-    assert.match(docker, /COPY --from=web-build \/repo\/apps\/desktop\/dist-vault \/srv\/vault/);
-    assert.match(docker, /COPY --from=web-build \/repo\/csp-guide\.caddy \/etc\/caddy\/csp-guide\.caddy/);
+    assert.match(docker, /RUN node scripts\/caddy-csp\.mjs --app apps\/desktop\/dist-web --vault apps\/desktop\/dist-vault --docs apps\/docs\/dist --out \/repo\/csp-guide\.caddy/);
+    assert.match(docker, /COPY --from=static-build \/repo\/csp-guide\.caddy \/etc\/caddy\/csp-guide\.caddy/);
+    assert.match(docker, /COPY --from=static-build \/repo\/apps\/desktop\/dist-web \/srv\/app/);
+    assert.match(docker, /COPY --from=static-build \/repo\/apps\/desktop\/dist-vault \/srv\/vault/);
+    assert.ok(!docker.replace(/#.*$/gm, "").includes("apps/web"), "il web vecchio non si builda più");
   });
 });
 
@@ -108,19 +129,21 @@ describe("gli script inline", () => {
     assert.ok(!snippet.includes("unsafe-inline"));
   });
 
-  it("il controllo del build: fallisce con uno script inline nel web o nell'app, passa e scrive gli hash della guida", () => {
+  it("il controllo del build: fallisce con uno script inline nell'app, passa e scrive gli hash della guida", () => {
     const dir = (name, html) => {
       const d = join(root, name);
       mkdirSync(d, { recursive: true });
       writeFileSync(join(d, "index.html"), html);
       return d;
     };
-    const clean = dir("web-ok", `<script type="module" src="/x.js"></script>`);
-    const dirty = dir("web-ko", `<script>inline()</script>`);
+    const clean = dir("app-ok", `<script type="module" src="/x.js"></script>`);
+    const dirty = dir("app-ko", `<script>inline()</script>`);
     const docs = dir("docs", `<script>theme()</script>`);
     const out = join(root, "guide.caddy");
-    const run = (web, vault = clean) =>
-      spawnSync(process.execPath, [join(here, "caddy-csp.mjs"), "--web", web, "--app", clean, "--vault", vault, "--docs", docs, "--out", out], { encoding: "utf8" });
+    const run = (app, vault = clean) =>
+      spawnSync(process.execPath, [join(here, "caddy-csp.mjs"), "--app", app, "--vault", vault, "--docs", docs, "--out", out], { encoding: "utf8" });
+    // --vault è obbligatorio: senza, il build fallisce invece di saltare il controllo.
+    assert.equal(spawnSync(process.execPath, [join(here, "caddy-csp.mjs"), "--app", clean, "--docs", docs, "--out", out], { encoding: "utf8" }).status, 1);
     assert.equal(run(dirty).status, 1);
     assert.equal(run(clean, dirty).status, 1, "anche la pagina a sé della cassaforte (I-2)");
     assert.equal(run(clean).status, 0);

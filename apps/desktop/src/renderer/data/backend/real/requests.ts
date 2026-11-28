@@ -13,9 +13,8 @@ import { createTask } from "./tasks";
 //
 // Le richieste da trasformare in task (integrazione area 2, fetta 3, Task J):
 // nuove, in rifinitura o pronte, non fuse, dei progetti dove chi guarda può
-// creare task. Servono a «Da decidere» e al blocco «Richieste nuove». La
-// sezione Requests è della fetta 4: una richiesta si apre nel web vecchio
-// (`webHref`). Il codice R<n> lo deriva il server (diventerà un numero vero
+// creare task. Servono a «Da decidere» e al blocco «Richieste nuove». Il
+// codice R<n> lo deriva il server (diventerà un numero vero
 // nella fetta 4, con gli stessi valori). Differenza dal prototipo: chi non ha
 // `backlog.view_all` (un Contributor) vede solo le richieste sue.
 
@@ -43,7 +42,6 @@ function toRequest(v: RequestToConvertView): ProjectRequest {
     mergedIntoId: null,
     taskIds: [],
     createdAt: v.createdAt,
-    webHref: v.webHref,
   };
 }
 
@@ -87,7 +85,6 @@ function fromView(v: ProjectRequestView): ProjectRequest {
     ...(v.deletedTaskCodes && v.deletedTaskCodes.length > 0 ? { deletedTaskCodes: v.deletedTaskCodes } : {}),
     createdAt: v.createdAt,
     suggestions: v.suggestions ?? null,
-    ...(v.webHref ? { webHref: v.webHref } : {}),
     // F6: «From the doc», la pagina da cui nasce come la legge chi guarda (derivata
     // dal server); solo coi gesti di Claude sulla doc accesi (`product-claude-actions`).
     ...(v.productOrigin && featureIntegrated("product-claude-actions")

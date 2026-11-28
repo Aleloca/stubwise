@@ -157,7 +157,7 @@ export const removeLink: typeof Fake.removeLink = async (id, link) => {
 
 // --- Claude e la richiesta d'origine ----------------------------------------------
 
-/** Lo stato del lavoro di Claude, le PR e il dettaglio nel web vecchio. */
+/** Lo stato del lavoro di Claude e le PR. */
 export const getTaskWorkSummary: typeof Fake.getTaskWorkSummary = async (taskId) => {
   const w = await appClient().tasks.work(taskId);
   // Un valore che questa app non conosce (lettore: `UNKNOWN`) non si mostra come uno noto.
@@ -165,7 +165,6 @@ export const getTaskWorkSummary: typeof Fake.getTaskWorkSummary = async (taskId)
   return {
     claude: known(w.claude) ? w.claude : "none",
     pullRequests: w.pullRequests.flatMap((p) => (known(p.state) ? [{ ...p, state: p.state }] : [])),
-    webHref: w.webHref,
   };
 };
 

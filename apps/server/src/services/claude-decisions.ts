@@ -1,4 +1,3 @@
-import { legacyWebPath } from "@stubwise/shared";
 import { agentQuestions, agentSessions, aiJobs, planDigest, projects, tickets, type Db } from "@stubwise/db";
 import { actorAllows, stateAllows } from "@stubwise/notifications";
 import type { ClaudeDecisionView, ProjectPermission } from "@stubwise/shared";
@@ -90,7 +89,6 @@ export async function listClaudeDecisions(db: Db, viewer: Viewer): Promise<Claud
     objectCode: `${r.projectCode}-${r.ticketNumber}`,
     blockedReason: null,
     serverCode: null,
-    webHref: legacyWebPath.ticket(r.ticketId),
   });
 
   const out: ClaudeDecisionView[] = [];
