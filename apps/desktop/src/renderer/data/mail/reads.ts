@@ -1,3 +1,4 @@
+import { numberRawRemoteImages } from "./images";
 import { fold, MIN_QUERY, searchWords } from "../../domain/textSearch";
 import { copy, gate, now, state, visibleProjectIds } from "../store";
 import type {
@@ -49,6 +50,8 @@ function messageView(me: string, m: MailMessage): MailMessageView {
   const meeting = meetingNote(me, m);
   return {
     ...rest,
+    // Come `/original` sul server: le immagini remote numerate per posizione.
+    html: rest.html ? numberRawRemoteImages(rest.html) : null,
     classification: classificationFor(me, m.classification),
     read: m.readByPersonIds.includes(me),
     ...(meeting ? { meeting } : {}),

@@ -364,3 +364,12 @@ describe("endpoints mail", () => {
     expect(c.mail.claudeDraftPath()).toBe("/api/me/mail/drafts/claude");
   });
 });
+
+describe("mail.imagePath (il proxy delle immagini)", () => {
+  it("per posizione, mai un URL nel percorso", () => {
+    const c = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: (async () => new Response(null)) as typeof fetch });
+    expect(c.mail.imagePath("email_triage", "11111111-1111-4111-8111-111111111111", 3)).toBe(
+      "/api/me/mail/email_triage/11111111-1111-4111-8111-111111111111/images/3",
+    );
+  });
+});

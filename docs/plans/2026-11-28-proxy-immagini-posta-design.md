@@ -230,6 +230,51 @@ stessa scelta degli altri download binari. **[PI 10]**
   `data-image`, e le immagini restano spente come oggi. Un renderer vecchio
   con un server nuovo ignora l'attributo.
 
+## Note d'implementazione (28 nov 2026)
+
+- Approvato da 46 per il maintainer, [PI 1]–[PI 10] come proposti, con due
+  precisazioni: il calendario va nel registro (fatto, area 6), e l'host si
+  ricontrolla dopo la normalizzazione (IDN, IP in decimale, ottale,
+  esadecimale, `[::ffff:…]`) e senza credenziali (`address.ts`, coi test).
+- **[PI 10] cambiato**: la rotta NON è fuori dal catalogo MCP. L'elenco delle
+  esclusioni (`DeclaredMcpExclusion`) è chiuso, e le immagini binarie dei
+  Docs di prodotto ci stanno già come `download_file`
+  (`productDocs.image`). Per la parità MCP, decisa dal maintainer il 26 nov,
+  anche questa è `mail.image` con `tool: "download_file"`.
+- Un difetto trovato scrivendo i test del frame: l'HTML del server porta le
+  immagini già parcheggiate (`data-src`), quindi `neutralize` non le contava e
+  nella build app la fascia «Show images» non compariva mai. Ora la fascia
+  conta anche le posizioni numerate.
+
+### Dopo la revisione di sicurezza (28 nov 2026)
+
+- **I1**: con un nome host il trasporto vero non funzionava (da Node 20
+  `autoSelectFamily` chiede il `lookup` con `{ all: true }`): il `lookup`
+  risponde con l'elenco, sempre sull'indirizzo controllato. Il trasporto è
+  `createNodeRequest`, provato contro un server TLS locale
+  (`fetch.node.test.ts`: SNI e `Host` del nome, certificato verificato, un
+  nome non coperto rifiutato).
+- **I2**: il DNS è `dns.Resolver` (c-ares: un tentativo, 2 s, fuori dal
+  threadpool di libuv) ed è in corsa col tetto degli 8 s; il semaforo ha una
+  coda di al più 16 e un'attesa di al più 3 s (oltre: `busy`, 422); al più 4
+  immagini in volo per persona (oltre: 429).
+- **I3**: gli URL di un messaggio si memoizzano (solo gli URL, 5 minuti, al
+  più 500 messaggi); oltre 1 MB di corpo le immagini non si offrono
+  (`/original` non numera, la rotta risponde 404).
+- **M1** la richiesta si chiude sempre (`abort` nel `finally`); **M2** un
+  `https.Agent` esplicito senza keep-alive (niente proxy d'ambiente); **M3**
+  IPv6 in allowlist (solo `2000::/3`, meno `2001::/23`, `2001:db8::/32`,
+  `2002::/16`, `3fff::/20`) e `168.63.129.16`; **M5** SNI e `Host` senza il
+  punto finale; **M6** `Cache-Control: no-store` (cambia [PI 9]); **M7**
+  nell'invariante.
+- **M4, accettato**: un oracolo di tempo, solo per il proprietario della
+  casella. Un nome interno che risolve a un IP privato si rifiuta subito dopo
+  il DNS, mentre un NXDOMAIN o un host esterno hanno tempi diversi: chi si
+  manda un'email da solo può sapere se un nome DNS interno esiste (per
+  esempio i nomi del compose). Non può scansionare porte né servizi, perché
+  nessuna connessione parte verso un indirizzo vietato, e la risposta è
+  sempre lo stesso 422.
+
 ## Le scelte da confermare
 
 - **[PI 1]** Le immagini si chiedono per posizione nel messaggio, non con un

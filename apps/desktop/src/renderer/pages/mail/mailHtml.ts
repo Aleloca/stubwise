@@ -136,23 +136,38 @@ export function scrubTree(root: Element): number {
   return blockedImages;
 }
 
-/** «Show images»: gli indirizzi parcheggiati tornano ai loro attributi (gli stessi, nient'altro). */
-export function revealImages(html: string): string {
+/** Solo i raster che il proxy dà: un `data:` d'altro tipo (un SVG) non entra in `src`. */
+const RASTER_DATA_URL = /^data:image\/(png|jpeg|gif|webp|avif);base64,/;
+
+/** Le posizioni delle immagini remote numerate dal server (`data-image`), in ordine, senza doppioni. */
+export function imagePositions(html: string): number[] {
+  const seen = new Set<number>();
+  for (const el of Array.from(bodyOf(html).querySelectorAll("img[data-image]"))) {
+    const n = Number(el.getAttribute("data-image"));
+    if (Number.isInteger(n) && n >= 0) seen.add(n);
+  }
+  return [...seen];
+}
+
+/**
+ * «Show images»: ogni `<img data-image="n">` arrivata dal proxy del server
+ * prende il suo `data:` raster in `src`. Nient'altro cambia: gli indirizzi
+ * del mittente restano parcheggiati e la CSP non li farebbe partire comunque.
+ */
+export function withLoadedImages(html: string, loaded: ReadonlyMap<number, string>): string {
   const body = bodyOf(html);
-  for (const el of Array.from(body.querySelectorAll("*"))) {
-    for (const rule of PARKED) {
-      if (!rule.match(el)) continue;
-      const value = el.getAttribute(rule.parked);
-      if (value !== null) el.setAttribute(rule.attr, value);
-    }
+  for (const el of Array.from(body.querySelectorAll("img[data-image]"))) {
+    const data = loaded.get(Number(el.getAttribute("data-image")));
+    if (data && RASTER_DATA_URL.test(data)) el.setAttribute("src", data);
   }
   return body.innerHTML;
 }
 
-export function documentFor(body: string, images: boolean): string {
-  // «Show images» apre le immagini remote e, con loro, i fogli `@import` (contati nella stessa fascia).
-  const remote = images ? " https: http:" : "";
-  const csp = `default-src 'none'; style-src 'unsafe-inline'${remote}; img-src data:${remote}; font-src data:`;
+export function documentFor(body: string): string {
+  // Mai una risorsa remota, nemmeno con «Show images»: le immagini arrivano
+  // come `data:` dal nostro server (design `docs/plans/2026-11-28-proxy-
+  // immagini-posta-design.md`).
+  const csp = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:";
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="color-scheme" content="light"><base target="_blank"><style>
   body { margin: 0; padding: 16px; font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; color: #1a1a1a; background: #ffffff; overflow-wrap: anywhere; }
   img { max-width: 100%; height: auto; }
@@ -160,13 +175,12 @@ export function documentFor(body: string, images: boolean): string {
 </style></head><body>${body}</body></html>`;
 }
 
-
 /**
- * Il documento della cornice per l'HTML GREZZO di un'email: bonificato,
- * con le immagini aperte solo se chi legge l'ha chiesto. L'unica stringa che
- * `TrustedMailFrame` rende fidata.
+ * Il documento della cornice per l'HTML GREZZO di un'email: bonificato, con
+ * le immagini che il proxy ha portato (solo se chi legge l'ha chiesto). L'unica
+ * stringa che `TrustedMailFrame` rende fidata.
  */
-export function mailDocument(html: string, images: boolean): string {
+export function mailDocument(html: string, loaded: ReadonlyMap<number, string> | null): string {
   const safe = neutralize(html).html;
-  return documentFor(images ? revealImages(safe) : safe, images);
+  return documentFor(loaded ? withLoadedImages(safe, loaded) : safe);
 }

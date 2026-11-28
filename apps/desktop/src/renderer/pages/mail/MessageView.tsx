@@ -11,6 +11,7 @@ import { itemClass } from "../../tasks-ui/Menu";
 import { relativeDay, whenLabel, whenWithTime } from "./format";
 import { AlertGlyph, MoreGlyph, VideoGlyph } from "./glyphs";
 import { UntrustedHtmlFrame } from "./UntrustedHtmlFrame";
+import { useMessageImageLoader } from "../../data/queries";
 import { openInGmail, openOnGoogle } from "./mailFeatures";
 import { isAppBuild } from "../../data/build";
 
@@ -384,6 +385,8 @@ export function MessageView({
   children?: ReactNode;
 }) {
   const { t, i18n } = useTranslation();
+  // «Show images» dal proxy del server, per posizione (design delle immagini della posta).
+  const loadImage = useMessageImageLoader(message.id);
   const toast = useToast();
   const [quoted, setQuoted] = useState(false);
   const headingId = useId();
@@ -463,7 +466,11 @@ export function MessageView({
         {message.context && <p className="text-xs text-ink-muted">{t("mail.message.context")}</p>}
         <MeetingBlock message={message} />
         {original && message.html ? (
-          <UntrustedHtmlFrame html={message.html} title={t("mail.message.originalTitle", { name: nameOf(from) })} />
+          <UntrustedHtmlFrame
+            html={message.html}
+            title={t("mail.message.originalTitle", { name: nameOf(from) })}
+            loadImage={loadImage}
+          />
         ) : (
           <Body text={message.text} muted={message.delivery?.state === "sending"} />
         )}

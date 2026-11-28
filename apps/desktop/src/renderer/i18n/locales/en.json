@@ -6560,6 +6560,8 @@
       "showText": "Show text",
       "imagesBlocked": "Remote images are blocked to protect your privacy.",
       "showImages": "Show images",
+      "loadingImages": "Loading images…",
+      "imagesCapped": "Only the first {{count}} images are shown.",
       "originalTitle": "Original message from {{name}}",
       "context": "Earlier in the conversation · Stubwise didn't make proposals from this message",
       "attachmentNotice": "In the app this attachment opens from Gmail.",
