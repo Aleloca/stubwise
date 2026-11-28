@@ -7434,3 +7434,57 @@ deploy o di un rollback che la tocca.
   **Al ritiro**: togliere i `#` del blocco «Ritiro del web vecchio» del
   `Caddyfile` (validato anche acceso) e mandare il resto del web vecchio
   alla nuova app.
+
+- **«Stati senza enum», R0 del ritiro del web vecchio (28 nov 2026)**: ramo
+  `feat/stati-senza-enum`, blocco T del piano
+  `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md`. Nessuno legge o
+  scrive più la colonna enum `tickets.status`: gli scrittori danno un RUOLO
+  con `roleUpdate` (`status_id` dalla regola di 0108,
+  `stubwise_status_for_legacy`), i lettori usano lo status DERIVATO
+  (`ticketStatusSql`, `stubwise_ticket_status(status_id, triaged_at)`), e il
+  `PATCH /api/tickets/:id` traduce lo `status` ricevuto in un ruolo. Le
+  risposte dell'API hanno ancora `status`, derivato. La colonna resta nel DB,
+  tenuta dal trigger `tickets_status_sync`, per un rollback e per R3.
+  - **Migrazione `0240_tickets_triaged_at`** (additiva): `tickets.triaged_at`,
+    la funzione `stubwise_ticket_status` e il trigger `tickets_triaged_reset`.
+    «Smistato» non è uno stato del progetto: vive in `triaged_at`, che il
+    trigger azzera quando il ticket esce dalla famiglia todo (rientrando in
+    todo è `open`). Il backfill mette `triaged_at = updated_at` sui ticket
+    oggi `triaged`. Il trigger riallinea l'enum al derivato quando cambia
+    `triaged_at`, così per uno scrittore nuovo la colonna resta quella di
+    prima.
+  - **L'eccezione voluta, l'unica del test d'accordo**
+    (`packages/db/src/ticket-status.test.ts`): una task in «In review» a cui
+    la pipeline dà `in_progress` (un fix rilanciato) resta in «In review»
+    come prima, ma lo status mostrato (app, mobile, MCP) ora è `in_review`.
+    Prima era `in_progress`, perché l'enum restava quello scritto, in
+    contraddizione con la board. Di conseguenza in quel caso non nasce più
+    un evento `status_changed`: gli eventi degli scrittori di sistema dicono
+    lo stato RAGGIUNTO, non il ruolo chiesto. Lo stesso vale in un progetto
+    con un solo stato chiuso, dove «closed» diventa lo stato `done` e
+    l'evento lo dice.
+  - **La guardia**: `status` non è più nello schema drizzle di `tickets`,
+    quindi il compilatore trova ogni uso. L'SQL grezzo lo copre
+    `packages/db/src/ticket-status-guard.test.ts`, con un solo uso
+    dichiarato: il riallineamento dell'enum quando uno stato cambia famiglia
+    (`routes/project-statuses.ts`), che va via con R3.
+  - **Limite accettato**: i filtri per status (`?status=`, gli elenchi del
+    polso) passano dalla funzione, non più dall'indice
+    `tickets_project_id_status_idx`. Sono elenchi per progetto, già filtrati
+    per `project_id`. L'indice resta finché resta la colonna.
+  **Cosa ribuildare e in che ordine**: prima **`server`** (healthy e
+  migrazione applicata), POI **`worker`**: il worker nomina `triaged_at` e
+  `stubwise_ticket_status`. Nessuna env, nessun passo manuale. Niente
+  riavvii del worker con lavoro dell'agente in corso.
+  **Controllo dopo il deploy**: `select count(*) from tickets where status
+  <> stubwise_ticket_status(status_id, triaged_at);` dà le sole task che
+  l'enum vecchio lasciava incoerenti (il caso «In review» sopra), e non
+  cresce coi ticket nuovi.
+  **Rollback**: sicuro scendere d'immagine su server e worker insieme. La
+  colonna enum è rimasta coerente e il trigger vecchio la tiene. La 0240 non
+  si toglie: `triaged_at` e il trigger restano, e uno scrittore vecchio che
+  rimette un ticket in todo lo trova senza il segno. Dopo un rollback i
+  ticket smistati nel frattempo hanno l'enum `triaged`, come prima.
+  ⚠️ La migrazione è la **0240** perché la **0239** è delle workspace
+  (#141), che entra prima. Se l'ordine si invertisse, rinumera chi entra per
+  secondo.

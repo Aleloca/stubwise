@@ -50,6 +50,37 @@ Task 2. Migrazione: `packages/db/drizzle/0108_project_statuses.sql`. Test:
   stesso statement (RESTRICT controllerebbe prima della cascata sulle task).
 - **L'enum si toglie col ritiro del web vecchio**, non prima.
 
+## Nessuno legge o scrive l'enum: ruolo e status derivato (R0, 28 nov 2026)
+
+- **Uno scrittore dà un RUOLO, mai l'enum**: `.set({ ...roleUpdate("done") })`
+  (`packages/db/src/ticket-status.ts`). `roleUpdate` dà `status_id` con la
+  regola di 0108 (`stubwise_status_for_legacy`) e, per i ruoli di todo, il
+  segno dello smistamento (`triaged` → `triaged_at = now()`, `open` → null).
+  Il `PATCH /api/tickets/:id` traduce lo `status` ricevuto nello stesso modo
+  (`patchTicket`). La colonna enum non è più nello schema drizzle: drizzle
+  scarterebbe IN SILENZIO una chiave `status` passata a `.set()` o
+  `.values()` con uno spread, che il compilatore non vede. È questo il punto
+  da tenere d'occhio.
+- **Un lettore legge lo status DERIVATO**: `ticketStatusSql`, cioè
+  `stubwise_ticket_status(status_id, triaged_at)` = il `legacy_status` dello
+  stato, `triaged` se è `open` e smistato. Una riga intera si legge con
+  `ticketColumns` (il tipo `Ticket` ha `status` derivato). Le famiglie e gli
+  stati del progetto restano la verità; lo status derivato è la loro
+  traduzione per chi parla ancora coi sei valori (API, mobile, MCP).
+- **«Smistato» vive in `triaged_at`**, non in uno stato: il trigger
+  `tickets_triaged_reset` lo azzera quando il ticket esce dalla famiglia
+  todo, quindi rientrando in todo è `open`.
+- **Gli eventi di sistema dicono lo stato RAGGIUNTO**: gli scrittori di
+  webhook e pipeline passano a `recordTicketStatusChange` lo status derivato
+  restituito dall'UPDATE, non il ruolo chiesto. Un ruolo che lascia il
+  ticket dov'è (un `in_progress` su una task in review) non lascia eventi.
+- **La guardia sull'SQL grezzo** è `packages/db/src/ticket-status-guard.test.ts`.
+  L'unico uso dichiarato è il riallineamento dell'enum in
+  `routes/project-statuses.ts`, finché esiste la colonna (R3).
+- **Nei test** si semina con `roleInsert(projectId, ruolo)` e si legge o
+  scrive l'enum, quando serve, con `legacyTicketStatus` (`@stubwise/db/testing`):
+  i test della 0108 provano ancora il trigger con gli scrittori vecchi.
+
 ## I follower ricevono solo ciò che vedono (9 nov 2026)
 
 - **`ticket.activity` va ai follower che VEDONO la task**, con la regola di
