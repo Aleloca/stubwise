@@ -56,7 +56,7 @@ const failed = (projectId: string): NotificationEvent => ({
   releaseCode: "ACQ-V1",
   title: "Checkout",
   failedRun: "test",
-  url: "https://s.example/app/#/p/ACQ/releases/ACQ-V1",
+  url: "https://s.example/#/p/ACQ/releases/ACQ-V1",
 });
 const monitor = (): NotificationEvent => ({ kind: "monitor.alert", serverName: "web-1", condition: "disk", detail: "disco al 95%", url: "https://s.example/monitor/servers/x" });
 const cardsOf = async (kind: string) => (await db.select({ userId: notifications.userId }).from(notifications).where(eq(notifications.kind, kind as never))).map((r) => r.userId).sort();

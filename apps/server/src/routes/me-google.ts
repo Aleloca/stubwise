@@ -153,7 +153,7 @@ export async function meGoogleRoutes(
 
   /**
    * Rimandi, lotto 4 (§6, D-6.1 = a): un collegamento avviato dall'app torna
-   * alla pagina dell'istanza `/app/#/desktop-google`, che dice l'esito e apre
+   * alla pagina dell'istanza `/#/desktop-google`, che dice l'esito e apre
    * `stubwise://google`. SOLO l'esito e lo state dell'app: niente code, token,
    * state firmato, email o id.
    */

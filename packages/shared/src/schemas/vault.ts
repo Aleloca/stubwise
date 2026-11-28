@@ -622,7 +622,7 @@ export const vaultDevicePairingBodySchema = z.object({
 export type VaultDevicePairingBody = z.infer<typeof vaultDevicePairingBodySchema>;
 
 export const vaultDevicePairingResponseSchema = z.object({
-  /** Va nell'URL `/app/#/vault-pair?state=…` (solo lui). */
+  /** Va nell'URL `/#/vault-pair?state=…` (solo lui). */
   state: z.string(),
   /** Il `deviceId` dell'AAD del sigillo, e l'id del sigillo. */
   deviceId: z.uuid(),

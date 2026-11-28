@@ -193,7 +193,7 @@ describe("menzioni", () => {
     const card = inbox.items.find((i) => i.kind === "chat.mention")!;
     expect(card.chat).toMatchObject({ channelId: g.id, channelName: "general", authorId: dev.id, authorName: "dev-chat" });
     expect(card.objectGone).toBe(false);
-    expect(card.url).toContain(`/app/#/chat/${g.id}`);
+    expect(card.url).toContain(`/#/chat/${g.id}`);
     const mentions = (await as(lead, "GET", "/api/chat/mentions")).json() as { items: { id: string }[] };
     expect(mentions.items).toHaveLength(1);
     expect((await as(lead, "GET", "/api/chat/signal")).json()).toMatchObject({ hasNews: true });

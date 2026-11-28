@@ -384,7 +384,7 @@ describe("le altre voci del catalogo", () => {
     const review = rows.find((r) => (r.event as { kind: string }).kind === "job.plan_review");
     expect(review).toBeDefined();
     // La task nella nuova app (`app-links`): codice del progetto e numero.
-    expect((review!.event as { ticketUrl: string }).ticketUrl).toEqual(expect.stringMatching(/^https:\/\/stubwise\.example\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/));
+    expect((review!.event as { ticketUrl: string }).ticketUrl).toEqual(expect.stringMatching(/^https:\/\/stubwise\.example\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/));
   });
 
   it("createMilestone (B) e il suo «Annulla»; createRequest (B) passa dall'intake e non si annulla", async () => {

@@ -17,9 +17,9 @@ const INPUT = {
 
 describe("publishDocsNightlyAttention", () => {
   it("costruisce l'evento col docsUrl dato, senza la base pubblica", () => {
-    const event = buildDocsNightlyAttentionEvent(INPUT, "https://stubwise.test/app/#/p/APO/docs/api");
+    const event = buildDocsNightlyAttentionEvent(INPUT, "https://stubwise.test/#/p/APO/docs/api");
     expect(event.kind).toBe("docs.nightly_attention");
-    expect(event.docsUrl).toBe("https://stubwise.test/app/#/p/APO/docs/api");
+    expect(event.docsUrl).toBe("https://stubwise.test/#/p/APO/docs/api");
     expect("publicUrl" in event).toBe(false);
   });
 
@@ -29,7 +29,7 @@ describe("publishDocsNightlyAttention", () => {
     expect(publish).toHaveBeenCalledWith(
       expect.anything(),
       // Il DB finto non legge il repository: si ripiega sulla Home della nuova app.
-      expect.objectContaining({ kind: "docs.nightly_attention", reason: "item_failing", docsUrl: "https://stubwise.test/app/#/home" }),
+      expect.objectContaining({ kind: "docs.nightly_attention", reason: "item_failing", docsUrl: "https://stubwise.test/#/home" }),
       { projectId: "p1" },
     );
     const failing = vi.fn().mockRejectedValue(new Error("db giù"));

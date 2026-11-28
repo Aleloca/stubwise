@@ -1651,7 +1651,7 @@ describe("area 8, F2, S4: `release.merged`, una volta per rilascio", () => {
       (await testDb.db.select().from(notifications).where(eq(notifications.kind, "release.merged"))).filter((n) => (n.event as { releaseCode?: string }).releaseCode === code);
     const first = await cards();
     expect(first.map((n) => n.userId)).toEqual([sub.id]);
-    expect(first[0]!.event).toMatchObject({ releaseCode: code, url: expect.stringMatching(new RegExp(`/app/#/p/[A-Z0-9]+/releases/${code}$`)) });
+    expect(first[0]!.event).toMatchObject({ releaseCode: code, url: expect.stringMatching(new RegExp(`/#/p/[A-Z0-9]+/releases/${code}$`)) });
     const { recordRelease } = await import("../services/releases.js");
     const [rel] = await testDb.db.select().from(releases).where(eq(releases.code, code));
     await recordRelease(testDb.db, { repositoryId, targetBranch: "main", prNumber: rel!.prNumber, prUrl: rel!.prUrl, title: rel!.title, mergeSha: rel!.mergeSha, mergedAt: new Date(), mergedBy: null, mergedGitName: "marta", viaStubwise: false, publicUrl: "https://stubwise.example.com" });

@@ -903,7 +903,7 @@ describe("afterReviewCompleted — link dello status di commit (B14 §6a)", () =
     const status = f.setCommitStatus.mock.calls[0]![2] as { url?: string };
     // La task nella nuova app (`app-links`), col suo codice.
     const [row] = await testDb.db.select({ code: projects.code, number: tickets.number }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, s.ticket.id));
-    expect(status.url).toBe(`https://stubwise.example.com/app/#/p/${row!.code}/tasks?task=${row!.code}-${row!.number}`);
+    expect(status.url).toBe(`https://stubwise.example.com/#/p/${row!.code}/tasks?task=${row!.code}-${row!.number}`);
   });
 
   it("URL pubblico http o localhost: lo status parte SENZA link", async () => {
@@ -920,13 +920,13 @@ describe("afterReviewCompleted — link dello status di commit (B14 §6a)", () =
   });
 
   it("commitStatusTargetUrl: i casi puri", () => {
-    const task = (base: string) => `${base}/app/#/p/ACQ/tasks?task=ACQ-1`;
+    const task = (base: string) => `${base}/#/p/ACQ/tasks?task=ACQ-1`;
     expect(commitStatusTargetUrl(undefined, task(""))).toBeUndefined();
     expect(commitStatusTargetUrl("", task(""))).toBeUndefined();
     expect(commitStatusTargetUrl("http://s.example.com", task("http://s.example.com"))).toBeUndefined();
     expect(commitStatusTargetUrl("https://LOCALHOST", task("https://LOCALHOST"))).toBeUndefined();
     expect(commitStatusTargetUrl("https://[::1]:8443", task("https://[::1]:8443"))).toBeUndefined();
-    expect(commitStatusTargetUrl("https://s.example.com", task("https://s.example.com"))).toBe("https://s.example.com/app/#/p/ACQ/tasks?task=ACQ-1");
+    expect(commitStatusTargetUrl("https://s.example.com", task("https://s.example.com"))).toBe("https://s.example.com/#/p/ACQ/tasks?task=ACQ-1");
   });
 });
 

@@ -681,7 +681,7 @@ describe("limite del provider nel dispatch dei nodi", () => {
     expect(event.kind).toBe("docs.limit_paused");
     if (event.kind === "docs.limit_paused") {
       expect(event.repositoryName).toBe(repo!.name);
-      expect(event.docsUrl).toMatch(/^https:\/\/stubwise\.example\.com\/app\/#\/p\/[A-Z0-9]+\/docs\/[\w-]+$/);
+      expect(event.docsUrl).toMatch(/^https:\/\/stubwise\.example\.com\/#\/p\/[A-Z0-9]+\/docs\/[\w-]+$/);
       expect(event.reason).toBe("provider_limit");
     }
     // Nessun ticket né job dietro una generazione: l'unica ancora è il progetto.

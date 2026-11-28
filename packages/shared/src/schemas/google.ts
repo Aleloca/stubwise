@@ -246,7 +246,7 @@ export const googleConnectBodySchema = z.object({
   workspaceId: z.uuid(),
   /**
    * Rimandi, lotto 4 (§6): `desktop` = il callback torna all'app
-   * (`/app/#/desktop-google` e poi `stubwise://google`) con `returnState`;
+   * (`/#/desktop-google` e poi `stubwise://google`) con `returnState`;
    * assente = il web di sempre. Additivi: un server di prima li scarta.
    */
   client: z.enum(["web", "desktop"]).optional(),

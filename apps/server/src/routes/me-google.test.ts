@@ -1002,9 +1002,9 @@ describe("ritiro del web vecchio: il ritorno OAuth alla nuova app nel browser", 
   it("`client: \"web\"` (la nuova app nel browser) torna a Preferenze → Account della nuova app, con l'esito; il web vecchio (senza client) resta su /settings/account", async () => {
     const workspaceId = await createWorkspace();
     const ok = await callback(await appState(workspaceId));
-    expect([ok.statusCode, ok.headers.location]).toEqual([302, "/app/#/preferences/account?google=ok"]);
+    expect([ok.statusCode, ok.headers.location]).toEqual([302, "/#/preferences/account?google=ok"]);
     const denied = await app.inject({ method: "GET", url: `/api/me/google/callback?error=access_denied&state=${encodeURIComponent(await appState(workspaceId))}` });
-    expect(denied.headers.location).toBe("/app/#/preferences/account?google=error");
+    expect(denied.headers.location).toBe("/#/preferences/account?google=error");
     const legacy = await callback(await stateFor(workspaceId));
     expect(legacy.headers.location).toBe("/settings/account?google=ok");
   });
@@ -1023,7 +1023,7 @@ describe("rimandi, lotto 4, §6: il ritorno OAuth all'app desktop", () => {
   /** Il ritorno letto dal `Location`: la pagina dell'app e i suoi due parametri, e nient'altro. */
   const desktopReturnOf = (res: { headers: Record<string, unknown> }) => {
     const location = String(res.headers.location ?? "");
-    expect(location.startsWith("/app/#/desktop-google?")).toBe(true);
+    expect(location.startsWith("/#/desktop-google?")).toBe(true);
     const query = new URLSearchParams(location.slice(location.indexOf("?") + 1));
     expect([...query.keys()].sort()).toEqual(["outcome", "state"]);
     return { outcome: query.get("outcome"), state: query.get("state") };
@@ -1036,7 +1036,7 @@ describe("rimandi, lotto 4, §6: il ritorno OAuth all'app desktop", () => {
     expect((await connect(workspaceId)).json()).toMatchObject({ returnTo: "web" });
   });
 
-  it("un collegamento avviato dall'app torna a `/app/#/desktop-google` con l'esito e lo state dell'app, anche su un rifiuto", async () => {
+  it("un collegamento avviato dall'app torna a `/#/desktop-google` con l'esito e lo state dell'app, anche su un rifiuto", async () => {
     const workspaceId = await createWorkspace();
     const ok = await callback(await desktopState(workspaceId));
     expect(ok.statusCode).toBe(302);

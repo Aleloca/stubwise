@@ -430,7 +430,7 @@ describe("notifica project.brief", () => {
     expect(event.headline).toBe("Il progetto è a metà del lavoro sul login.");
     // Ritiro del web vecchio: la panoramica del progetto nella nuova app, col brief aperto.
     const [proj] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
-    expect(event.projectUrl).toBe(`https://stubwise.example.com/app/#/p/${proj!.code}/overview?brief=${brief!.id}`);
+    expect(event.projectUrl).toBe(`https://stubwise.example.com/#/p/${proj!.code}/overview?brief=${brief!.id}`);
     // Il markdown completo viaggia come `summary`: è la section del DM Slack.
     expect(event.summary as string).toContain("## ");
   });

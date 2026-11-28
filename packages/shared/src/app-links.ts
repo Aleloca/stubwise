@@ -5,10 +5,11 @@
  *
  * Chi scrive un link verso Stubwise (una card, un'email, una push, un webhook
  * in uscita, la risposta dell'SDK o dell'MCP, un DM Slack) lo costruisce QUI,
- * mai a mano. Il giorno in cui `/app` passa alla radice si cambia
- * {@link APP_ENTRY} e basta. Il test di registro
+ * mai a mano. Dal ritiro del web vecchio (R1) l'app sta alla radice:
+ * {@link APP_ENTRY} è `/`, e `/app/…` resta solo un redirect di Caddy per i
+ * link già spediti. Il test di registro
  * `apps/server/src/app-links-registry.test.ts` fa fallire chi scrive a mano un
- * percorso del web vecchio o un `/app/#` fuori da qui.
+ * percorso del web vecchio o un `/#` fuori da qui.
  *
  * La grammatica è quella del router del renderer
  * (`apps/desktop/src/renderer/router.tsx`, `data/routes.ts`): le pagine di un
@@ -26,8 +27,8 @@
  */
 export const PROJECT_CODE_PATTERN = "[A-Z][A-Z0-9]{1,5}";
 
-/** L'ingresso della nuova app nell'origine: l'unica riga da cambiare quando passa alla radice. */
-export const APP_ENTRY = "/app/";
+/** L'ingresso della nuova app nell'origine: la radice, dal ritiro del web vecchio (R1). */
+export const APP_ENTRY = "/";
 
 /** Una sezione delle Preferenze (`#/preferences/<sezione>`). */
 export type AppPreferenceSection = "notifications" | "account" | "security" | "tokens" | "claude-code" | "look";
@@ -135,14 +136,14 @@ export function appRoute(target: AppTarget): string {
   }
 }
 
-/** Il percorso nell'origine (`/app/#/p/ACQ/tasks?task=ACQ-12`), per un `Location` o un link relativo. */
+/** Il percorso nell'origine (`/#/p/ACQ/tasks?task=ACQ-12`), per un `Location` o un link relativo. */
 export function appPath(target: AppTarget): string {
   return `${APP_ENTRY}#${appRoute(target)}`;
 }
 
 /**
  * L'indirizzo intero, con la radice pubblica dell'istanza (`PUBLIC_URL`).
- * Senza radice il link resta RELATIVO (`/app/#/…`): l'app lo apre lo stesso,
+ * Senza radice il link resta RELATIVO (`/#/…`): l'app lo apre lo stesso,
  * e chi non può usare un link relativo (un'email, Slack) lo controlla prima.
  */
 export function appUrl(publicUrl: string | null | undefined, target: AppTarget): string {

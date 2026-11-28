@@ -863,7 +863,7 @@ describe("listInbox", () => {
     // Una card di prima (`/tickets/:id` nel jsonb): «Apri» porta alla task nella
     // nuova app, dal codice derivato a lettura, sotto PUBLIC_URL (senza, resta
     // il link dell'evento: un relativo non lo aprono l'app né le push).
-    expect(items[0]!.url).toMatch(/^https:\/\/stubwise\.test\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/);
+    expect(items[0]!.url).toMatch(/^https:\/\/stubwise\.test\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/);
     expect(items[0]!.actions).toEqual(["approve_plan", "reject_plan", "open", "snooze", "handled"]);
   });
 
@@ -1168,7 +1168,7 @@ describe("listInbox", () => {
     // Una card di prima (`/tickets/:id` nel jsonb): «Apri» porta alla task nella
     // nuova app, dal codice derivato a lettura, sotto PUBLIC_URL (senza, resta
     // il link dell'evento: un relativo non lo aprono l'app né le push).
-    expect(items[0]!.url).toMatch(/^https:\/\/stubwise\.test\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/);
+    expect(items[0]!.url).toMatch(/^https:\/\/stubwise\.test\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/);
 
     // Le marce degradano: testo = kind (la colonna enum), nessun url.
     for (const item of [items[1]!, items[2]!]) {
@@ -1204,7 +1204,7 @@ describe("listInbox", () => {
       lang: "it",
       publicUrl: "https://stubwise.test",
     });
-    expect(withUrl.items[0]!.url).toBe("https://stubwise.test/app/#/preferences/security");
+    expect(withUrl.items[0]!.url).toBe("https://stubwise.test/#/preferences/security");
 
     const without = await listInbox(db, { userId: user.id, lang: "it" });
     expect(without.items[0]!.url).toBeUndefined();

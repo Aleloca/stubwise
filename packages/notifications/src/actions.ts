@@ -466,7 +466,7 @@ export function openUrl(
   ctx: CardLinkContext = {},
 ): string {
   const base = publicUrl?.replace(/\/+$/, "") ?? "";
-  // Senza radice pubblica nessun link derivato: sarebbe relativo (`/app/#/…`),
+  // Senza radice pubblica nessun link derivato: sarebbe relativo (`/#/…`),
   // e l'app e le push non lo aprono. Resta quello dell'evento, come per `derived`.
   const task = publicUrl && ctx.taskCode ? taskLink(base, ctx.taskCode) : null;
   const project = ctx.projectCode ?? null;

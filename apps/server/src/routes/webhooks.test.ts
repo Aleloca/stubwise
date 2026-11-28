@@ -986,7 +986,7 @@ describe("POST /webhooks/git/:projectSlug", () => {
       projectName: "Webhook Notify Dispatch",
       prUrl: "https://github.com/acme/repo/pull/7",
       // ticketUrl assoluto, la task nella nuova app a partire dal PUBLIC_URL dell'istanza.
-      ticketUrl: expect.stringMatching(new RegExp(`^${PUBLIC_URL.replace(/[.]/g, "\\.")}/app/#/p/[A-Z0-9]+/tasks\\?task=[A-Z0-9]+-\\d+$`)),
+      ticketUrl: expect.stringMatching(new RegExp(`^${PUBLIC_URL.replace(/[.]/g, "\\.")}/#/p/[A-Z0-9]+/tasks\\?task=[A-Z0-9]+-\\d+$`)),
     });
 
     // OUTBOX: il webhook che ha scelto `job.pr_closed` riceve la sua consegna

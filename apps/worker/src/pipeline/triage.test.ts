@@ -145,7 +145,7 @@ function minutesAgo(minutes: number): Date {
 /** La task nella nuova app (`app-links`): il codice del progetto e il numero. */
 async function taskLink(ticketId: string): Promise<string> {
   const [row] = await testDb.db.select({ code: projects.code, number: tickets.number }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, ticketId));
-  return `https://stubwise.example.com/app/#/p/${row!.code}/tasks?task=${row!.code}-${row!.number}`;
+  return `https://stubwise.example.com/#/p/${row!.code}/tasks?task=${row!.code}-${row!.number}`;
 }
 
 describe("parseTriageDecision", () => {

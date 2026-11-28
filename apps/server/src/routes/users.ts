@@ -268,7 +268,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
         params: z.object({ id: z.uuid() }),
         response: {
           // `token` (area 9, F1, additivo): il renderer della web «app» compone
-          // `${origin}/app/#/reset-password/<token>`; `url` resta quello del web vecchio.
+          // `${origin}/#/reset-password/<token>`; `url` resta quello del web vecchio.
           201: z.object({ url: z.string(), token: z.string(), expiresAt: z.iso.datetime() }),
           ...authErrorResponses,
           400: errorSchema,

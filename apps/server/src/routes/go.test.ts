@@ -23,7 +23,7 @@ let code: string;
 let ticketId: string;
 let ticketNumber: number;
 
-const HOME = "/app/#/home";
+const HOME = "/#/home";
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -54,7 +54,7 @@ const locationOf = async (url: string, headers: Record<string, string> = {}) => 
 
 describe("i rimandi del web vecchio verso la nuova app (/go/…)", () => {
   it("la task: chi la vede arriva sulla task; chi non la vede, un id che non c'è e un id non valido vanno alla Home, con la stessa risposta", async () => {
-    expect(await locationOf(`/go/tickets/${ticketId}`, member.headers)).toBe(`/app/#/p/${code}/tasks?task=${code}-${ticketNumber}`);
+    expect(await locationOf(`/go/tickets/${ticketId}`, member.headers)).toBe(`/#/p/${code}/tasks?task=${code}-${ticketNumber}`);
     const hidden = await go(`/go/tickets/${ticketId}`, outsider.headers);
     const missing = await go(`/go/tickets/${randomUUID()}`, member.headers);
     const invalid = await go("/go/tickets/non-un-id", member.headers);
@@ -63,7 +63,7 @@ describe("i rimandi del web vecchio verso la nuova app (/go/…)", () => {
       expect(res.body).toBe("");
     }
     // Il full admin vede ogni progetto.
-    expect(await locationOf(`/go/tickets/${ticketId}`, { cookie: adminCookie })).toBe(`/app/#/p/${code}/tasks?task=${code}-${ticketNumber}`);
+    expect(await locationOf(`/go/tickets/${ticketId}`, { cookie: adminCookie })).toBe(`/#/p/${code}/tasks?task=${code}-${ticketNumber}`);
   });
 
   it("serve una sessione completa: senza, o a metà login, l'ingresso della nuova app (che chiede il login), mai un 401", async () => {
@@ -75,7 +75,7 @@ describe("i rimandi del web vecchio verso la nuova app (/go/…)", () => {
 
   it("il job dell'agente (/agents/job/:jobId) apre la task del suo ticket, anche col solo ?ticketId=", async () => {
     const [job] = await testDb.db.insert(aiJobs).values({ ticketId, status: "failed" }).returning({ id: aiJobs.id });
-    const task = `/app/#/p/${code}/tasks?task=${code}-${ticketNumber}`;
+    const task = `/#/p/${code}/tasks?task=${code}-${ticketNumber}`;
     expect(await locationOf(`/go/agents/job/${job!.id}`, member.headers)).toBe(task);
     expect(await locationOf(`/go/agents/job/${randomUUID()}?ticketId=${ticketId}`, member.headers)).toBe(task);
     expect(await locationOf(`/go/agents/job/${job!.id}`, outsider.headers)).toBe(HOME);
@@ -83,16 +83,16 @@ describe("i rimandi del web vecchio verso la nuova app (/go/…)", () => {
 
   it("le richieste: la voce (/backlog/:id), le richieste del progetto (/backlog?projectId= e /projects/:id/backlog)", async () => {
     const { itemId } = await seedBacklogItem(testDb.db, { projectId });
-    expect(await locationOf(`/go/backlog/${itemId}`, member.headers)).toBe(`/app/#/p/${code}/requests?request=${itemId}`);
+    expect(await locationOf(`/go/backlog/${itemId}`, member.headers)).toBe(`/#/p/${code}/requests?request=${itemId}`);
     expect(await locationOf(`/go/backlog/${itemId}`, outsider.headers)).toBe(HOME);
-    expect(await locationOf(`/go/backlog?projectId=${projectId}`, member.headers)).toBe(`/app/#/p/${code}/requests`);
-    expect(await locationOf(`/go/projects/${projectId}/backlog`, member.headers)).toBe(`/app/#/p/${code}/requests`);
+    expect(await locationOf(`/go/backlog?projectId=${projectId}`, member.headers)).toBe(`/#/p/${code}/requests`);
+    expect(await locationOf(`/go/projects/${projectId}/backlog`, member.headers)).toBe(`/#/p/${code}/requests`);
     expect(await locationOf(`/go/backlog?projectId=${projectId}`, outsider.headers)).toBe(HOME);
   });
 
   it("il progetto e la roadmap: la panoramica; un progetto invisibile non rivela il suo codice", async () => {
-    expect(await locationOf(`/go/projects/${projectId}`, member.headers)).toBe(`/app/#/p/${code}/overview`);
-    expect(await locationOf(`/go/projects/${projectId}/roadmap`, member.headers)).toBe(`/app/#/p/${code}/overview`);
+    expect(await locationOf(`/go/projects/${projectId}`, member.headers)).toBe(`/#/p/${code}/overview`);
+    expect(await locationOf(`/go/projects/${projectId}/roadmap`, member.headers)).toBe(`/#/p/${code}/overview`);
     const hidden = await locationOf(`/go/projects/${projectId}`, outsider.headers);
     expect(hidden).toBe(HOME);
     expect(hidden).not.toContain(code);
@@ -101,8 +101,8 @@ describe("i rimandi del web vecchio verso la nuova app (/go/…)", () => {
   it("i Docs: lo spazio del repository per slug; una pagina che non c'è porta allo spazio", async () => {
     const repositoryId = await seedRepositoryInProject(testDb.db, projectId);
     const [repo] = await testDb.db.select({ slug: repositories.slug }).from(repositories).where(eq(repositories.id, repositoryId));
-    expect(await locationOf(`/go/docs/${repositoryId}`, member.headers)).toBe(`/app/#/p/${code}/docs/${repo!.slug}`);
-    expect(await locationOf(`/go/docs/${repositoryId}/pagina-inventata`, member.headers)).toBe(`/app/#/p/${code}/docs/${repo!.slug}`);
+    expect(await locationOf(`/go/docs/${repositoryId}`, member.headers)).toBe(`/#/p/${code}/docs/${repo!.slug}`);
+    expect(await locationOf(`/go/docs/${repositoryId}/pagina-inventata`, member.headers)).toBe(`/#/p/${code}/docs/${repo!.slug}`);
     expect(await locationOf(`/go/docs/${repositoryId}`, outsider.headers)).toBe(HOME);
   });
 
@@ -112,10 +112,10 @@ describe("i rimandi del web vecchio verso la nuova app (/go/…)", () => {
       .values({ name: "web-1", keyHash: randomUUID() })
       .returning({ id: servers.id, number: servers.number });
     await testDb.db.insert(serverProjects).values({ serverId: server!.id, projectId });
-    expect(await locationOf(`/go/monitor/servers/${server!.id}`, member.headers)).toBe(`/app/#/p/${code}/servers/SRV-${server!.number}`);
+    expect(await locationOf(`/go/monitor/servers/${server!.id}`, member.headers)).toBe(`/#/p/${code}/servers/SRV-${server!.number}`);
     expect(await locationOf(`/go/monitor/servers/${server!.id}`, outsider.headers)).toBe(HOME);
     const [orphan] = await testDb.db.insert(servers).values({ name: "web-2", keyHash: randomUUID() }).returning({ id: servers.id, number: servers.number });
-    expect(await locationOf(`/go/monitor/servers/${orphan!.id}`, { cookie: adminCookie })).toBe(`/app/#/admin/servers/SRV-${orphan!.number}`);
+    expect(await locationOf(`/go/monitor/servers/${orphan!.id}`, { cookie: adminCookie })).toBe(`/#/admin/servers/SRV-${orphan!.number}`);
     expect(await locationOf(`/go/monitor/servers/${orphan!.id}`, member.headers)).toBe(HOME);
   });
 });

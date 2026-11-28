@@ -63,7 +63,7 @@ describe("il cambio dell'email di login", () => {
     expect(res.statusCode).toBe(202);
     expect(res.json()).toMatchObject({ pending: { newEmail } });
     const toNew = sent.find((m) => m.to === newEmail)!;
-    expect(toNew.text).toContain("https://stubwise.example.com/app/#/email-change/");
+    expect(toNew.text).toContain("https://stubwise.example.com/#/email-change/");
     expect(sent.some((m) => m.to === p.email)).toBe(true);
     expect(sent.find((m) => m.to === p.email)!.text).not.toMatch(/#\/email-change\//);
     // Prima del clic: ancora la vecchia.

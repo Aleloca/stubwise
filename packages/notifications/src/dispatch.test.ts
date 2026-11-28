@@ -809,12 +809,12 @@ describe("buildTestEvent", () => {
   it("produce un ticket.created fittizio col link alla Home della nuova app sotto baseUrl", () => {
     const event = buildTestEvent("https://app.example.com");
     expect(event.kind).toBe("ticket.created");
-    expect(event.ticketUrl).toBe("https://app.example.com/app/#/home");
+    expect(event.ticketUrl).toBe("https://app.example.com/#/home");
   });
 
   it("tollera uno slash finale nel baseUrl", () => {
     const event = buildTestEvent("https://app.example.com/");
-    expect(event.ticketUrl).toBe("https://app.example.com/app/#/home");
+    expect(event.ticketUrl).toBe("https://app.example.com/#/home");
   });
 });
 

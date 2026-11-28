@@ -24,7 +24,7 @@ import { findSessionUser, sessionIdFromRequest, type SessionUser } from "../auth
  *   Home**, con la stessa risposta (r.1414): il rimando non conferma che
  *   l'id esiste e non rivela il codice di un progetto invisibile. Un id non
  *   valido idem.
- * - Il `Location` è RELATIVO all'origine (`/app/#/…`): il browser è già
+ * - Il `Location` è RELATIVO all'origine (`/#/…`): il browser è già
  *   sull'istanza, e un `PUBLIC_URL` sbagliato non lo porta altrove.
  *
  * `config.access` è `public` perché la sessione la legge l'handler (per poter
