@@ -71,7 +71,7 @@ describe("l'associazione del Mac", () => {
     expect(calls).toEqual([
       "pair:MacBook Pro",
       // La pagina sta nel web (89bd14da2), accanto alle altre della cassaforte.
-      `open:https://stubwise.example/vault-pair?state=${STATE}`,
+      `open:https://stubwise.example/app/#/vault-pair?state=${STATE}`,
     ]);
   });
 
