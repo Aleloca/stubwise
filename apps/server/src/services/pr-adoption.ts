@@ -6,8 +6,7 @@ import {
   ticketRepositories,
   tickets,
   users,
-  type Db,
-} from "@stubwise/db";
+  type Db, ticketStatusSql } from "@stubwise/db";
 import { getProvider, type GitProvider, type PullRequestInfo } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import {
@@ -187,7 +186,7 @@ export async function adoptPullRequest(
   if (!actor.permissions.has("prs.adopt")) return { ok: false, error: "forbidden" };
 
   const [ticket] = await db
-    .select({ id: tickets.id, type: tickets.type, status: tickets.status, number: tickets.number })
+    .select({ id: tickets.id, type: tickets.type, status: ticketStatusSql, number: tickets.number })
     .from(tickets)
     .where(eq(tickets.id, ticketId));
   if (!ticket) return { ok: false, error: "ticket_not_found" };

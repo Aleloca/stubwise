@@ -13,7 +13,7 @@ import { z } from "zod";
 import { routePermissions } from "../auth/access.js";
 import { fromBody, fromMilestone, fromQuery } from "../auth/project-resolvers.js";
 import type { Db } from "@stubwise/db";
-import { milestones, tickets } from "@stubwise/db";
+import { milestones, tickets, ticketStatusSql } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { createMilestone, deleteMilestone } from "../services/milestones.js";
@@ -94,10 +94,10 @@ async function countsForMilestone(
   counted: SQL | undefined,
 ): Promise<Counts> {
   const rows = await db
-    .select({ status: tickets.status, count: sql<number>`count(*)::int` })
+    .select({ status: ticketStatusSql, count: sql<number>`count(*)::int` })
     .from(tickets)
     .where(and(eq(tickets.milestoneId, milestoneId), counted))
-    .groupBy(tickets.status);
+    .groupBy(ticketStatusSql);
   const counts = emptyCounts();
   for (const row of rows) {
     counts.byStatus[row.status] = row.count;
@@ -202,7 +202,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
       const aggRows = await app.db
         .select({
           milestoneId: tickets.milestoneId,
-          status: tickets.status,
+          status: ticketStatusSql,
           count: sql<number>`count(*)::int`,
         })
         .from(tickets)
@@ -213,7 +213,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
             countedTickets(request),
           ),
         )
-        .groupBy(tickets.milestoneId, tickets.status);
+        .groupBy(tickets.milestoneId, ticketStatusSql);
 
       const countsByMilestone = new Map<string, Counts>();
       for (const row of aggRows) {

@@ -11,8 +11,7 @@ import {
   ticketCostUsd,
   ticketRepositories,
   tickets,
-  type Db,
-} from "@stubwise/db";
+  type Db, ticketStatusSql, roleUpdate } from "@stubwise/db";
 import { getProvider, parsePrNumberFromUrl, type GitProvider } from "@stubwise/git";
 import { t, type Language } from "@stubwise/i18n";
 import { prHasOpenCorrection, promotePendingForTicket } from "@stubwise/notifications";
@@ -1756,10 +1755,14 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       // Stato precedente riletto DENTRO la transazione: `ticket` è stato
       // caricato all'inizio del run, che può essere durato a lungo.
       const [before] = await tx
-        .select({ status: tickets.status })
+        .select({ status: ticketStatusSql })
         .from(tickets)
         .where(eq(tickets.id, ticket.id));
-      await tx.update(tickets).set({ status: "in_progress" }).where(eq(tickets.id, ticket.id));
+      const [reached] = await tx
+        .update(tickets)
+        .set(roleUpdate("in_progress"))
+        .where(eq(tickets.id, ticket.id))
+        .returning({ status: ticketStatusSql });
       // Audit della transizione: actorId null, la pipeline non è una persona.
       // Senza questo evento la timeline di progetto non saprebbe DA QUANDO il
       // ticket è in lavorazione.
@@ -1767,7 +1770,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         await recordTicketStatusChange(tx, {
           ticketId: ticket.id,
           from: before.status,
-          to: "in_progress",
+          to: reached?.status ?? "in_progress",
           actorId: null,
         });
       }
@@ -1963,15 +1966,19 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     // Stato precedente riletto dentro la transazione (vedi sopra: il run può
     // essere durato a lungo dopo il caricamento di `ticket`).
     const [before] = await tx
-      .select({ status: tickets.status })
+      .select({ status: ticketStatusSql })
       .from(tickets)
       .where(eq(tickets.id, ticket.id));
-    await tx.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, ticket.id));
+    const [reached] = await tx
+        .update(tickets)
+        .set(roleUpdate("in_review"))
+        .where(eq(tickets.id, ticket.id))
+        .returning({ status: ticketStatusSql });
     if (before) {
       await recordTicketStatusChange(tx, {
         ticketId: ticket.id,
         from: before.status,
-        to: "in_review",
+        to: reached?.status ?? "in_review",
         actorId: null,
       });
     }

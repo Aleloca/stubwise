@@ -23,10 +23,9 @@ import {
   repositories,
   ticketEvents,
   ticketRepositories,
-  tickets,
-} from "@stubwise/db";
+  tickets, roleUpdate, ticketStatusSql } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
+import { seedGitAccount, startTestDb, roleInsert } from "@stubwise/db/testing";
 import { seedUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -218,7 +217,7 @@ async function insertTicket(
       title: `Ticket ${number}`,
       type: "bug",
       priority: "medium",
-      status,
+      ...roleInsert(repository!.projectId!, status),
       source: "manual",
     })
     .returning({ id: tickets.id });
@@ -405,7 +404,7 @@ function bitbucketRejectedPayload(
 
 async function ticketStatus(ticketId: string): Promise<string> {
   const [row] = await testDb.db
-    .select({ status: tickets.status })
+    .select({ status: ticketStatusSql })
     .from(tickets)
     .where(eq(tickets.id, ticketId));
   return row!.status;
@@ -1236,7 +1235,7 @@ describe("POST /webhooks/git/:projectSlug — chiusura aggregata multi-repo", ()
           eq(ticketRepositories.repositoryId, repoB.id),
         ),
       );
-    await testDb.db.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, ticketId));
+    await testDb.db.update(tickets).set({ ...roleUpdate("in_review") }).where(eq(tickets.id, ticketId));
     const jobId2 = await insertJob(ticketId, "pr_opened");
 
     // Re-merge di B: tutte le righe merged → done.
@@ -1942,7 +1941,7 @@ describe("webhook PR Review (chiusura)", () => {
         title: `Review PR #${number}`,
         type: "review",
         priority: "medium",
-        status,
+        ...roleInsert(repository!.projectId!, status),
         source: "webhook",
       })
       .returning({ id: tickets.id });

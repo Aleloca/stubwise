@@ -1,6 +1,6 @@
 import { changedFields, recordChange } from "../services/change-log.js";
 import { projectObject } from "../services/project-settings-log.js";
-import { projectStatuses, projects, ticketEvents, tickets, type Db } from "@stubwise/db";
+import { projectStatuses, projects, ticketEvents, tickets, type Db, ticketStatusSql } from "@stubwise/db";
 import { projectStatusViewSchema, statusFamilySchema, type ProjectStatusView, type StatusFamily } from "@stubwise/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -144,7 +144,7 @@ export async function projectStatusRoutes(instance: FastifyInstance): Promise<vo
         const moving =
           removed.length > 0
             ? await tx
-                .select({ id: tickets.id, statusId: tickets.statusId, status: tickets.status })
+                .select({ id: tickets.id, statusId: tickets.statusId, status: ticketStatusSql })
                 .from(tickets)
                 .where(inArray(tickets.statusId, removed))
                 .for("update")
@@ -178,7 +178,7 @@ export async function projectStatusRoutes(instance: FastifyInstance): Promise<vo
           const moved = (await tx.execute(sql`
             update "tickets" set "status_id" = ${target}
             where "status_id" = ${statusId}
-            returning "id", "status"
+            returning "id", stubwise_ticket_status("status_id", "triaged_at") as "status"
           `)) as unknown as { id: string; status: string }[];
           const before = new Map(moving.filter((m) => m.statusId === statusId).map((m) => [m.id, m.status]));
           if (moved.length > 0) {
@@ -194,6 +194,10 @@ export async function projectStatusRoutes(instance: FastifyInstance): Promise<vo
         }
         if (removed.length > 0) await tx.delete(projectStatuses).where(inArray(projectStatuses.id, removed));
 
+        // ⚠️ Blocco T, R0: l'UNICO scrittore della colonna enum rimasto, e
+        // dichiarato (la guardia sul sorgente lo ammette per nome). Non decide
+        // nulla di ciò che si mostra (lo status è derivato): tiene la colonna
+        // coerente finché esiste, per un rollback del server. Va via con R3.
         // Riallineare l'enum SOLO per gli stati la cui famiglia o il cui
         // `legacy_status` sono cambiati davvero: una rinomina non tocca le
         // task. Un `triaged` dentro un todo resta `triaged`.

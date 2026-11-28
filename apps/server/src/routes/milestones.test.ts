@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { automationEvents, tickets } from "@stubwise/db";
+import { automationEvents, tickets, ticketColumns, roleUpdate, type TicketRole } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -98,7 +98,7 @@ async function createTicketInMilestone(
   // dalle transizioni della PATCH (testate altrove).
   await testDb.db
     .update(tickets)
-    .set({ milestoneId: ms, status: status as never })
+    .set({ milestoneId: ms, ...roleUpdate(status as TicketRole) })
     .where(eq(tickets.id, id));
   return id;
 }
@@ -238,7 +238,7 @@ describe("GET /api/milestones — lista con counts e ordinamento", () => {
     const id = (post.json() as { id: string }).id;
     await testDb.db
       .update(tickets)
-      .set({ milestoneId: ms, status: status as never })
+      .set({ milestoneId: ms, ...roleUpdate(status as TicketRole) })
       .where(eq(tickets.id, id));
   }
 
@@ -453,7 +453,7 @@ describe("DELETE /api/milestones/:id", () => {
     const res = await deleteMilestone(ms.id);
     expect(res.statusCode).toBe(204);
 
-    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, ticketId));
+    const [row] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
     expect(row).toBeDefined();
     expect(row?.milestoneId).toBeNull();
   });

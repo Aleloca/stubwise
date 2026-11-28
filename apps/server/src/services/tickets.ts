@@ -29,7 +29,7 @@
 
 import { eq } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { milestones, ticketEvents, tickets, users } from "@stubwise/db";
+import { milestones, ticketEvents, tickets, users, ticketColumns, roleUpdate } from "@stubwise/db";
 import type { Ticket } from "../db/tickets.js";
 
 /** `Db` o una transazione drizzle già aperta dal chiamante. */
@@ -178,12 +178,11 @@ export async function patchTicket(
   if (patch.title !== undefined) updates.title = patch.title;
   if (patch.type !== undefined) updates.type = patch.type;
   if (patch.priority !== undefined) updates.priority = patch.priority;
-  if (patch.status !== undefined) updates.status = patch.status;
   if (patch.assigneeId !== undefined) updates.assigneeId = patch.assigneeId;
   if (patch.milestoneId !== undefined) updates.milestoneId = patch.milestoneId;
   if (patch.labels !== undefined) updates.labels = patch.labels;
 
-  const [current] = await tx.select().from(tickets).where(eq(tickets.id, ticketId));
+  const [current] = await tx.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
   if (!current) return { ok: false, error: "ticket_not_found" };
   // I1: con un design attivo il corpo nuovo va sull'originale.
   if (patch.body !== undefined) Object.assign(updates, descriptionUpdate(current, patch.body));
@@ -201,11 +200,29 @@ export async function patchTicket(
     }
   }
 
-  if (Object.keys(updates).length === 0) return { ok: true, ticket: current, events: [] };
+  if (Object.keys(updates).length === 0 && patch.status === undefined) return { ok: true, ticket: current, events: [] };
 
   const events = diffTicketEvents(current, updates);
 
-  const [updated] = await tx.update(tickets).set(updates).where(eq(tickets.id, ticketId)).returning();
+  // Lo `status` della PATCH è un RUOLO (blocco T, R0): diventa `status_id`
+  // con la regola di 0108 (`roleUpdate`), mai una scrittura dell'enum, che
+  // non è più nello schema e che drizzle scarterebbe in silenzio.
+  const { status: _status, ...columns } = updates;
+  void _status;
+  const [updated] = await tx
+    .update(tickets)
+    .set({ ...columns, ...(patch.status !== undefined ? roleUpdate(patch.status) : {}) })
+    .where(eq(tickets.id, ticketId))
+    .returning(ticketColumns);
+  // L'evento dice lo stato RAGGIUNTO, che la regola di 0108 può tenere dov'è
+  // (un `in_progress` su una task in review resta `in_review`): niente evento
+  // se lo status mostrato non cambia. Stesso posto nell'elenco di prima.
+  if (patch.status !== undefined && updated!.status !== current.status) {
+    const at = events.findIndex((e) => !["title_changed", "body_changed", "type_changed", "priority_changed"].includes(e.kind));
+    const statusEvent: PendingEvent = { kind: "status_changed", payload: { from: current.status, to: updated!.status } };
+    if (at === -1) events.push(statusEvent);
+    else events.splice(at, 0, statusEvent);
+  }
   // L'id è già stato verificato dalla SELECT nella stessa transazione: l'update
   // tocca sempre la riga.
   if (events.length > 0) {

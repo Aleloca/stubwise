@@ -12,8 +12,7 @@ import {
   widgetConversations,
   widgetMessages,
   users,
-  type Db,
-} from "@stubwise/db";
+  type Db, ticketStatusSql, roleUpdate } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import {
   isCollaboratorRequest,
@@ -391,15 +390,19 @@ async function closeOriginTicket(
     body: t(lang, "comment.backlogIntake", { title: itemTitle }),
   });
   const [before] = await tx
-    .select({ status: tickets.status })
+    .select({ status: ticketStatusSql })
     .from(tickets)
     .where(eq(tickets.id, ticket.id));
-  await tx.update(tickets).set({ status: "closed" }).where(eq(tickets.id, ticket.id));
+  const [reached] = await tx
+        .update(tickets)
+        .set(roleUpdate("closed"))
+        .where(eq(tickets.id, ticket.id))
+        .returning({ status: ticketStatusSql });
   if (before) {
     await recordTicketStatusChange(tx, {
       ticketId: ticket.id,
       from: before.status,
-      to: "closed",
+      to: reached?.status ?? "closed",
       actorId: null,
     });
   }
@@ -430,7 +433,7 @@ export async function runIntake(
         number: tickets.number,
         title: tickets.title,
         body: tickets.body,
-        status: tickets.status,
+        status: ticketStatusSql,
         requestedByUserId: tickets.requestedByUserId,
       })
       .from(tickets)

@@ -26,8 +26,7 @@ import {
   repoGraphs,
   repositories,
   ticketRepositories,
-  tickets,
-} from "@stubwise/db";
+  tickets, ticketStatusSql, roleUpdate } from "@stubwise/db";
 import { STUBWISE_BRANCH_RE, prNumberFromUrl } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
 import { recordRelease } from "../services/releases.js";
@@ -533,7 +532,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           .limit(1);
         if (reviewRow?.ticketId) {
           const [reviewTicket] = await instance.db
-            .select({ id: tickets.id, status: tickets.status, type: tickets.type })
+            .select({ id: tickets.id, status: ticketStatusSql, type: tickets.type })
             .from(tickets)
             .where(eq(tickets.id, reviewRow.ticketId));
           // Si auto-chiude SOLO il ticket di tipo review ancora aperto: il
@@ -554,7 +553,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               // letto fuori serviva solo al fast-path, e l'audit deve dire da
               // dove il ticket è partito davvero.
               const [before] = await tx
-                .select({ status: tickets.status })
+                .select({ status: ticketStatusSql })
                 .from(tickets)
                 .where(eq(tickets.id, reviewTicket.id));
               // Il predicato sullo status rende chiusura+commento atomici: due
@@ -564,14 +563,14 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               // sistema — mai duplicati.
               const updated = await tx
                 .update(tickets)
-                .set({ status: nextStatus })
+                .set(roleUpdate(nextStatus))
                 .where(
                   and(
                     eq(tickets.id, reviewTicket.id),
-                    notInArray(tickets.status, ["done", "closed"]),
+                    notInArray(ticketStatusSql, ["done", "closed"]),
                   ),
                 )
-                .returning({ id: tickets.id });
+                .returning({ id: tickets.id, status: ticketStatusSql });
               if (updated.length > 0) {
                 await tx.insert(comments).values({
                   ticketId: reviewTicket.id,
@@ -589,7 +588,9 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
                   await recordTicketStatusChange(tx, {
                     ticketId: reviewTicket.id,
                     from: before.status,
-                    to: nextStatus,
+                    // Lo stato RAGGIUNTO: in un progetto con un solo stato chiuso
+                    // «closed» diventa quello, e l'evento lo dice.
+                    to: updated[0]!.status,
                     actorId: null,
                   });
                 }
@@ -627,7 +628,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       const [ticket] = await instance.db
         .select({
           id: tickets.id,
-          status: tickets.status,
+          status: ticketStatusSql,
           number: tickets.number,
           title: tickets.title,
           // Ancora della notifica job.pr_closed (vedi in fondo al ramo).
@@ -676,7 +677,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           // Due consegne CONCORRENTI dello stesso merge si mettono in fila qui,
           // e la seconda vede il commento che la prima ha committato (sotto).
           const [locked] = await tx
-            .select({ status: tickets.status })
+            .select({ status: ticketStatusSql })
             .from(tickets)
             .where(eq(tickets.id, ticket.id))
             .for("update");
@@ -791,10 +792,14 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           if (!allMerged) return;
 
           const [beforeDone] = await tx
-            .select({ status: tickets.status })
+            .select({ status: ticketStatusSql })
             .from(tickets)
             .where(eq(tickets.id, ticket.id));
-          await tx.update(tickets).set({ status: "done" }).where(eq(tickets.id, ticket.id));
+          const [reached] = await tx
+        .update(tickets)
+        .set(roleUpdate("done"))
+        .where(eq(tickets.id, ticket.id))
+        .returning({ status: ticketStatusSql });
           // Audit della chiusura: è l'evento DATATO su cui si appoggia la
           // timeline di progetto per "ticket chiuso" — `updated_at` direbbe
           // solo quando la riga è cambiata l'ultima volta. actorId null: la
@@ -803,7 +808,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             await recordTicketStatusChange(tx, {
               ticketId: ticket.id,
               from: beforeDone.status,
-              to: "done",
+              to: reached?.status ?? "done",
               actorId: null,
             });
           }
@@ -872,7 +877,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // e due consegne concorrenti lo leggono entrambe `in_review` — prima
         // producevano due `comment.prClosed`, due eventi e due notifiche.
         const [locked] = await tx
-          .select({ status: tickets.status })
+          .select({ status: ticketStatusSql })
           .from(tickets)
           .where(eq(tickets.id, ticket.id))
           .for("update");
@@ -918,13 +923,17 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               ...(row ? [eq(ticketRepositories.id, row.id)] : []),
             ),
           );
-        await tx.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, ticket.id));
+        const [reached] = await tx
+        .update(tickets)
+        .set(roleUpdate("triaged"))
+        .where(eq(tickets.id, ticket.id))
+        .returning({ status: ticketStatusSql });
         // Audit della riapertura. Qui lo stato precedente è certo: è quello
         // riletto sotto il lock poche righe sopra.
         await recordTicketStatusChange(tx, {
           ticketId: ticket.id,
           from: "in_review",
-          to: "triaged",
+          to: reached?.status ?? "triaged",
           actorId: null,
         });
         await tx.insert(comments).values({

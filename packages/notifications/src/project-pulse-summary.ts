@@ -9,8 +9,7 @@ import {
   repositories,
   ticketRepositories,
   tickets,
-  type Db,
-} from "@stubwise/db";
+  type Db, ticketStatusSql } from "@stubwise/db";
 import { and, eq, exists, inArray, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
 import {
   actorAllows,
@@ -495,7 +494,7 @@ export async function summarizeProject(
         ticketId: tickets.id,
         ticketNumber: tickets.number,
         title: tickets.title,
-        status: tickets.status,
+        status: ticketStatusSql,
         updatedAt: tickets.updatedAt,
         // ⚠️ `createdAt` (l'ETÀ) accanto a `updatedAt` (l'ultimo MOVIMENTO):
         // due date diverse, e sulla riga dell'app tengono ciascuna la sua
@@ -516,7 +515,7 @@ export async function summarizeProject(
       .where(
         and(
           eq(tickets.projectId, projectId),
-          notInArray(tickets.status, [...CLOSED_TICKET_STATUSES]),
+          notInArray(ticketStatusSql, [...CLOSED_TICKET_STATUSES]),
           visibleTicket,
         ),
       ),
@@ -537,7 +536,7 @@ export async function summarizeProject(
       .where(
         and(
           eq(tickets.projectId, projectId),
-          notInArray(tickets.status, [...CLOSED_TICKET_STATUSES]),
+          notInArray(ticketStatusSql, [...CLOSED_TICKET_STATUSES]),
           visibleTicket,
         ),
       ),
@@ -568,7 +567,7 @@ export async function summarizeProject(
       .where(
         and(
           eq(tickets.projectId, projectId),
-          notInArray(tickets.status, [...CLOSED_TICKET_STATUSES]),
+          notInArray(ticketStatusSql, [...CLOSED_TICKET_STATUSES]),
           eq(ticketRepositories.prState, "open"),
           isNotNull(ticketRepositories.prUrl),
           visibleTicket,

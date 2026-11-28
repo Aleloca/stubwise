@@ -14,7 +14,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { startTestDb, roleInsert } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -73,7 +73,7 @@ async function seed() {
   await db.insert(tickets).values([
     { projectId: seen1!.id, number: 91, title: "Banner review", type: "feature", priority: "medium", source: "manual", dueDate: "2020-01-01" },
     { projectId: seen1!.id, number: 92, title: "Export CSV", type: "feature", priority: "medium", source: "manual" },
-    { projectId: seen1!.id, number: 93, title: "Chiusa da tempo", type: "bug", priority: "medium", source: "manual", status: "done" },
+    { projectId: seen1!.id, number: 93, title: "Chiusa da tempo", type: "bug", priority: "medium", source: "manual", ...roleInsert(seen1!.id, "done")},
     { projectId: hidden!.id, number: 7, title: "Piano riservato", type: "feature", priority: "medium", source: "manual" },
   ]);
   const [ws] = await db.insert(googleWorkspaces).values({ name: "A", domains: ["acme.com"], clientId: "c", clientSecretEncrypted: "s" }).returning();
