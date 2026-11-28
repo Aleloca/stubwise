@@ -33,6 +33,7 @@ import { liveProjectGeneral } from "./projectGeneral";
 import { listMacsOf, removeMacOf } from "./vaultMacsOf";
 import { getProjectUsage } from "./usage";
 import { liveProjectPlugins } from "./projectPlugins";
+import { liveProjectRepositories } from "./projectRepositories";
 import { chatFunctions } from "./chat";
 import { channelStream, onChatChange, subscribeChat, threadStream } from "./chatStream";
 
@@ -76,6 +77,9 @@ export const projectSettings: typeof Fake.projectSettings = partialNamespace<
   // Ritiro del web vecchio (inventario 1.3): Settings → General, AI e Usage.
   ...liveProjectGeneral,
   getProjectUsage,
+  // Ritiro del web vecchio (inventario §1.3): Repositories intera (elenco, pagina,
+  // webhook, file d'ambiente, creazione guidata), `projectRepositories.ts`.
+  ...liveProjectRepositories,
 });
 
 // Area 9, F2: il registro delle modifiche sulla lettura del server.

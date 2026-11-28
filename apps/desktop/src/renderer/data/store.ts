@@ -927,6 +927,7 @@ export type ApiFnName =
   // Repository, file d'ambiente, Integration, Plugins (Task 4)
   | "projectSettings.listProjectRepositories"
   | "projectSettings.listRemoteRepositories"
+  | "projectSettings.listRemoteBranches"
   | "projectSettings.checkRepositoryAccess"
   | "projectSettings.simulateNextRepositoryCheck"
   | "projectSettings.createRepository"

@@ -38,7 +38,13 @@ const varParamsSchema = z.object({ id: z.uuid(), fileId: z.uuid(), key: z.string
  * il flag `valueSet`. Il valore (cifrato a riposo) è write-only e non esce MAI
  * dall'API: lo decifra unicamente il worker quando materializza il file.
  */
-const publicVarSchema = z.object({ key: z.string(), valueSet: z.literal(true) });
+const publicVarSchema = z.object({
+  key: z.string(),
+  valueSet: z.literal(true),
+  // Ritiro del web vecchio (additivo): quando è stata scritta l'ultima volta,
+  // come la mostra la nuova app. Mai il valore.
+  setAt: z.iso.datetime().optional(),
+});
 
 /**
  * Proiezione pubblica di un file env: id, ambiente, path e l'elenco delle sue
@@ -53,10 +59,17 @@ const publicFileSchema = z.object({
   vars: z.array(publicVarSchema),
 });
 
-/** Esito dell'import: quante chiavi valide sono state importate e quali. */
+/**
+ * Esito dell'import: quante chiavi valide sono state scritte e quali
+ * (`imported`, sostituite comprese, com'era). Additivi (ritiro del web
+ * vecchio): `replaced`, le chiavi che c'erano già nel file; `skipped`, le
+ * righe scartate col numero e il motivo, MAI il contenuto.
+ */
 const importResultSchema = z.object({
   count: z.int(),
   imported: z.array(z.string()),
+  replaced: z.array(z.string()).optional(),
+  skipped: z.array(z.object({ line: z.int(), reason: z.enum(["syntax", "key"]) })).optional(),
 });
 
 /**
@@ -75,11 +88,11 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   // per key. Mai il valore cifrato.
   async function publicVarsOf(fileId: string): Promise<z.infer<typeof publicVarSchema>[]> {
     const rows = await app.db
-      .select({ key: projectEnvVars.key })
+      .select({ key: projectEnvVars.key, setAt: projectEnvVars.updatedAt })
       .from(projectEnvVars)
       .where(eq(projectEnvVars.fileId, fileId))
       .orderBy(asc(projectEnvVars.key));
-    return rows.map((r) => ({ key: r.key, valueSet: true as const }));
+    return rows.map((r) => ({ key: r.key, valueSet: true as const, setAt: r.setAt.toISOString() }));
   }
 
   /**
@@ -223,7 +236,12 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
       const file = await findFile(repositoryId, fileId);
       if (!file) return apiError(reply, 404, "env_file_not_found", "Env file not found");
 
-      const valid = parseDotenv(request.body.content).filter((v) => isValidEnvKey(v.key));
+      const skipped: { line: number; reason: "syntax" | "key" }[] = [];
+      const valid = parseDotenv(request.body.content, (line, reason) => skipped.push({ line, reason })).filter((v) => isValidEnvKey(v.key));
+      // Le chiavi già nel file prima dell'import: quelle che l'import sostituisce.
+      const existing = new Set(
+        (await app.db.select({ key: projectEnvVars.key }).from(projectEnvVars).where(eq(projectEnvVars.fileId, fileId))).map((r) => r.key),
+      );
       // In transazione: o passano tutti gli upsert o nessuno, così un errore a
       // metà non lascia un import parziale.
       await app.db.transaction(async (tx) => {
@@ -243,7 +261,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
         if (ctx) await recordChange(tx, { type: "env_file.imported", actor: request.user!, projectId: ctx.projectId, data: { object: ctx.object, params: { ...ctx.params, count: String(valid.length) } } });
       });
       const imported = valid.map((v) => v.key);
-      return { count: imported.length, imported };
+      return { count: imported.length, imported, replaced: imported.filter((k) => existing.has(k)), skipped };
     },
   );
 

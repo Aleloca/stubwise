@@ -5,7 +5,7 @@ import type { ProductBlock } from "../model";
 import { CLAUDE_ID } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { advanceNow, emptyStore, state, visibleProjectIds } from "../store";
-import { revokeProjectPermission } from "../viewer";
+import { grantInstancePermission, revokeProjectPermission } from "../viewer";
 
 // Lo spazio Prodotto nel livello dati (area 11a, Task 2): letture, scritture
 // delle pagine, chi segue, l'interruttore del modulo Docs e il nome
@@ -813,6 +813,9 @@ describe("la pagina iniziale dei Docs", () => {
 
 describe("il nome riservato", () => {
   it("un repository chiamato «product» o «Product»: invalid: name_reserved", async () => {
+    // Creare un repository vuole anche `git_accounts.manage` d'istanza (la regola
+    // del server, feat/repository-nuova-app): il permesso viene prima del nome.
+    grantInstancePermission(LAURA, "git_accounts.manage");
     as(LAURA);
     await projectSettings.checkRepositoryAccess({
       projectId: ACQ,

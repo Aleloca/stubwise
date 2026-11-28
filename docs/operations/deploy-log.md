@@ -7434,3 +7434,36 @@ deploy o di un rollback che la tocca.
   **Al ritiro**: togliere i `#` del blocco «Ritiro del web vecchio» del
   `Caddyfile` (validato anche acceso) e mandare il resto del web vecchio
   alla nuova app.
+
+- **«I repository nella nuova app» (27 nov 2026)**: branch
+  `feat/repository-nuova-app`, ritiro del web vecchio (inventario §1.3).
+  Progetto → Settings → Repositories nella build app non è più ridotta al
+  blocco Releases: elenco, creazione guidata sugli account git (rami del
+  repository scelto, verifica dell'accesso), pagina del repository, webhook
+  git e file d'ambiente, sulle rotte che già usa il web vecchio
+  (`apps/desktop/src/renderer/data/backend/real/projectRepositories.ts`). Il
+  segreto del webhook e i valori delle variabili non passano dall'adattatore.
+  Le scritture dei file d'ambiente con riconferma passano da `useReauth`.
+  Server, cambi additivi: `GET /api/repositories/:id/env-files` dà
+  `setAt` per variabile; l'import dà anche `replaced` e `skipped` (righe
+  saltate, per sintassi o per chiave), con il nuovo `onSkip` di
+  `parseDotenv` (`packages/shared`). L'api-client ha i metodi nuovi
+  (`repositories.create`/`update`/`configureWebhook`/env-files,
+  `gitAccounts.repositories`/`branches`/`validateRepo`). Regola allineata
+  al server: scegliere un account git vuole `git_accounts.manage`, anche
+  nel prototipo (shape `project-repositories.md`, correzione del 27 nov).
+  **Ordine**: `server`, poi `caddy`. Nessuna migrazione, nessuna env.
+  **Controllo dopo il deploy**: da `/app`, in un progetto, aggiungere un
+  repository (account, repository, ramo, verifica, Create), poi aprirlo e
+  importare un `.env` nell'ambiente test. L'esito dice quante variabili
+  sono nuove, sostituite e saltate, e nessun valore ricompare.
+  Dopo la revisione: la creazione non rifiuta più dopo il 201 (un ramo di
+  rilascio che non si salva è un avviso, mai un doppione al Retry); la
+  verifica accetta sempre il ramo predefinito e non rifiuta un ramo con un
+  elenco al tetto (~200); gli avvisi del server (`warnings` di POST/PATCH)
+  e il messaggio della piattaforma (verifica, webhook) si mostrano.
+  **Rollback**: `caddy` scende da solo senza danni (torna la sezione
+  ridotta). Il `server` può scendere SENZA il caddy: senza `setAt` la riga
+  della variabile non mostra la data (prima della revisione la sezione dei
+  file d'ambiente saltava), e senza `replaced`/`skipped` l'esito dell'import
+  conta tutto come nuovo, nessuna riga saltata.

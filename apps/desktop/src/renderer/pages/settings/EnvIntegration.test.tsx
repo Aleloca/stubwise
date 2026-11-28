@@ -99,6 +99,18 @@ describe("i file d'ambiente, da Laura in STW", () => {
     expect(within(vars[0]!).queryByRole("button", { name: /Show/ })).toBeNull();
   });
 
+  it("una variabile SENZA data (un server di prima non manda `setAt`): la riga c'è, senza «set …», e la sezione non salta", async () => {
+    // La fixture del server di prima: la data assente (revisione I1).
+    const file = state.envFiles.find((f) => f.repositoryId === "repo-stw" && f.path === ".env")!;
+    (file.vars[0] as { setAt: string | null }).setAt = null;
+    await openRepository(LAURA, "repo-stw", "stubwise", "STW");
+    const test = await envGroup(/^TEST/i);
+    const vars = within(fileRow(test, ".env")).getAllByRole("listitem");
+    expect(vars[0]).toHaveAttribute("aria-label", "DATABASE_URL");
+    expect(vars[0]).not.toHaveTextContent(/set /);
+    expect(vars[1]).toHaveTextContent(/set [A-Z][a-z]{2} \d{1,2}/);
+  });
+
   it("nuovo file .env.local in staging; un percorso già preso lo dice", async () => {
     const user = userEvent.setup();
     await openRepository(LAURA, "repo-stw", "stubwise", "STW");

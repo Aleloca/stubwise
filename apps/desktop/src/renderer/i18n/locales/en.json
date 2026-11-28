@@ -3048,6 +3048,16 @@
       "leaves": "A repository leaves a project only when the project is deleted.",
       "empty": "{{code}} has no repositories yet. Add one so Claude can work on the code and the Docs can be written.",
       "emptyRead": "Someone who can manage {{code}}'s repositories can add one.",
+      "addNeedsGitAccounts": "Adding a repository means choosing one of the instance's git accounts, which needs permission to manage git accounts.",
+      "addedWithWarnings": "{{name}} was added, but:",
+      "changedConcurrently": "The repository's git accounts changed while you were saving. Reload the page and try again.",
+      "saveWarnings": {
+        "main_account_identity_unresolved": "Saved, but Stubwise can't read who the main account is on the platform: every “Request changes” made on the PR will be ignored (the task will say so). Check the account's token.",
+        "mainIdentityBitbucket": "On Bitbucket the token needs the read:user:bitbucket scope.",
+        "default_review_account_invalid": "Saved, but the default reviewer didn't pass the checks on this repository, so its verdict may not go through: then the review is a comment from the main account. Check its access and token, or choose a review account.",
+        "release_branch_not_set": "The branch you chose wasn't saved as the one Claude opens pull requests against: it's still the default. Set it in the repository's Releases section."
+      },
+      "accountNeedsGitAccounts": "Changing the git account or the reviewer needs permission to manage git accounts.",
       "loadError": "Couldn't load {{code}}'s repositories.",
       "tests": "tests:",
       "testsDetected": "tests detected from the lockfile",
@@ -3165,6 +3175,10 @@
         },
         "stale": "The choice changed: verify again.",
         "notVerified": "Verify access again before creating.",
+        "undecryptable": "Stubwise can't decrypt the credentials of {{account}}: an admin has to enter them again in Administration → Integrations.",
+        "platformSays": "The platform says: {{detail}}",
+        "branchesNotVisible": "{{account}} can't see this repository's branches on {{platform}}: only the default branch is listed.",
+        "branchesError": "Couldn't load the branches: only the default branch is listed.",
         "commandHint": "Leave it empty to detect it from the lockfile.",
         "prototype": {
           "intro": "Nothing real is contacted. Choose what the next access check answers.",

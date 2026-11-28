@@ -674,6 +674,21 @@ const INTEGRATED_CALLS = new Set([
   // Area 8, F1 (`releases-repo-settings`): la sezione «Repositories» ridotta.
   "releases.getRepositorySettings",
   "releases.setRepoPrMode",
+  // Ritiro del web vecchio (inventario §1.3): «Repositories» intera, l'adattatore
+  // `projectRepositories.ts` (elenco, pagina, webhook, file d'ambiente, creazione).
+  "projectSettings.listProjectRepositories",
+  "projectSettings.listRemoteRepositories",
+  "projectSettings.listRemoteBranches",
+  "projectSettings.checkRepositoryAccess",
+  "projectSettings.createRepository",
+  "projectSettings.updateRepository",
+  "projectSettings.configureRepositoryWebhook",
+  "projectSettings.listEnvFiles",
+  "projectSettings.createEnvFile",
+  "projectSettings.importEnvFile",
+  "projectSettings.setEnvVar",
+  "projectSettings.removeEnvVar",
+  "projectSettings.deleteEnvFile",
   // Area 8, F3: Support (letture e scritture sulle rotte di 72).
   "support.listSupportConversations",
   // La ricerca ⌘K di Support (rimandi, lotto 5).
@@ -995,7 +1010,6 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  // Area 8, F1 (46): «Repositories» ridotta, senza «nuovo repository» né l'editor dell'area 9.
   // Revisione di feat/impostazioni-progetto, M7: Usage e AI delle impostazioni.
   it("aprire Settings → Usage e Settings → AI legge solo chiamate integrate", async () => {
     signedInAs("p-laura");
@@ -1010,13 +1024,32 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("aprire Repositories legge solo chiamate integrate, senza «Add repository»", async () => {
+  // Ritiro del web vecchio (inventario §1.3): «Repositories» intera, sulle
+  // rotte dei repository (prima, area 8 F1, era ridotta al blocco Releases).
+  it("aprire Repositories legge solo chiamate integrate", async () => {
     // Laura vede il codice di AUD (`repos.view`): la sezione è sua.
     signedInAs("p-laura");
     renderRoute("/p/AUD/settings/repositories");
-    await waitFor(() => expect(calls).toContain("releases.getRepositorySettings"));
+    await waitFor(() => expect(calls).toContain("projectSettings.listProjectRepositories"));
     await settle();
-    expect(screen.queryByRole("button", { name: /Add repository/ })).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("la creazione guidata (?new=1) nella build app: legge solo chiamate integrate, senza riquadri del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/p/AUD/settings/repositories?new=1");
+    const dialog = await screen.findByRole("dialog", { name: /Add a repository to AUD/ });
+    await settle();
+    expect(within(dialog).queryByRole("region", { name: "Prototype only" })).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("aprire un repository legge solo chiamate integrate, file d'ambiente compresi, senza riquadri del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/p/AUD/settings/repositories?repo=repo-aud");
+    await waitFor(() => expect(calls).toContain("projectSettings.listEnvFiles"));
+    await settle();
+    expect(screen.queryByRole("region", { name: "Prototype only" })).toBeNull();
     expect(outside()).toEqual([]);
   });
 
