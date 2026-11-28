@@ -24,3 +24,17 @@ describe("route-callers: i chiamanti del worker", () => {
     expect(writes.map((r) => r.key)).toEqual([]);
   }, 120_000);
 });
+
+// D10 (decisione del maintainer, 28 nov 2026): le rotte dei tool dedicati di
+// Claude Code restano come superficie propria dell'MCP e lo dichiarano
+// (`config.mcp.owner: "mcp"`, elenco chiuso in `src/mcp/mcp-owned.test.ts`).
+// Lo script non le propone da togliere: hanno un gruppo loro.
+describe("route-callers: le rotte dell'MCP per scelta", () => {
+  it("una rotta con `owner: \"mcp\"` non è mai «senza chiamanti»", async () => {
+    const rows = await classifyRoutes();
+    const owned = rows.filter((r) => r.owner === "mcp");
+    expect(owned.length).toBe(12);
+    expect(owned.filter((r) => r.status === "senza chiamanti" || r.status === "dubbio").map((r) => r.key)).toEqual([]);
+    expect(owned.filter((r) => r.status !== "usata").every((r) => r.status === "dell'MCP")).toBe(true);
+  }, 120_000);
+});
