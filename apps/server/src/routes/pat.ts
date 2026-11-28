@@ -46,9 +46,10 @@ export async function createPatForUser(
   userId: string,
   name: string,
   expiresAt: Date | null,
-  // `mobile` solo da `/mobile-login`, `desktop` solo da `/desktop-exchange`:
-  // sono i marcatori con cui reset e cambio della password ritrovano i token
-  // delle app (vedi revokeMobilePats).
+  // `desktop` solo da `/desktop-exchange`; `mobile` non lo emette più nessuno
+  // (`/mobile-login` è andata via con R2), ma i token già emessi esistono: sono
+  // i marcatori con cui reset e cambio della password ritrovano i token delle
+  // app (vedi revokeMobilePats).
   kind: "manual" | "mobile" | "desktop" = "manual",
 ): Promise<PatWithToken> {
   const token = generatePat();

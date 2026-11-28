@@ -1,12 +1,10 @@
-import { deviceTokens, projectFollows, projects, users } from "@stubwise/db";
+import { projectFollows, projects, users } from "@stubwise/db";
 import {
-  deviceDeletionSchema,
-  deviceRegistrationSchema,
   notificationPrefsUpdateSchema,
   notificationPrefsViewSchema,
   projectFollowsSchema,
 } from "@stubwise/shared";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -186,150 +184,6 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
       if (Object.keys(patch).length > 0) {
         await app.db.update(users).set(patch).where(eq(users.id, request.user!.id));
       }
-      return reply.code(204).send(null);
-    },
-  );
-
-  /**
-   * REGISTRA il token push di un device: un UPSERT idempotente, non una
-   * creazione. L'app lo chiama a ogni avvio e a ogni rotazione del token del
-   * sistema operativo, quindi la stessa chiamata ripetuta deve valere una sola
-   * riga.
-   *
-   * La chiave del conflitto è `token` (unique GLOBALE, non per utente), e da
-   * questo discendono i due comportamenti che seguono.
-   *
-   * 1. **L'upsert RIATTIVA.** Se la riga era disattivata — `pat_revoked` dopo
-   *    la revoca del PAT, `invalid_token` da un rifiuto del relay — questa
-   *    registrazione azzera `disabledAt` **e** `disabledReason`. Senza,
-   *    un telefono che rifà login resterebbe muto PER SEMPRE, e in silenzio:
-   *    la registrazione risponderebbe 204 e nessuna push arriverebbe mai più.
-   *    I due campi si azzerano INSIEME perché il CHECK
-   *    `device_tokens_disabled_chk` impone `(disabled_at IS NULL) =
-   *    (disabled_reason IS NULL)`: uno solo darebbe un 23514.
-   *
-   * 2. **Il device PASSA a chi lo registra ora.** `userId` è nel SET, non solo
-   *    nei valori d'insert: sullo stesso telefono l'utente A esce e B entra, e
-   *    il token del sistema operativo è lo stesso. Senza il passaggio la
-   *    registrazione di B sbatterebbe contro la unique e quel telefono non
-   *    riceverebbe più nulla. Il token identifica l'INSTALLAZIONE, non la
-   *    persona. Il prezzo — chi conosce un token altrui se lo può intestare —
-   *    è noto e accettato: la direzione del danno e perché il baratto conviene
-   *    stanno per esteso su `deviceRegistrationSchema`, che è il posto
-   *    canonico di questo ragionamento.
-   *
-   * Una sola istruzione, quindi nessuna transazione: non c'è una scrittura
-   * "prima di quella decisiva" da cui difendersi.
-   */
-  app.put(
-    "/devices",
-    {
-      config: { mcp: { exclude: "app_only" }, access: { kind: "user" } },
-      schema: {
-        body: deviceRegistrationSchema,
-        response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request, reply) => {
-      const userId = request.user!.id;
-      // Il PAT con cui l'app si è autenticata, se è arrivata con un PAT: è ciò
-      // su cui la revoca (`routes/pat.ts`) ritrova i device di quel telefono.
-      // Da cookie di sessione non c'è, e la colonna resta null.
-      const patId = request.user!.patId ?? null;
-      const appVersion = request.body.appVersion ?? null;
-      // ⚠️ REGOLA DI QUESTO OGGETTO: ci sta solo ciò che deve seguire la
-      // semantica «vince l'ultima registrazione», perché `values` finisce
-      // INTERO anche nel SET del conflitto qui sotto. Un campo che dovesse
-      // descrivere la PRIMA registrazione e non l'ultima (una
-      // `firstRegisteredAt`, un `registeredVia`) va nei soli valori d'insert e
-      // tenuto fuori dallo spread, altrimenti ogni ri-registrazione lo
-      // riscrive e il campo mente senza che nessun test lo noti.
-      const values = {
-        userId,
-        patId,
-        platform: request.body.platform,
-        token: request.body.token,
-        appVersion,
-      };
-      await app.db
-        .insert(deviceTokens)
-        .values(values)
-        .onConflictDoUpdate({
-          target: deviceTokens.token,
-          set: {
-            ...values,
-            // `now()` e non `new Date()`: l'insert usa il `defaultNow()` della
-            // colonna, cioè l'orologio del DB, e due sorgenti di tempo per la
-            // stessa colonna renderebbero i valori confrontabili solo a meno
-            // dello skew fra server e Postgres.
-            lastSeenAt: sql`now()`,
-            // La riattivazione: vedi il punto 1 del docblock.
-            disabledAt: null,
-            disabledReason: null,
-          },
-        });
-      return reply.code(204).send(null);
-    },
-  );
-
-  /**
-   * CANCELLA la registrazione di un device: è il logout dell'app.
-   *
-   * ⚠️ **`POST /devices/delete` con il token nel BODY, e NON un
-   * `DELETE /devices/:token`.** Sembra il verbo sbagliato, e fra sei mesi
-   * qualcuno vorrà "correggerlo" in qualcosa di più RESTful: non è un
-   * miglioramento, è la reintroduzione di una fuga di dati. Il server gira con
-   * `logger: true`, e pino scrive l'URL per intero su ogni richiesta. Con il
-   * token nel path la riga di log è, alla lettera:
-   *
-   * ```
-   * {"level":30,…,"req":{"method":"DELETE",
-   *  "url":"/api/me/devices/fcm-TOKEN-SEGRETISSIMO",…},"msg":"incoming request"}
-   * ```
-   *
-   * cioè il token push di un utente finisce in chiaro nei log del server, dove
-   * ha molti più lettori del DB. E chi lo legge se lo può INTESTARE, perché la
-   * registrazione qui sopra fa passare il device a chi lo registra per ultimo.
-   * Il body non viene loggato: è l'unica differenza, ed è tutta la differenza.
-   * Misurato, non supposto.
-   *
-   * La riga si ELIMINA, non si disattiva. Un soft delete continuerebbe a
-   * occupare la unique sul token e si farebbe riaccendere dal primo upsert di
-   * chiunque: il contrario di ciò che chiede chi esce.
-   *
-   * ⚠️ `userId` nel WHERE è la sola cosa che impedisce a chi conosce un token
-   * altrui di cancellarlo. Non è ridondante con nulla — qui non c'è nemmeno un
-   * 404 dietro cui nascondersi — e va letto insieme alla stessa riga in
-   * `routes/pat.ts`, dove il filtro serve per una ragione diversa e altrettanto
-   * non ovvia. C'è un test che lo dimostra guardando il DB, non lo status code:
-   * senza il filtro la risposta sarebbe 204 identica.
-   *
-   * **204 anche su un token che non c'è (o non è nostro)**, non 404, e la
-   * ragione NON è nascondere l'esistenza dei token altrui: con `userId` nel
-   * WHERE quell'oracolo non esiste comunque — un 404 direbbe «non è tuo
-   * *oppure* non esiste», due casi già confusi fra loro. La ragione è
-   * l'idempotenza del logout: l'app cancella uscendo e ritenta dopo un timeout
-   * di rete, e al secondo giro un 404 sarebbe un errore da mostrare per un
-   * lavoro già fatto. Nessun client saprebbe farci nulla di diverso.
-   */
-  app.post(
-    "/devices/delete",
-    {
-      config: { mcp: { action: "me.unregisterDevice", summary: "Toglie la registrazione push di un telefono: non riceve più notifiche.", effect: "destructive", note: "È il logout dell'app mobile su quel telefono." }, access: { kind: "user" } },
-      schema: {
-        body: deviceDeletionSchema,
-        response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request, reply) => {
-      await app.db
-        .delete(deviceTokens)
-        .where(
-          and(
-            eq(deviceTokens.token, request.body.token),
-            eq(deviceTokens.userId, request.user!.id),
-          ),
-        );
       return reply.code(204).send(null);
     },
   );

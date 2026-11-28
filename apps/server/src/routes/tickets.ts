@@ -1,7 +1,6 @@
 import { appPath } from "@stubwise/shared";
 import { projectCodeOf } from "@stubwise/notifications";
 import {
-  agentQuestionAnswerSchema,
   answerBodySchema,
   inboxActionErrorSchema,
   ticketPrioritySchema,
@@ -11,14 +10,11 @@ import {
   planDecisionResultSchema,
   runAiBodySchema,
   runAiResultSchema,
-  ticketQuestionsSchema,
   ticketTypeSchema,
   setContentSchema,
   ticketDetailSchema,
-  ticketHistorySchema,
   ticketPageSchema,
   ticketSchema,
-  type AgentQuestionAnswer,
   type ProjectPermission,
   type TicketStatus,
 } from "@stubwise/shared";
@@ -35,7 +31,6 @@ import {
   type RouteAccess,
 } from "../auth/access.js";
 import { canSeeTicket, fromBody, fromTicket, ticketVisible } from "../auth/project-resolvers.js";
-import { loadTicketHistory } from "../services/ticket-history.js";
 import type { Db } from "@stubwise/db";
 import {
   derivePrCycle,
@@ -44,7 +39,6 @@ import {
   publishRequestCreated,
 } from "@stubwise/notifications";
 import {
-  agentQuestions,
   aiJobs,
   comments,
   planDigest,
@@ -193,18 +187,6 @@ function relationFromTarget(
     case "relates_to":
       return "relates_to";
   }
-}
-
-/**
- * Ri-valida la risposta letta dal jsonb: `null` se non è (più) leggibile. La
- * colonna è tipata sulla union ma il DB non la fa rispettare, e una riga scritta
- * da una versione precedente non deve poter far fallire la serializzazione
- * dell'intera lista — la stessa difesa che il worker applica nel prompt.
- */
-function parseStoredAnswer(answer: unknown): AgentQuestionAnswer | null {
-  if (answer == null) return null;
-  const parsed = agentQuestionAnswerSchema.safeParse(answer);
-  return parsed.success ? parsed.data : null;
 }
 
 /**
@@ -737,38 +719,6 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  /**
-   * Storia del ticket: un evento per riga, dal più recente (avvii, domande,
-   * piano, PR, review, correzioni, cambi di stato), al più
-   * `TICKET_HISTORY_LIMIT` (200) eventi più `total`, il numero prima del
-   * taglio. La regola sta nel modulo puro `buildTicketHistory`
-   * (`@stubwise/notifications`), le query in `services/ticket-history.ts`.
-   *
-   * Stessa autorizzazione di `/:id/activity`: autenticato e basta, come ogni
-   * lettura del ticket. Rotta NUOVA e non un campo di `/activity`: quella
-   * risposta l'app installata la parsa con uno schema suo, e cambiarne il
-   * significato è un cambio che non si ritira.
-   *
-   * Registrata PRIMA di `GET /:id` (regola di CLAUDE.md: ogni rotta con una
-   * parte letterale va prima della parametrica sullo stesso prefisso).
-   */
-  app.get(
-    "/:id/history",
-    {
-      config: { access: onTicket("member"), mcp: { action: "tickets.history", summary: "La storia di un ticket: avvii, domande, piano, PR, review, correzioni e cambi di stato, dal più recente.", effect: "read" } },
-      schema: {
-        params: idParamsSchema,
-        response: { 200: ticketHistorySchema, 404: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const [ticket] = await app.db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
-      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      return loadTicketHistory(app.db, id);
-    },
-  );
-
   app.get(
     "/:id",
     {
@@ -788,86 +738,6 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       // vuoto finché l'agente non apre PR): la stessa risposta prodotta dagli
       // endpoint design/plan (helper condiviso, niente duplicazione).
       return ticketDetailResponse(app.db, row, routePermissions(request));
-    },
-  );
-
-  /**
-   * Q&A dell'agente sul ticket, in ordine cronologico: le domande poste dai run
-   * di pianificazione e le risposte già date. Serve alla pagina ticket, che
-   * mostra la domanda aperta (chi può, risponde) e lo storico di quelle chiuse.
-   *
-   * Sola LETTURA e visibile a chiunque sia autenticato, come `/activity`: la
-   * Q&A è contenuto del ticket. Il permesso di RISPONDERE è un'altra cosa e
-   * vive in `answerQuestion` (il richiedente del run o un maintainer).
-   */
-  app.get(
-    "/:id/questions",
-    {
-      config: { access: onTicket("member"), mcp: { action: "tickets.questions", summary: "Le domande dell'agente su un ticket e le risposte già date.", effect: "read" } },
-      schema: {
-        params: idParamsSchema,
-        response: {
-          200: ticketQuestionsSchema,
-          404: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const [ticket] = await app.db
-        .select({ id: tickets.id })
-        .from(tickets)
-        .where(eq(tickets.id, id));
-      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-
-      const rows = await app.db
-        .select({
-          id: agentQuestions.id,
-          jobId: agentQuestions.jobId,
-          round: agentQuestions.round,
-          question: agentQuestions.question,
-          options: agentQuestions.options,
-          recommendedIndex: agentQuestions.recommendedIndex,
-          allowFreeText: agentQuestions.allowFreeText,
-          askedAt: agentQuestions.askedAt,
-          answer: agentQuestions.answer,
-          answeredAt: agentQuestions.answeredAt,
-          answeredById: users.id,
-          answeredByEmail: users.email,
-        })
-        .from(agentQuestions)
-        // LEFT JOIN: `answered_by_user_id` è ON DELETE SET NULL, e una risposta
-        // di un utente cancellato resta una risposta — solo senza un nome.
-        .leftJoin(users, eq(users.id, agentQuestions.answeredByUserId))
-        .where(eq(agentQuestions.ticketId, id))
-        .orderBy(agentQuestions.askedAt, agentQuestions.round);
-
-      return rows.map((row) => ({
-        // `questionId` e non `id`, e `recommendedIndex` OMESSO invece che
-        // `null`: è la forma condivisa con la card d'inbox
-        // (`inboxQuestionSchema`), che la pagina ticket e l'inbox danno allo
-        // stesso pannello di risposta. La normalizzazione dalla colonna nullable
-        // è compito di questa rotta, non del client.
-        questionId: row.id,
-        jobId: row.jobId,
-        round: row.round,
-        question: row.question,
-        options: row.options,
-        ...(row.recommendedIndex === null ? {} : { recommendedIndex: row.recommendedIndex }),
-        allowFreeText: row.allowFreeText,
-        askedAt: row.askedAt.toISOString(),
-        // Il jsonb viene ri-validato prima di uscire: la colonna è tipata sulla
-        // union ma il DB non la fa rispettare, e una riga di una versione
-        // precedente non deve poter far fallire la SERIALIZZAZIONE dell'intera
-        // lista. `answeredAt` dice comunque che una risposta c'è stata.
-        answer: parseStoredAnswer(row.answer),
-        answeredAt: row.answeredAt?.toISOString() ?? null,
-        answeredBy:
-          row.answeredById && row.answeredByEmail
-            ? { id: row.answeredById, email: row.answeredByEmail }
-            : null,
-      }));
     },
   );
 

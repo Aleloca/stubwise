@@ -177,7 +177,6 @@ describe("porte che danno una sessione o un token", () => {
     expect(doors.sort()).toEqual([
       "POST /api/auth/desktop-exchange",
       "POST /api/auth/login",
-      "POST /api/auth/mobile-login",
     ]);
   });
 });

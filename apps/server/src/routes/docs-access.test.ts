@@ -274,7 +274,6 @@ describe("Docs di progetto e chat RAG", () => {
   it("le rotte dei Docs di un progetto invisibile rispondono 404", async () => {
     for (const url of [
       `/api/projects/${projectA}/docs/spaces`,
-      `/api/projects/${projectA}/docs/highlights`,
       `/api/projects/${projectA}/docs/search?q=fatture`,
     ]) {
       const res = await call(outsider, "GET", url);

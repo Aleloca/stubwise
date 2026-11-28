@@ -20,9 +20,8 @@ import {
   docsChatAnswerSchema,
   docSpaceSchema,
   projectDocsSearchResultSchema,
-  projectHighlightsSchema,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -33,14 +32,11 @@ import {
   docChatSessions,
   docGenerations,
   docPages,
-  projectDecisions,
   repositories,
-  users,
 } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { withDocCodes } from "../services/doc-codes.js";
 import { chatQuerySchema, loadHistory, streamChatResponse } from "./docs-chat-core.js";
-import { emptyCountsByKind, HIGHLIGHT_LIMITS } from "./docs-highlights.js";
 import { appendProductContext, buildCitations, buildDocsSystemPrompt } from "./docs-rag.js";
 import { retrieveProductContext } from "../services/product-retrieval.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
@@ -146,121 +142,6 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
         lastGenerationAt: r.lastGenerationAt ? r.lastGenerationAt.toISOString() : null,
         lastCommitSha: r.lastCommitSha,
       }));
-    },
-  );
-
-  /**
-   * Highlights AGGREGATE del progetto: alimentano la home orientante. Il
-   * changelog è unificato cross-repo (ordinato per data della entry, non per
-   * `position` che è per-repo) e ogni voce porta il repository d'origine.
-   * `topViewed` aggrega le pagine più lette di tutti i repo, escluse le release.
-   * Scope pagine: generazione corrente di ciascun repo + pagine manuali.
-   */
-  app.get(
-    "/projects/:projectId/docs/highlights",
-    {
-      config: { access: DOCS_VIEW, mcp: { action: "docs.projectHighlights", summary: "Le novità dei Docs di un progetto: pagine più lette, più fresche, ultime release.", effect: "read" } },
-      schema: {
-        params: projectIdParamsSchema,
-        response: { 200: projectHighlightsSchema, 404: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request) => {
-      const { projectId } = request.params;
-
-      // Pagine VISIBILI dei repo del progetto: generazione corrente del repo o
-      // pagina manuale/persistente (generationId null, incluse le release).
-      const visible = and(
-        eq(repositories.projectId, projectId),
-        or(
-          eq(docPages.generationId, repositories.currentDocGenerationId),
-          isNull(docPages.generationId),
-        ),
-      );
-      const pageFields = {
-        slug: docPages.slug,
-        title: docPages.title,
-        kind: docPages.kind,
-        viewCount: docPages.viewCount,
-        repositoryId: repositories.id,
-        repositorySlug: repositories.slug,
-        repositoryName: repositories.name,
-      };
-
-      const [counts, topViewed, releases, decisions] = await Promise.all([
-        app.db
-          .select({ kind: docPages.kind, count: sql<number>`count(*)::int` })
-          .from(docPages)
-          .innerJoin(repositories, eq(repositories.id, docPages.repositoryId))
-          .where(visible)
-          .groupBy(docPages.kind),
-        app.db
-          .select(pageFields)
-          .from(docPages)
-          .innerJoin(repositories, eq(repositories.id, docPages.repositoryId))
-          .where(and(visible, ne(docPages.kind, "releases")))
-          .orderBy(desc(docPages.viewCount), asc(docPages.title))
-          .limit(HIGHLIGHT_LIMITS.projectTopViewed),
-        app.db
-          .select({
-            slug: docPages.slug,
-            title: docPages.title,
-            createdAt: docPages.createdAt,
-            significant: docPages.significant,
-            repositoryId: repositories.id,
-            repositorySlug: repositories.slug,
-            repositoryName: repositories.name,
-          })
-          .from(docPages)
-          .innerJoin(repositories, eq(repositories.id, docPages.repositoryId))
-          .where(and(eq(repositories.projectId, projectId), eq(docPages.kind, "releases")))
-          .orderBy(desc(docPages.createdAt))
-          .limit(HIGHLIGHT_LIMITS.projectReleases),
-        // Le ultime decisioni del progetto (Fase 5). LEFT JOIN sull'autore:
-        // `decided_by_user_id` è ON DELETE SET NULL perché la decisione deve
-        // sopravvivere a chi l'ha presa, e un inner join la farebbe sparire
-        // proprio nel caso in cui lo storico serve di più.
-        app.db
-          .select({
-            id: projectDecisions.id,
-            source: projectDecisions.source,
-            title: projectDecisions.title,
-            decision: projectDecisions.decision,
-            decidedByEmail: users.email,
-            decidedAt: projectDecisions.decidedAt,
-            supersededById: projectDecisions.supersededById,
-          })
-          .from(projectDecisions)
-          .leftJoin(users, eq(users.id, projectDecisions.decidedByUserId))
-          .where(eq(projectDecisions.projectId, projectId))
-          .orderBy(desc(projectDecisions.decidedAt), desc(projectDecisions.id))
-          .limit(HIGHLIGHT_LIMITS.projectDecisions),
-      ]);
-
-      const countsByKind = emptyCountsByKind();
-      for (const row of counts) countsByKind[row.kind] = row.count;
-
-      return {
-        countsByKind,
-        topViewed,
-        latestReleases: releases.map((r) => ({
-          ...r,
-          createdAt: r.createdAt.toISOString(),
-          // Le release sono persistenti: non appartengono a una generazione.
-          commitSha: null,
-        })),
-        latestDecisions: decisions.map((d) => ({
-          id: d.id,
-          source: d.source,
-          title: d.title,
-          decision: d.decision,
-          decidedByEmail: d.decidedByEmail,
-          decidedAt: d.decidedAt.toISOString(),
-          // La home non ha spazio per dire DA QUALE decisione è stata superata:
-          // le basta sapere che lo è, per non presentarla come corrente.
-          superseded: d.supersededById !== null,
-        })),
-      };
     },
   );
 

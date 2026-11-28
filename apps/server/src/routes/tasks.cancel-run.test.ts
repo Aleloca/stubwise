@@ -129,7 +129,7 @@ describe("POST /api/tasks/:id/cancel-run", () => {
     ]);
   });
 
-  it("un evento nella storia del ticket (run_cancelled, con chi) e ticket.activity ai follower, col change come dato", async () => {
+  it("chi ha chiesto l'annullamento resta sul job, e ticket.activity ai follower, col change come dato", async () => {
     const { ticketId, jobId } = await taskWithJob("held");
     await testDb.db.insert(ticketFollowers).values({ ticketId, userId: viewer.id });
     expect((await cancel(ticketId, developer)).statusCode).toBe(200);
@@ -139,11 +139,6 @@ describe("POST /api/tasks/:id/cancel-run", () => {
       .where(eq(aiJobs.id, jobId));
     expect(job).toMatchObject({ by: developer.id });
     expect(job!.at).not.toBeNull();
-    const history = await app.inject({ method: "GET", url: `/api/tickets/${ticketId}/history`, headers: { cookie: developer.headers.cookie } });
-    expect(history.statusCode, history.body).toBe(200);
-    expect((history.json() as { events: { kind: string; actor: unknown }[] }).events).toContainEqual(
-      expect.objectContaining({ kind: "run_cancelled", actor: { type: "user", name: "dev-c@example.com" } }),
-    );
     const cards = await testDb.db
       .select({ userId: notifications.userId, event: notifications.event })
       .from(notifications)

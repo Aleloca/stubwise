@@ -106,7 +106,6 @@ const FORBIDDEN_AREAS = [
   "packages/git/src",
   "packages/widget/src",
   "apps/server/src/graph-chat",
-  "apps/server/src/slack",
   "apps/server/src/ingest",
   "apps/server/src/backlog",
   "apps/server/src/services",

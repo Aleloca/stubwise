@@ -317,7 +317,7 @@ describe("createPushRelayClient — errori", () => {
 
   it("NESSUN messaggio d'errore contiene un token", async () => {
     // I token push non vanno nei log: da lì chi li legge se li può intestare
-    // (vedi il docblock di `deviceDeletionSchema`). Un messaggio d'eccezione
+    // (vedi il docblock della vecchia `deviceDeletionSchema`, tolta con R2). Un messaggio d'eccezione
     // finisce nel log del poller, quindi vale la stessa regola.
     const cases: (() => Promise<unknown>)[] = [
       () => sendWith(() => jsonResponse({ error: TOKEN }, 400)),

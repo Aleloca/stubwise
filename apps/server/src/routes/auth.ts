@@ -19,7 +19,6 @@ import {
   SESSION_COOKIE_OPTIONS,
   sessionIdFromRequest,
   sessionUserSelection,
-  toSessionUser,
 } from "../auth/session.js";
 import type { SessionUserColumns } from "../auth/session.js";
 import { departmentMembers, departments, invites, passwordResetTokens, personalAccessTokens, roles, sessions, users } from "@stubwise/db";
@@ -30,20 +29,15 @@ import {
   inviteProjectSchema,
   languageSchema,
   loginResponseSchema,
-  mobileLoginBodySchema,
   DEVICE_NAME_FORBIDDEN,
-  mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
   inviteLinkSchema,
 } from "@stubwise/shared";
-import { createPatForUser, revokeMobilePats } from "./pat.js";
+import { revokeMobilePats } from "./pat.js";
 import { secondFactorLoginRoutes } from "./second-factor-login.js";
 import { desktopHandoffRoutes } from "./desktop-handoff.js";
 import { hasConfirmedTotp } from "../auth/second-factor/totp.js";
-import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-factor/index.js";
-import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
-import { lockedErrorSchema, rejectAttempt } from "./second-factor-replies.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { applyInviteWorkspaces, assertInviteWorkspaces, inviteWorkspacesOf, saveInviteWorkspaces } from "../services/workspaces.js";
 import {
@@ -382,81 +376,6 @@ export async function authRoutes(
   secondFactorLoginRoutes(instance, credentialsRateLimit);
   // Integrazione area 2: il login del desktop dal browser (stesso bucket).
   desktopHandoffRoutes(instance, credentialsRateLimit);
-
-  /**
-   * Login dell'app mobile: stesse credenziali del web, ma invece di aprire una
-   * sessione a cookie emette un Personal Access Token per QUEL device, che
-   * l'app tiene nel Keychain e manda nell'header `authorization`.
-   *
-   * Un PAT per device, e non uno condiviso, perché è ciò che rende governabile
-   * la revoca: il token si chiama `Mobile · <deviceName>`, l'utente lo
-   * riconosce nella lista dei token e può buttare giù il telefono perso senza
-   * sloggare gli altri — ed è la stessa riga che il logout dell'app revoca da
-   * sé. Nessuna scadenza: la fine di un PAT mobile è la revoca, non il tempo.
-   *
-   * NON crea la sessione a cookie: sarebbe una riga in `sessions` che nessun
-   * client chiuderà mai, per un client che non manda cookie.
-   *
-   * Condivide il bucket di rate limit con `/login` — non «lo stesso limite»,
-   * proprio lo stesso contatore: sono due porte sulle stesse credenziali, e
-   * bucket separati raddoppierebbero i tentativi disponibili a un attaccante.
-   */
-  app.post(
-    "/mobile-login",
-    {
-      onRequest: credentialsRateLimit,
-      config: { access: { kind: "public" }, credentialDoor: true },
-      schema: {
-        body: mobileLoginBodySchema,
-        response: {
-          200: mobileLoginResponseSchema,
-          400: errorSchema,
-          401: errorSchema,
-          403: errorSchema,
-          423: lockedErrorSchema,
-          429: errorSchema,
-        },
-      },
-    },
-    async (request, reply) => {
-      const user = await verifyCredentials(app.db, request.body.email, request.body.password);
-      // Identica, parola per parola, alla 401 di /login: le due rotte non
-      // devono nemmeno distinguersi fra loro.
-      if (!user) {
-        return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
-      }
-      // Il token è una credenziale permanente: senza secondo fattore non se ne
-      // emette. Chi non ha l'app configurata la configura dalla web (l'app
-      // non sa farlo), e non riceve nessun token nel frattempo.
-      if (!(await hasConfirmedTotp(app.db, user.id))) {
-        return apiError(
-          reply,
-          403,
-          "second_factor_setup_required",
-          "Set up the second factor on the web first",
-        );
-      }
-      const { code } = request.body;
-      if (!code) {
-        return apiError(reply, 401, "second_factor_required", "Second factor code required");
-      }
-      // Stesso tetto per account, stesso bucket per IP e stesse risposte del
-      // secondo passo del login web: una porta in più non è un tentativo in più.
-      const attempt = await attemptSecondFactor(app.db, user, () =>
-        verifySecondFactorCode(app.db, app.encryptionKey, user.id, code),
-      );
-      if (!attempt.ok) return rejectAttempt(reply, attempt);
-      await recordSecurityEvent(app.db, { kind: "login", user });
-      const { id: patId, token } = await createPatForUser(
-        app.db,
-        user.id,
-        `Mobile · ${request.body.deviceName}`,
-        null,
-        "mobile",
-      );
-      return reply.code(200).send({ token, patId, user: toSessionUser(user) });
-    },
-  );
 
   // Best effort, senza requireAuth: il logout deve riuscire anche con cookie
   // assente, manomesso o già scaduto. Si elimina la riga solo se il cookie
