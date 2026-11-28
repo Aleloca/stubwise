@@ -54,6 +54,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   act(() => setLanguage("en"));
   delete (document as { startViewTransition?: unknown }).startViewTransition;
 });
@@ -327,28 +328,26 @@ describe("PersonalColumn", () => {
     const grid = column().parentElement!;
     const homeGridClass = grid.className;
     cleanup();
-    // Preferenze (8a) e Amministrazione (9a) hanno la loro colonna: lo stato neutro resta su All projects.
-    await renderAt("/projects", "p-roberta");
-    const nav = await within(column()).findByRole("navigation", { name: "All projects views" });
-    expect(nav).toHaveTextContent("Groups of projects will be listed here.");
+    // Preferenze (8a), Amministrazione (9a) e All projects (le workspace, 27
+    // nov 2026) hanno la loro colonna: lo stato neutro resta sulla Vault.
+    await renderAt("/vault", "p-roberta");
+    const nav = await within(column()).findByRole("navigation", { name: "Vault views" });
+    expect(nav).toHaveTextContent("Your projects with credentials will be listed here.");
     expect(within(column()).queryByRole("heading")).toBeNull();
     expect(within(nav).queryByRole("link")).toBeNull();
     // Stesso contenitore e stessa colonna di griglia a 240 px: niente collasso.
     expect(column().className).toBe(homeColumnClass);
     expect(column().parentElement!.className).toBe(homeGridClass);
     expect(homeGridClass).toContain("240px");
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "All projects" }),
-    ).toHaveClass("text-2xl");
   });
 
   it("lo stato neutro segue la lingua", async () => {
     act(() => setLanguage("it"));
     // Calendario (6), Automazioni (7), Preferenze (8a) e Amministrazione (9a) hanno la loro colonna.
-    await renderAt("/projects", "p-roberta");
+    await renderAt("/vault", "p-roberta");
     expect(
-      await within(column()).findByRole("navigation", { name: "Viste di Tutti i progetti" }),
-    ).toHaveTextContent("Qui compariranno i gruppi di progetti.");
+      await within(column()).findByRole("navigation", { name: /^Viste di / }),
+    ).toHaveTextContent("Qui compariranno i progetti con delle credenziali.");
   });
 
   it("l'Amministrazione ha la sua colonna: le voci per gruppo, nessun titolo", async () => {

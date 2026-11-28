@@ -7266,6 +7266,94 @@ deploy o di un rollback che la tocca.
   vecchio non le nomina e il DEFAULT vale null fuori dalle richieste
   dell'MCP. Le voci già scritte «via Claude Code» restano nel DB e tornano
   visibili risalendo. Nessun `notification_kind` nuovo.
+
+- **«Workspace» (27 nov 2026)**: design
+  `docs/plans/2026-11-27-workspace-design.md` (decisioni D1–D19), piano
+  `docs/plans/2026-11-27-workspace-piano.md`. Le workspace raggruppano
+  PROGETTI per visibilità: una persona di una workspace vede ogni suo
+  progetto col ruolo di workspace, e i permessi effettivi sono l'unione
+  delle fonti (`project_access`). Le invarianti in
+  `docs/invariants/permissions.md` e (D17) `docs/invariants/mail-calendar.md`.
+  **Cosa ribuildare, in ordine**:
+  1. `server`: applica la **0239** (tabelle `workspaces`,
+     `workspace_projects`, `workspace_members`, `invite_workspaces`, i due
+     trigger del ruolo di progetto e la vista `project_access`). Tutto
+     additivo, nessun dato: un'istanza senza workspace è identica a prima.
+     Aspetta che sia healthy.
+  2. `worker`: la regola condivisa (`packages/notifications`, chi riceve
+     le card, e i candidati di posta e calendario, D17) legge la vista. Va
+     aggiornato prima che esista una workspace con persone; finché non ce
+     n'è nessuna il comportamento è identico. Niente riavvii con lavoro
+     dell'agente in corso (le regole di sempre).
+  3. `caddy`: il renderer di `/app`, con la colonna delle workspace nella
+     pagina Progetti, Members, «Who can?», la pagina della persona e
+     l'invito.
+  4. `@stubwise/mcp`: nessun tool curato cambia, le rotte nuove arrivano dal
+     catalogo (`config.mcp`): nessun changeset necessario.
+  **Permesso nuovo**: `workspaces.manage` (d'istanza), in nessun preset: lo
+  ha solo il full admin finché un admin non lo dà a un ruolo. Senza, nessuno
+  vede differenze **di workspace**.
+  **Cosa cambia ANCHE su un'istanza senza workspace** (revisione d'insieme,
+  M5). Sono cambi veri, da sapere prima del deploy:
+  - **`PATCH /api/roles/:id` può rispondere 409 `last_manager`**: togliere
+    `project.members.manage` a un ruolo di progetto che è l'unica fonte di
+    quel permesso per i gestori di un progetto ora si rifiuta, col progetto
+    nel corpo (solo a chi lo vede). Prima passava e lasciava il progetto
+    senza gestori. Lo stesso per l'eliminazione di una persona che è l'ultima
+    gestrice di un progetto. L'anteprima del ruolo
+    (`POST /api/roles/:id/viewer-loses`) porta `lastManager`, additivo.
+  - **Le anteprime prendono i lock della scrittura.** `viewer-loses`, e le
+    anteprime di membro e di effetto, FANNO la scrittura in una transazione
+    annullata: prendono riga del ruolo, workspace e lock advisory dei membri
+    come il salvataggio, e lo dicono identico. Un salvataggio concorrente
+    sullo stesso ruolo o progetto aspetta l'anteprima, per pochi
+    millisecondi.
+  - **Il conteggio delle assegnazioni dei ruoli d'istanza era sempre 0**
+    (vecchio difetto, `assignmentCountSql`): l'elenco dei ruoli mostrava
+    «0 persone» anche per un ruolo in uso. Ora conta le persone vere.
+    Eliminare un ruolo d'istanza assegnato dava già 409 `role_in_use`, dal
+    vincolo e senza conteggio; ora lo dà prima, col `count`.
+  - **Il JIT di Postgres è spento su tutte le connessioni dell'app**
+    (`createDb`: server, worker e script), e la WHERE della visibilità
+    delle card legge i permessi una volta per riga (I1). Inbox e conteggio
+    dei non letti tornano ai tempi di main o meglio; nessun risultato
+    cambia.
+  - **`GET /api/projects/:id/members`** ha due campi additivi, `explicit` e
+    `workspaceId`. Il parametro opzionale `?include=workspace` aggiunge chi
+    vede il progetto solo per una workspace (M4). Senza il parametro, gli
+    stessi membri di prima. **`GET /api/workspaces`** ha `canManage` (I3).
+  - **Un invito con una workspace la perde in un rollback**: il codice
+    vecchio non legge `invite_workspaces`, quindi un invito accettato dopo
+    la discesa crea la persona senza la workspace promessa. La riga resta,
+    ma nessuno la rilegge: va rimessa a mano nella workspace.
+  **Rollback**:
+  - Prima che esista una workspace: sicuro scendere server, worker e caddy
+    insieme. Le tabelle vuote restano e il codice vecchio non le nomina.
+  - Con workspace in uso: scendere è sicuro per i DATI ma TOGLIE L'ACCESSO.
+    Il codice vecchio non conosce `project_access`, quindi chi vedeva un
+    progetto solo per una workspace smette di vederlo. Nessuna riga si
+    perde, e risalendo torna tutto. Prima di scendere, conta chi
+    perderebbe l'accesso:
+    ```sql
+    select count(distinct (wm.user_id, wp.project_id))
+    from workspace_members wm
+    join workspace_projects wp on wp.workspace_id = wm.workspace_id
+    left join project_members pm on pm.project_id = wp.project_id and pm.user_id = wm.user_id
+    where pm.user_id is null;
+    ```
+  - Il caddy e il worker scendono INSIEME al server: un worker vecchio con
+    un server nuovo consegnerebbe meno card di quante l'inbox ne mostri.
+  - Nessun `notification_kind` nuovo: l'ingresso in una workspace usa
+    `member.added` (con `workspaceId` nell'evento, additivo), quindi la
+    discesa non rompe `/api/inbox`.
+  - Non scendere sotto la 0239 con righe in `workspace_members`: la
+    migrazione non si toglie a mano (le tabelle restano, innocue).
+  - Gli inviti pendenti che promettono una workspace, da ricontrollare dopo
+    una discesa (vedi sopra):
+    ```sql
+    select i.email, w.name from invite_workspaces iw
+    join invites i on i.token = iw.invite_token join workspaces w on w.id = iw.workspace_id;
+    ```
 - **«Il filtro per progetto della Posta e la favicon di /app» (27 nov 2026)**:
   branch `fix/posta-filtro-progetto`. In `/app/#/mail` filtrare per un
   progetto dava «No mail for <codice>» anche per conversazioni etichettate
@@ -7338,9 +7426,9 @@ deploy o di un rollback che la tocca.
   - **M5, scritture col cookie dalla stessa origine**: 403
     `cross_origin_request` per `Sec-Fetch-Site` same-site o cross-site, o
     per un `Origin` estraneo. PAT, app mobile e desktop non sono toccati.
-  ⚠️ **La migrazione 0238 ha lo stesso numero di `0238_workspaces` di
-  `feat/workspace`**: il ramo che entra per secondo rinumera la sua (file
-  e `_journal.json`).
+  La migrazione è la **0238** (`0238_vault_unlock_window`); quella delle
+  workspace, che aveva lo stesso numero, è stata rinumerata **0239**
+  (`feat/workspace`, 28 nov 2026).
   **Ordine**: prima **`server`** (healthy, migrazione applicata), poi
   **`caddy`**. Il worker non cambia. Nessuna env nuova.
   **Controllo dopo il deploy**: gli header serviti, e una pagina per tipo

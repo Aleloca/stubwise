@@ -5,7 +5,7 @@ import {
   calendarProposals,
   googleAccounts,
   notifications,
-  projectMembers,
+  projectAccess,
   projects,
   users,
   type Db,
@@ -39,7 +39,7 @@ import { buildCalendarChooseEvent, buildCalendarProposalEvent, calendarDayUrl, g
  * **Chi la riceve** (audience `event_invitees`, {@link eventInviteeIds}): gli
  * invitati che sono persone di Stubwise, che NON hanno rifiutato
  * (`hasDeclinedInvitation`) e sono membri ESPLICITI del progetto (una riga
- * `project_members`), più il proprietario della casella in cui l'evento è
+ * `project_access`: anche di workspace, D17), più il proprietario della casella in cui l'evento è
  * stato trovato, trattato come un invitato che ha accettato (la casella
  * dell'organizzatore). Non include MAI gli admin in quanto tali: l'appartenenza
  * implicita di un full admin non conta, e non c'è un ramo `if (admin)`. Il
@@ -105,12 +105,13 @@ async function inviteesOfAny(
   const owner = input.mailboxOwnerUserId && !declined.has(input.mailboxOwnerUserId) ? input.mailboxOwnerUserId : null;
   const candidates = [...accepted].filter((id) => !declined.has(id) && id !== owner);
   if (candidates.length === 0) return owner ? [owner] : [];
-  // Membri ESPLICITI: `project_members`, mai `projectViewerIds` (che aggiunge i full admin).
+  // Membri ESPLICITI o di workspace (`project_access`, 0239, D17), mai
+  // `projectViewerIds` (che aggiunge i full admin impliciti).
   const members = await db
-    .select({ userId: projectMembers.userId })
-    .from(projectMembers)
-    .innerJoin(users, eq(users.id, projectMembers.userId))
-    .where(and(inArray(projectMembers.projectId, [...input.projectIds]), inArray(projectMembers.userId, candidates), eq(users.isAgent, false)));
+    .selectDistinct({ userId: projectAccess.userId })
+    .from(projectAccess)
+    .innerJoin(users, eq(users.id, projectAccess.userId))
+    .where(and(inArray(projectAccess.projectId, [...input.projectIds]), inArray(projectAccess.userId, candidates), eq(users.isAgent, false)));
   const memberIds = new Set(members.map((m) => m.userId));
   return [...candidates.filter((id) => memberIds.has(id)), ...(owner ? [owner] : [])].sort();
 }

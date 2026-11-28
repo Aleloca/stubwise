@@ -18,7 +18,7 @@ import { departmentGrantsForEntering, departmentGrantsOf } from "./department-ac
  */
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { departmentProjectPermissions, departments, inviteProjects, memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users } from "@stubwise/db";
+import { departmentProjectPermissions, departments, inviteProjects, projectMemberPermissions, projectAccess, projectAccessPermissionsSql, projectAccessRowCounts, projectAccessSql, projectMembers, projects, roles, users, inviteWorkspaces, workspaceMembers, workspaceProjects } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   PROJECT_PERMISSIONS,
@@ -174,11 +174,19 @@ export interface RoleRow {
   updatedAt: Date;
 }
 
-/** Assegnazioni di un ruolo: utenti (istanza) o membri (progetto). */
+/**
+ * Assegnazioni di un ruolo: utenti (istanza) o membri di progetto e persone di
+ * una workspace (progetto, 0239: anche lì il ruolo è in uso).
+ */
+// Le tabelle sono aliasate e l'id del ruolo è qualificato a mano: in una select
+// sulla sola `roles` Drizzle scrive `"id"` nudo, che dentro la sottoquery su
+// `users` finiva su `users.id` (il conteggio d'istanza era sempre 0; revisione
+// del lotto 1 delle workspace).
 const assignmentCountSql = sql<number>`(
-  case when ${roles.scope} = 'instance'
-    then (select count(*) from ${users} where ${users.instanceRoleId} = ${roles.id})
-    else (select count(*) from ${projectMembers} where ${projectMembers.roleId} = ${roles.id})
+  case when "roles"."scope" = 'instance'
+    then (select count(*) from ${users} ac_u where ac_u.instance_role_id = "roles"."id")
+    else (select count(*) from ${projectMembers} ac_pm where ac_pm.role_id = "roles"."id")
+      + (select count(*) from ${workspaceMembers} ac_wm where ac_wm.role_id = "roles"."id")
   end
 )::int`;
 
@@ -242,25 +250,39 @@ export async function heldForProjectRole(
   return heldOver(byProject, assigned);
 }
 
-/** I permessi di progetto di chi agisce, progetto per progetto (ruolo ∪ personali). */
+/**
+ * I permessi di progetto di chi agisce, progetto per progetto: l'unione delle
+ * fonti (ruolo, personali, reparti e, 0239, ruolo di workspace), dove accede.
+ */
 export async function actorProjectPermissions(db: DbOrTx, actor: Actor): Promise<Map<string, Set<string>>> {
   const mine = await db
     .select({
-      projectId: projectMembers.projectId,
-      permissions: sql<string[]>`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)}`,
+      projectId: projects.id,
+      permissions: sql<string[]>`${projectAccessPermissionsSql(projects.id, sql`${actor.id}::uuid`)}`,
     })
-    .from(projectMembers)
-    .innerJoin(roles, eq(roles.id, projectMembers.roleId))
-    .where(eq(projectMembers.userId, actor.id));
+    .from(projects)
+    .where(projectAccessSql(projects.id, sql`${actor.id}::uuid`));
   return new Map(mine.map((m) => [m.projectId, new Set(m.permissions)]));
 }
 
-/** I progetti dove un ruolo è assegnato O promesso da un invito pendente. */
+/**
+ * I progetti dove un ruolo è assegnato O promesso da un invito pendente: come
+ * membro esplicito, e (0239) come ruolo di workspace, che vale in ogni progetto
+ * della workspace, anche promesso da un invito (`invite_workspaces`).
+ */
 async function projectsOfRole(db: DbOrTx, roleId: string): Promise<string[]> {
+  const viaWorkspace = (table: typeof workspaceMembers | typeof inviteWorkspaces) =>
+    db
+      .selectDistinct({ projectId: workspaceProjects.projectId })
+      .from(table)
+      .innerJoin(workspaceProjects, eq(workspaceProjects.workspaceId, table.workspaceId))
+      .where(eq(table.roleId, roleId));
   return [
     ...new Set([
       ...(await db.selectDistinct({ projectId: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.roleId, roleId))).map((r) => r.projectId),
       ...(await db.selectDistinct({ projectId: inviteProjects.projectId }).from(inviteProjects).where(eq(inviteProjects.roleId, roleId))).map((r) => r.projectId),
+      ...(await viaWorkspace(workspaceMembers)).map((r) => r.projectId),
+      ...(await viaWorkspace(inviteWorkspaces)).map((r) => r.projectId),
     ]),
   ];
 }
@@ -369,14 +391,25 @@ export async function updateRole(
         const added = permissions.filter((p) => !role.permissions.includes(p));
         await assertCanGrantInRole(tx, actor, role.scope, role.id, added);
       }
-      await tx
-        .update(roles)
-        .set({
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(permissions ? { permissions } : {}),
-          updatedAt: new Date(),
-        })
-        .where(eq(roles.id, id));
+      const write = async () => {
+        await tx
+          .update(roles)
+          .set({
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(permissions ? { permissions } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(roles.id, id));
+      };
+      // Lotto 3 delle workspace (46): togliere `project.members.manage` a un
+      // ruolo di progetto non lascia un progetto senza gestore, che il ruolo
+      // sia esplicito o di workspace (D18). La stessa regola dell'anteprima
+      // (`roleEditLastManager`).
+      if (permissions && role.scope === "project" && losesManage(role.permissions, permissions)) {
+        await keepingManagersIn(tx, await projectsOfRole(tx, role.id), write);
+      } else {
+        await write();
+      }
       // Area 9, F2: prima e dopo del nome; i permessi aggiunti e tolti.
       await recordChange(tx, {
         type: "role.updated",
@@ -528,13 +561,60 @@ export async function deleteUser(db: Db, actor: Actor, userId: string): Promise<
     throw new RoleRuleError(400, "cannot_delete_self", "You cannot delete your own account");
   }
   await db.transaction(async (tx) => {
-    const [deleted] = await tx
-      .delete(users)
-      .where(eq(users.id, userId))
-      .returning({ id: users.id });
-    if (!deleted) throw new RoleRuleError(404, "user_not_found", "User not found");
+    // Lotto 3 delle workspace (46): nessun progetto della persona (esplicito o
+    // di workspace, D18) resta senza un gestore dei membri.
+    const touched = await tx
+      .selectDistinct({ projectId: projectAccess.projectId })
+      .from(projectAccess)
+      .where(and(eq(projectAccess.userId, userId), projectAccessRowCounts));
+    await keepingManagersIn(
+      tx,
+      touched.map((t) => t.projectId),
+      async () => {
+        const [deleted] = await tx
+          .delete(users)
+          .where(eq(users.id, userId))
+          .returning({ id: users.id });
+        if (!deleted) throw new RoleRuleError(404, "user_not_found", "User not found");
+      },
+    );
     await assertFullAdminRemains(tx);
   });
+}
+
+const losesManage = (before: readonly string[], after: readonly string[]) =>
+  before.includes("project.members.manage") && !after.includes("project.members.manage");
+
+/** Annulla la transazione dell'anteprima (`roleEditLastManager`). */
+class PreviewRollback extends Error {}
+
+/**
+ * L'anteprima di {@link updateRole} per `last_manager`: il primo progetto (per
+ * id) che resterebbe senza un gestore dei membri se il ruolo avesse
+ * `nextPermissions`, o `null`. È LA scrittura, fatta e annullata in una
+ * transazione: anteprima e salvataggio non possono dire cose diverse.
+ */
+export async function roleEditLastManager(db: Db, roleId: string, nextPermissions: readonly string[]): Promise<string | null> {
+  let blocked: string | null = null;
+  try {
+    await db.transaction(async (tx) => {
+      // Revisione del lotto 3 (I-1): la riga del ruolo PRIMA dei lock dei membri, come `updateRole`.
+      const [role] = await tx.select({ scope: roles.scope, permissions: roles.permissions }).from(roles).where(eq(roles.id, roleId)).for("update");
+      if (!role || role.scope !== "project" || !losesManage(role.permissions, nextPermissions)) throw new PreviewRollback();
+      try {
+        await keepingManagersIn(tx, await projectsOfRole(tx, roleId), async () => {
+          await tx.update(roles).set({ permissions: [...new Set(nextPermissions)] }).where(eq(roles.id, roleId));
+        });
+      } catch (error) {
+        if (error instanceof RoleRuleError && error.code === "last_manager") blocked = (error.extra.projectId as string | undefined) ?? null;
+        else throw error;
+      }
+      throw new PreviewRollback();
+    });
+  } catch (error) {
+    if (!(error instanceof PreviewRollback)) throw error;
+  }
+  return blocked;
 }
 
 // ── Membri di progetto ──────────────────────────────────────────────────
@@ -555,6 +635,10 @@ export interface MemberRow {
   createdAt: Date;
   /** I permessi EFFETTIVI nel progetto (ruolo ∪ personali), con la provenienza. */
   permissions: { permission: string; sources: MemberPermissionSourceRow[] }[];
+  /** M4: `false` = nel progetto solo per la workspace (righe di `includeWorkspace`). */
+  explicit: boolean;
+  /** M4: la workspace del progetto di cui la persona fa parte, o `null`. */
+  workspaceId: string | null;
 }
 
 const memberSelection = {
@@ -568,35 +652,63 @@ const memberSelection = {
 };
 
 /** I membri di un progetto (o uno solo), coi permessi effettivi e la loro provenienza. */
-async function membersWithPermissions(db: DbOrTx, projectId: string, onlyUserId?: string): Promise<MemberRow[]> {
-  const rows = await db
+async function membersWithPermissions(db: DbOrTx, projectId: string, onlyUserId?: string, opts: { includeWorkspace?: boolean } = {}): Promise<MemberRow[]> {
+  const explicitRows = await db
     .select(memberSelection)
     .from(projectMembers)
     .innerJoin(users, eq(users.id, projectMembers.userId))
     .innerJoin(roles, eq(roles.id, projectMembers.roleId))
     .where(and(eq(projectMembers.projectId, projectId), ...(onlyUserId ? [eq(projectMembers.userId, onlyUserId)] : [])))
     .orderBy(users.email);
+  // M4: le persone della workspace del progetto (un progetto sta in una sola).
+  // Accanto a un membro esplicito danno `workspaceId` e i permessi del ruolo di
+  // workspace (l'unione delle fonti, D1); con `includeWorkspace` chi c'è SOLO
+  // per la workspace diventa una riga `explicit: false`. Mai Claude (R-L9).
+  const viaWorkspace = await db
+    .select({
+      workspaceId: workspaceMembers.workspaceId,
+      userId: workspaceMembers.userId,
+      email: users.email,
+      avatarUrl: users.slackAvatarUrl,
+      roleId: workspaceMembers.roleId,
+      roleName: roles.name,
+      rolePermissions: roles.permissions,
+      createdAt: workspaceMembers.addedAt,
+    })
+    .from(workspaceProjects)
+    .innerJoin(workspaceMembers, eq(workspaceMembers.workspaceId, workspaceProjects.workspaceId))
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .innerJoin(roles, eq(roles.id, workspaceMembers.roleId))
+    .where(and(eq(workspaceProjects.projectId, projectId), eq(users.isAgent, false), ...(onlyUserId ? [eq(workspaceMembers.userId, onlyUserId)] : [])));
+  const wsByUser = new Map(viaWorkspace.map((r) => [r.userId, r]));
+  const explicitIds = new Set(explicitRows.map((r) => r.userId));
+  const rows = [
+    ...explicitRows.map((r) => ({ ...r, explicit: true, workspace: wsByUser.get(r.userId) ?? null })),
+    ...(opts.includeWorkspace ? viaWorkspace.filter((r) => !explicitIds.has(r.userId)).map((r) => ({ userId: r.userId, email: r.email, avatarUrl: r.avatarUrl, roleId: r.roleId, roleName: r.roleName, rolePermissions: r.rolePermissions, createdAt: r.createdAt, explicit: false, workspace: r })) : []),
+  ].sort((x, y) => (x.email < y.email ? -1 : x.email > y.email ? 1 : 0));
   const grants = await db
     .select()
     .from(projectMemberPermissions)
     .where(and(eq(projectMemberPermissions.projectId, projectId), ...(onlyUserId ? [eq(projectMemberPermissions.userId, onlyUserId)] : [])));
   const known = new Set<string>(PROJECT_PERMISSIONS);
   const fromDepartments = await departmentGrantsOf(db, rows.map((r) => r.userId));
-  return rows.map(({ rolePermissions, ...row }) => {
+  return rows.map(({ rolePermissions, workspace, ...row }) => {
     const sources = new Map<string, MemberPermissionSourceRow[]>();
     const add = (permission: string, source: MemberPermissionSourceRow) => {
       if (!known.has(permission)) return;
       sources.set(permission, [...(sources.get(permission) ?? []), source]);
     };
     for (const p of rolePermissions) add(p, { kind: "role", roleId: row.roleId });
+    // Il ruolo di workspace di un membro esplicito: una fonte in più (per chi c'è solo per la workspace è già il suo ruolo).
+    if (workspace && row.explicit) for (const p of workspace.rolePermissions) add(p, { kind: "role", roleId: workspace.roleId });
     for (const g of grants) if (g.userId === row.userId) add(g.permission, { kind: "grant", byUserId: g.grantedByUserId, at: g.grantedAt.toISOString() });
     for (const g of fromDepartments) if (g.userId === row.userId) add(g.permission, { kind: "department", departmentId: g.departmentId });
-    return { ...row, permissions: PROJECT_PERMISSIONS.filter((p) => sources.has(p)).map((p) => ({ permission: p, sources: sources.get(p)! })) };
+    return { ...row, workspaceId: workspace?.workspaceId ?? null, permissions: PROJECT_PERMISSIONS.filter((p) => sources.has(p)).map((p) => ({ permission: p, sources: sources.get(p)! })) };
   });
 }
 
-export async function listProjectMembers(db: DbOrTx, projectId: string): Promise<MemberRow[]> {
-  return membersWithPermissions(db, projectId);
+export async function listProjectMembers(db: DbOrTx, projectId: string, opts: { includeWorkspace?: boolean } = {}): Promise<MemberRow[]> {
+  return membersWithPermissions(db, projectId, undefined, opts);
 }
 
 /**
@@ -606,20 +718,24 @@ export async function listProjectMembers(db: DbOrTx, projectId: string): Promise
  */
 export const membersLock = (projectId: string) => sql`select pg_advisory_xact_lock(hashtext(${`members:${projectId}`}))`;
 
-/** Quanti gestori dei membri (ruolo o personale) ha il progetto, fuori dai full admin. */
+/**
+ * Quanti gestori dei membri ha il progetto, fuori dai full admin: persone che
+ * vi accedono (membri espliciti o di workspace, 0239) col permesso nell'unione
+ * delle fonti (D18: un gestore per via di workspace conta).
+ */
 async function managerCount(tx: DbOrTx, projectId: string, excludingUserId?: string): Promise<number> {
   const [row] = await tx.execute<{ n: number }>(sql`
-    select count(*)::int as n
-    from ${projectMembers} lm_pm
-    join ${roles} lm_r on lm_r.id = lm_pm.role_id
-    join ${users} lm_u on lm_u.id = lm_pm.user_id
+    select count(distinct lm_pa.user_id)::int as n
+    from ${projectAccess} lm_pa
+    join ${users} lm_u on lm_u.id = lm_pa.user_id
     join ${roles} lm_ir on lm_ir.id = lm_u.instance_role_id
-    where lm_pm.project_id = ${projectId}
+    where lm_pa.project_id = ${projectId}
+      and (lm_pa.source = 'member' or not lm_u.is_agent)
       -- Solo i gestori ATTIVI (review di F1, m4): un disattivato non gestisce.
       and lm_u.deactivated_at is null
-      and (${excludingUserId ?? null}::uuid is null or lm_pm.user_id <> ${excludingUserId ?? null}::uuid)
+      and (${excludingUserId ?? null}::uuid is null or lm_pa.user_id <> ${excludingUserId ?? null}::uuid)
       and not (lm_ir.permissions @> array['instance.full_admin']::text[])
-      and ${memberPermissionsSql(sql`lm_r.permissions`, sql`lm_pm.project_id`, sql`lm_pm.user_id`)} @> array['project.members.manage']::text[]
+      and ${projectAccessPermissionsSql(sql`lm_pa.project_id`, sql`lm_pa.user_id`)} @> array['project.members.manage']::text[]
   `);
   return Number(row?.n ?? 0);
 }
@@ -636,10 +752,11 @@ async function managerCount(tx: DbOrTx, projectId: string, excludingUserId?: str
  * `null`. La regola di {@link keepingManagersIn}, letta senza scrivere.
  */
 export async function lastManagerProjectOf(db: DbOrTx, userId: string, onlyProjectIds?: readonly string[]): Promise<string | null> {
+  // Anche i progetti visti per workspace (0239, D18).
   const mine = await db
-    .select({ projectId: projectMembers.projectId })
-    .from(projectMembers)
-    .where(and(eq(projectMembers.userId, userId), ...(onlyProjectIds ? [inArray(projectMembers.projectId, [...onlyProjectIds])] : [])));
+    .selectDistinct({ projectId: projectAccess.projectId })
+    .from(projectAccess)
+    .where(and(eq(projectAccess.userId, userId), projectAccessRowCounts, ...(onlyProjectIds ? [inArray(projectAccess.projectId, [...onlyProjectIds])] : [])));
   for (const projectId of mine.map((m) => m.projectId).sort()) {
     if ((await managerCount(db, projectId)) > 0 && (await managerCount(db, projectId, userId)) === 0) return projectId;
   }
@@ -665,6 +782,25 @@ export async function keepingManagersIn(tx: Tx, projectIds: readonly string[], w
       throw new RoleRuleError(409, "last_manager", "The project would be left without anyone who manages its members", { projectId });
     }
   }
+}
+
+/**
+ * Come {@link keepingManagersIn} ma senza lanciare: i progetti (in ordine di
+ * id) che `write` lascerebbe senza un gestore dei membri. Per le anteprime che
+ * FANNO la scrittura in una transazione poi annullata (l'effetto di una
+ * modifica di workspace): la stessa regola, letta.
+ */
+export async function managersLostBy(tx: Tx, projectIds: readonly string[], write: () => Promise<void>): Promise<string[]> {
+  const ordered = [...new Set(projectIds)].sort();
+  const before = new Map<string, number>();
+  for (const projectId of ordered) {
+    await tx.execute(membersLock(projectId));
+    before.set(projectId, await managerCount(tx, projectId));
+  }
+  await write();
+  const lost: string[] = [];
+  for (const projectId of ordered) if (before.get(projectId)! > 0 && (await managerCount(tx, projectId)) === 0) lost.push(projectId);
+  return lost;
 }
 
 async function keepingAManager(tx: Tx, projectId: string, write: () => Promise<void>): Promise<void> {
@@ -747,8 +883,10 @@ export async function putProjectMember(
       // La riga (se c'è) si blocca: niente bersaglio protetto (area 9, D-2).
       const before = await lockedMember(tx, projectId, userId);
       // Area 9, F8 (F8-4 = a): chi ENTRA porta qui i permessi dei suoi reparti;
-      // chi agisce deve averli in questo progetto (l'escalation sul DARE).
-      if (!before) assertNoEscalation(actor, (await departmentGrantsForEntering(tx as unknown as Db, userId)).map((g) => g.permission), held);
+      // chi agisce deve averli in questo progetto (l'escalation sul DARE). Chi
+      // accede già per workspace (0239, D10) li ha già qui: non entra niente di nuovo.
+      const alreadyIn = before !== null || (await tx.select({ ok: sql<boolean>`${projectAccessSql(sql`${projectId}::uuid`, sql`${userId}::uuid`)}` }).from(sql`(select 1) as one`))[0]?.ok === true;
+      if (!alreadyIn) assertNoEscalation(actor, (await departmentGrantsForEntering(tx as unknown as Db, userId)).map((g) => g.permission), held);
       await tx
         .insert(projectMembers)
         .values({ projectId, userId, roleId })

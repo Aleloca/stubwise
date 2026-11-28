@@ -107,6 +107,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   ]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([
+    // Le workspace (shape workspaces.md): colonna di All projects, pagina
+    // filtrata, People, Members e Settings → General, sulle rotte `/api/workspaces`.
+    "workspaces",
     // Ritiro del web vecchio (27 nov 2026): le proposte del polso in «Da decidere».
     "pulse-proposals",
     // Registro, area 9 r.1121: le frasi «spento» di brief, Docs notturni,

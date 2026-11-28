@@ -21,6 +21,8 @@ type ServerReason = {
   departmentId?: string | null;
   /** F8 (72): il nome del reparto, dal server; null da un server di prima. */
   departmentName?: string | null;
+  /** Le workspace (shape workspaces.md): la workspace da cui viene il ruolo. */
+  workspaceName?: string | null;
 };
 
 type ServerWho = {
@@ -35,6 +37,8 @@ type ServerWhat = {
   projects: {
     projectId: string;
     projectName: string;
+    /** Le workspace (99be31cb8): la workspace da cui la persona vede il progetto. */
+    workspaceName?: string | null;
     permissions: { permission: string; reasons: ServerReason[] }[];
   }[];
 };
@@ -95,6 +99,9 @@ export function createRealWhoCan(api: WhoCanApi) {
         const name =
           r.departmentName ?? departments.find((d) => d.id === r.departmentId)?.name ?? "";
         return [{ kind: "department", departmentName: name }];
+      }
+      if (r.kind === "workspace") {
+        return [{ kind: "workspace", workspaceName: r.workspaceName ?? "", roleName: r.roleName ?? "" }];
       }
       return [];
     });
@@ -182,7 +189,14 @@ export function createRealWhoCan(api: WhoCanApi) {
         personId,
         name: person?.name ?? personId,
         projectCode: await codeOf(projectId),
-        member: projectId === null ? null : !!project,
+        // Chi vede il progetto da una workspace senza un ruolo nel progetto non
+        // ne è membro; senza workspace (o con un server di prima) vale la riga.
+        member:
+          projectId === null
+            ? null
+            : !!project &&
+              !(project.workspaceName && !project.permissions.some((p) => p.reasons.some((x) => x.kind === "role"))),
+        workspaceName: projectId === null ? null : (project?.workspaceName ?? null),
         groups: groups.filter((g) => g.permissions.length > 0),
       };
     },

@@ -59,6 +59,12 @@ export const CLAUDE_ACTION_FNS = [
   "addMember",
   "removeMember",
   "setMemberRole",
+  // Workspace (lotto 3, D14): entrare in una workspace e metterci un progetto,
+  // C (le rotte chiedono la riconferma); le due remove solo come inversi.
+  "addWorkspaceMember",
+  "removeWorkspaceMember",
+  "addWorkspaceProject",
+  "removeWorkspaceProject",
   "registerPlugin",
   "updatePluginRef",
   // Area 9, F7, Task 3: le B del progetto.
@@ -106,7 +112,7 @@ export const claudeActionFnSchema = z.enum(CLAUDE_ACTION_FNS);
 export type ClaudeActionFn = z.infer<typeof claudeActionFnSchema>;
 
 /** Le `fn` che esistono SOLO come inverso di un'altra («Annulla»): Claude non le propone. */
-export const CLAUDE_INVERSE_ONLY_FNS: readonly ClaudeActionFn[] = ["deleteTask", "resetSubscription"];
+export const CLAUDE_INVERSE_ONLY_FNS: readonly ClaudeActionFn[] = ["deleteTask", "resetSubscription", "removeWorkspaceMember", "removeWorkspaceProject"];
 
 /** Le `fn` che Claude può proporre (il catalogo meno gli inversi). */
 export const CLAUDE_PROPOSABLE_FNS = CLAUDE_ACTION_FNS.filter((f) => !CLAUDE_INVERSE_ONLY_FNS.includes(f));
@@ -146,6 +152,11 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B" | "C"> = {
   addMember: "C",
   removeMember: "C",
   setMemberRole: "C",
+  // Workspace (D14): le add chiedono la riconferma (D11); le remove, solo inversi, no.
+  addWorkspaceMember: "C",
+  removeWorkspaceMember: "B",
+  addWorkspaceProject: "C",
+  removeWorkspaceProject: "B",
   registerPlugin: "C",
   updatePluginRef: "C",
   // Area 9, F7, Task 3: le impostazioni del progetto (le rotte non chiedono la riconferma).
@@ -300,6 +311,12 @@ export const CLAUDE_ACTION_ARGS = {
   addMember: z.object({ projectId: id, userId: id, roleId: id }).strict(),
   removeMember: z.object({ projectId: id, userId: id }).strict(),
   setMemberRole: z.object({ projectId: id, userId: id, roleId: id }).strict(),
+  // Workspace (D14, `PUT`/`DELETE /api/workspaces/:id/members/:userId` e `/projects/:projectId`).
+  // Senza `roleId`: il Viewer (D3). La remove non toglie gli override (alsoProjects no).
+  addWorkspaceMember: z.object({ workspaceId: id, userId: id, roleId: id.optional() }).strict(),
+  removeWorkspaceMember: z.object({ workspaceId: id, userId: id }).strict(),
+  addWorkspaceProject: z.object({ workspaceId: id, projectId: id }).strict(),
+  removeWorkspaceProject: z.object({ workspaceId: id, projectId: id }).strict(),
   // I plugin (M-6 = a): `trust: true` OBBLIGATORIO, come la rotta. Registrare
   // un plugin ne ESEGUE il codice (lo smoke run parte da solo): Claude lo
   // propone solo se la persona ha detto che si fida di quel repository e
@@ -633,6 +650,9 @@ export const CLAUDE_INSTANCE_PERMISSION: Partial<Record<ClaudeActionFn, string>>
   saveStorage: "settings.manage",
   updateGoogleApp: "integrations.manage",
   updateWebhook: "integrations.manage",
+  // Workspace (D4): la struttura chiede `workspaces.manage` (più il permesso nel progetto, del servizio).
+  addWorkspaceProject: "workspaces.manage",
+  removeWorkspaceProject: "workspaces.manage",
 };
 
 /**

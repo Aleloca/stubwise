@@ -186,6 +186,8 @@ export function useSourceWords() {
         return t("admin.person.projects.department", { name: s.departmentName });
       case "role":
         return t("admin.person.projects.role", { name: s.roleName });
+      case "workspace":
+        return t("admin.person.projects.workspace", { role: s.roleName, workspace: s.workspaceName });
       case "full_admin":
         return t("admin.person.projects.fullAdmin");
     }

@@ -1,4 +1,5 @@
 import { ALL_PROJECT_PERMISSIONS, INSTANCE_SET } from "./catalog";
+import { workspaceRoleIn } from "./seats";
 import type { AccessState, RoleDef } from "./state";
 
 // Il calcolo unico dei permessi (area 9a): ogni domanda («può?», «chi può?»,
@@ -14,6 +15,8 @@ export type PermissionSource =
   | { kind: "role"; roleId: string }
   | { kind: "grant"; grantedById: string | null; at: string }
   | { kind: "department"; departmentId: string }
+  /** Dal ruolo di workspace (shape `workspaces.md`): vale in ogni progetto della workspace. */
+  | { kind: "workspace"; workspaceId: string; roleId: string }
   | { kind: "full_admin" };
 
 /**
@@ -95,9 +98,12 @@ function instancePermissions(s: AccessState, personId: string): Map<string, Perm
       add(map, g.permission, { kind: "grant", grantedById: g.grantedById, at: g.at });
     }
   }
-  // R-E2: dal ruolo Project Lead, in qualunque progetto.
-  const lead = s.memberships
-    .filter((m) => m.personId === personId)
+  // R-E2: dal ruolo Project Lead, in qualunque progetto: per progetto o di
+  // workspace (i due si sommano, D1).
+  const lead = [
+    ...s.memberships.filter((m) => m.personId === personId),
+    ...s.workspaceMembers.filter((m) => m.personId === personId),
+  ]
     .map((m) => roleById(s, m.roleId))
     .find((r) => r !== undefined && roleGivesActivityView(r));
   if (lead) add(map, ACTIVITY_PERMISSION, { kind: "role", roleId: lead.id });
@@ -117,14 +123,23 @@ function projectPermissions(
 ): Map<string, PermissionSource[]> {
   const map = new Map<string, PermissionSource[]>();
   const role = projectRoleIn(s, personId, projectId);
-  if (role) {
-    for (const p of role.permissions) add(map, p, { kind: "role", roleId: role.id });
+  // La workspace del progetto dà il suo ruolo a chi ne fa parte; il ruolo per
+  // progetto si SOMMA (D1: l'unione delle fonti, nessun «nega»).
+  const workspace = workspaceRoleIn(s, personId, projectId);
+  if (role) for (const p of role.permissions) add(map, p, { kind: "role", roleId: role.id });
+  if (workspace) {
+    for (const p of workspace.role.permissions) {
+      add(map, p, { kind: "workspace", workspaceId: workspace.workspaceId, roleId: workspace.role.id });
+    }
+  }
+  if (role || workspace) {
     for (const g of s.grants) {
       if (g.personId === personId && g.projectId === projectId) {
         add(map, g.permission, { kind: "grant", grantedById: g.grantedById, at: g.at });
       }
     }
-    // Il reparto dà permessi solo dove la persona è già membro: non la rende membro.
+    // Il reparto dà permessi solo dove la persona è già membro, anche dalla
+    // workspace (D10): non la rende membro.
     for (const d of s.departments) {
       if (!d.memberIds.includes(personId)) continue;
       for (const p of d.projectPermissions) {

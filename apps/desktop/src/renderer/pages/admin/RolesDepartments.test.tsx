@@ -153,7 +153,7 @@ describe("Departments", () => {
     const panel = await screen.findByRole("region", { name: "Department Legal" });
     expect(
       within(panel).getByText(
-        "People in this department get these in every project they're already a member of. It doesn't add them to any project.",
+        "People in this department get these in every project they can see — as members or through a workspace. It doesn't add them to any project.",
       ),
     ).toBeVisible();
     const approve = within(panel).getByRole("checkbox", { name: /^Approve plans/ });
