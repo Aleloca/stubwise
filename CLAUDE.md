@@ -506,6 +506,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Nuova app: impostazioni di progetto, polso, design e piano» (27 nov 2026; server e caddy, nessuna migrazione, rollback sicuro)
   - «Indurimento di sicurezza dell'origine» (27 nov 2026; migrazione 0238 additiva, server poi caddy, rollback sicuro)
   - «La cassaforte nella nuova app nel browser» (28 nov 2026; server e caddy in qualunque ordine, nessuna migrazione, rollback sicuro)
+  - «La cassaforte nel browser, fase 2» (28 nov 2026; solo caddy, prima del pacchetto per Mac nuovo; rollback sicuro solo se nessun Mac nuovo è distribuito)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
