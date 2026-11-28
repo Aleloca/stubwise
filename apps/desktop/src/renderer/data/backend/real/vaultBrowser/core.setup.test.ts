@@ -854,3 +854,28 @@ describe("l'associazione del Mac, nel worker (fase 2)", () => {
     expect(await core.handle({ t: "pairLookup", state: STATE })).toEqual({ ok: false, code: "pairing_invalid" });
   });
 });
+
+describe("la riconferma della pagina a sé, nel worker (I-2)", () => {
+  let core: VaultCore;
+  beforeEach(() => {
+    core = setup();
+    routes["POST /api/me/security/reauth"] = () => ({ status: 204, body: null });
+  });
+
+  it("una passkey: la verifica il worker (senza PRF); il codice: lo inoltra a `POST /reauth`", async () => {
+    expect(await core.handle({ t: "reauth", presence: { kind: "passkey", assertion } })).toEqual({ ok: true });
+    expect(calls.at(-1)).toMatchObject({ path: "/api/me/security/reauth/passkey/verify", body: { response: assertion } });
+    expect(await core.handle({ t: "reauth", presence: { kind: "code", code: "123456" } })).toEqual({ ok: true });
+    expect(calls.at(-1)).toMatchObject({ path: "/api/me/security/reauth", body: { code: "123456" } });
+  });
+
+  it("un codice sbagliato: il codice del server, e il worker non lo tiene", async () => {
+    routes["POST /api/me/security/reauth"] = () => ({ status: 401, body: { code: "invalid_second_factor" } });
+    expect(await core.handle({ t: "reauth", presence: { kind: "code", code: "000000" } })).toEqual({
+      ok: false,
+      code: "invalid_second_factor",
+    });
+    expect(await core.handle({ t: "reauth" } as never)).toEqual({ ok: false, code: "presence_required" });
+  });
+});
+

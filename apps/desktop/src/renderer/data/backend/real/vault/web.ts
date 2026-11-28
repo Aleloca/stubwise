@@ -37,8 +37,6 @@ import { listMacsOf, removeMacOf } from "../vaultMacsOf";
 let epoch = 0;
 const sessionTag = () => `e${epoch}`;
 const who = () => ({ personId: session.personId, sessionTag: sessionTag() });
-/** Persona e sessione per la fase 2 (`setup-web.ts`): le stesse dello sblocco. */
-export const vaultWho = who;
 
 onSessionLost(() => {
   epoch += 1;

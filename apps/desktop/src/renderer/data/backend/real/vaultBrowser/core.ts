@@ -168,6 +168,11 @@ export type CoreRequest =
   | { t: "recoveryConfirm"; personKeyId: string; personId: string; sessionTag: string; presence?: FreshPresence }
   /** Le opzioni della presenza fresca: una cerimonia senza PRF; `no_passkeys` se la persona non ne ha. */
   | { t: "presenceOptions" }
+  /**
+   * I-2: la riconferma della pagina a sé della cassaforte (attivare, il
+   * recupero), senza il dialogo dell'app: la presenza fresca, verificata qui.
+   */
+  | { t: "reauth"; presence: FreshPresence }
   | { t: "recoveryForget" }
   /**
    * Fase 2, l'associazione del Mac (`/vault-pair`, solo nella build web): il
@@ -1137,6 +1142,11 @@ export class VaultCore {
       }
       case "recoveryConfirm":
         return this.recoveryConfirm(req);
+      case "reauth":
+        if (!req.presence || (req.presence.kind !== "passkey" && req.presence.kind !== "code"))
+          return { ok: false, code: "presence_required" };
+        await this.verifyPresence(req.presence);
+        return { ok: true };
       case "presenceOptions": {
         // Senza `purpose`: la riconferma normale, nessuna estensione PRF.
         const options = await this.http<PasskeyAuthenticationOptions>("POST", "/api/me/security/reauth/passkey/options", {});

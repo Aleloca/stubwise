@@ -18,9 +18,6 @@ import { ProjectNotFound } from "./pages/ProjectNotFound";
 import { useTranslation } from "react-i18next";
 import { useChatChannels, useEntryGate, useProject } from "./data/queries";
 import { DesktopLoginPage, type DesktopLoginParams } from "./pages/entry/DesktopLoginPage";
-import { VaultPairPage } from "./pages/vault/setup/VaultPairPage";
-import { VaultSetupPage } from "./pages/vault/setup/VaultSetupPage";
-import { isWebAppBuild } from "./platform/vaultBridge";
 import { DesktopGooglePage, type DesktopGoogleParams } from "./pages/entry/DesktopGooglePage";
 import { LoginPage } from "./pages/entry/LoginPage";
 import { RegisterPage } from "./pages/entry/RegisterPage";
@@ -414,7 +411,7 @@ const ASK_MAX = 2000;
 
 /** Le rotte d'ingresso: fuori dall'intelaiatura (niente binario né colonna). */
 const ENTRY_PATH =
-  /^\/(login|setup|desktop-login|desktop-google|vault-setup|vault-pair|register\/[^/]+|reset-password\/[^/]+|email-change\/[^/]+)\/?$/;
+  /^\/(login|setup|desktop-login|desktop-google|register\/[^/]+|reset-password\/[^/]+|email-change\/[^/]+)\/?$/;
 
 /**
  * Il cancello dell'ingresso (area 9a, shape `entry.md`). Con l'istanza vuota
@@ -446,6 +443,11 @@ const rootRoute = createRootRoute({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
+  // I-2: il ritorno alla pagina a sé della cassaforte; lo valida `vaultReturn`, da un elenco chiuso.
+  validateSearch: (search: Record<string, unknown>): { next?: string; state?: string } => ({
+    next: typeof search.next === "string" ? search.next : undefined,
+    state: typeof search.state === "string" ? search.state : undefined,
+  }),
   component: LoginPage,
 });
 
@@ -528,35 +530,6 @@ const emailChangeRoute = createRoute({
   path: "/email-change/$token",
   component: EmailChangeRoutePage,
 });
-
-/**
- * La fase 2 della cassaforte nel browser (design §10, I7): la pagina minima
- * dedicata (attivare, la propria chiave, il kit, il recupero) e quella che
- * associa un Mac. Fuori dall'intelaiatura, col login dentro la pagina, e SOLO
- * nella build web: altrove le rotte non ci sono (§4, `/vault-pair` non esiste
- * nella build Electron).
- */
-const vaultSetupRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/vault-setup",
-  component: VaultSetupPage,
-});
-
-function VaultPairRoutePage() {
-  const { state } = vaultPairRoute.useSearch();
-  return <VaultPairPage key={state} state={state} />;
-}
-
-const vaultPairRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/vault-pair",
-  validateSearch: (search: Record<string, unknown>): { state: string } => ({
-    state: typeof search.state === "string" ? search.state : "",
-  }),
-  component: VaultPairRoutePage,
-});
-
-const vaultSetupRoutes = isWebAppBuild() ? [vaultSetupRoute, vaultPairRoute] : [];
 
 const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -1507,7 +1480,6 @@ const routeTree = rootRoute.addChildren([
   resetPasswordRoute,
   emailChangeRoute,
   setupRoute,
-  ...vaultSetupRoutes,
   ...appRoutes.map((r) => (r === mailRoute ? mailRoute.addChildren([mailThreadRoute]) : r)),
   conversationRoute,
   preferencesSectionRoute,

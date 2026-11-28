@@ -1,18 +1,15 @@
 import type { VaultStatusResponse } from "@stubwise/shared";
 import { request } from "../vaultBrowser/client";
-import * as setup from "../vaultBrowser/setup";
-import { vaultWho } from "./web";
 
-// `@backend/vault-setup` nella build web (`/app`, design della cassaforte
-// nel browser §10, fase 2): attivare, creare la propria chiave, una passkey
-// in più, ruotare il kit, il recupero e l'associazione del Mac. Tutto passa
-// dal worker (`vaultBrowser/setup.ts` → `core.ts`); qui la persona e la
-// sessione dello sblocco. Il testo di un kit non entra in una cache: lo
-// tiene il componente che lo mostra, e lo butta.
+// `@backend/vault-setup` nella build web (`/app`): dalla revisione della fase
+// 2 (I-2) attivare, la propria chiave, il kit, il recupero, l'associazione e
+// «Use for the vault» stanno nella pagina A SÉ della cassaforte
+// (`vault.html`, `/app/vault/`, `vaultPage/`), con la sua CSP. Qui resta solo
+// lo stato, per dire nell'app quali passkey aprono la cassaforte.
 
 export const vaultSetupAvailable: boolean = true;
 
-/** Lo stato per la pagina: attiva, la propria chiave, quali passkey la aprono. */
+/** Lo stato per l'app: attiva, la propria chiave, quali passkey la aprono. */
 export type VaultSetupStatus =
   | {
       ok: true;
@@ -35,18 +32,3 @@ export async function vaultSetupStatus(): Promise<VaultSetupStatus> {
     sealedPasskeyIds: live ? s.seals.map((x) => x.passkeyId) : [],
   };
 }
-
-export const generateKit = setup.generateKit;
-export const forgetKit = setup.forgetKit;
-export const activateVault = () => setup.activateInBrowser(vaultWho);
-export const createVaultKey = (opts: { recreate?: boolean } = {}) => setup.createKeyInBrowser(vaultWho, opts);
-export const addPasskeyToVault = (passkeyId: string) => setup.addPasskeyInBrowser(vaultWho, passkeyId);
-export const rotateRecoveryKit = () => setup.rotateKitInBrowser(vaultWho);
-export const loadRecoveryKit = (kitText: string) => setup.loadRecoveryKit(vaultWho, kitText);
-/** Senza `code`: una passkey; `code_required` se la persona non ne ha, e la pagina richiama col codice. */
-export const confirmWithRecoveryKit = (personKeyId: string, code?: string) =>
-  setup.confirmWithRecoveryKit(vaultWho, personKeyId, code);
-export const forgetRecoveryKit = setup.forgetRecoveryKit;
-export const lookupPairing = setup.lookupPairing;
-export const sealPairing = (state: string, typed: string) => setup.sealPairingInBrowser(vaultWho, state, typed);
-export type { RecoveryPerson } from "../vaultBrowser/setup";

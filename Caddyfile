@@ -115,6 +115,26 @@
 	# stessa origine del web vecchio: le sue chiamate `/api/…` usano il cookie
 	# di sessione del web. Il router è a hash (`#/p/…`), quindi il fallback
 	# serve solo per `/app/` e i suoi asset. PRIMA del `handle` della SPA.
+	# La pagina A SÉ della cassaforte (revisione di sicurezza della fase 2,
+	# I-2; design della cassaforte nel browser §10): un documento suo
+	# (`vault.html`, buildato a sé in /srv/vault), con dentro solo il worker
+	# della cassaforte e le sue pagine (attivare, la propria chiave, il kit, il
+	# recupero, l'associazione di un Mac, le passkey). La SUA CSP, più stretta
+	# di quella dell'origine: è la sola (niente `csp_strict`). Ci si entra con
+	# una navigazione completa. PRIMA del blocco di /app (un `handle_path` più
+	# specifico, e comunque sopra). Con l'app alla radice (R1) diventa /vault/.
+	# La stringa è `VAULT_PAGE_CSP` di scripts/caddy-csp.mjs (il test la tiene d'accordo).
+	redir /app/vault /app/vault/ 308
+	handle_path /app/vault/* {
+		header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; worker-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'; require-trusted-types-for 'script'; trusted-types stubwise-vault-worker"
+		header Cross-Origin-Opener-Policy "same-origin"
+		@vaultDocument not path /assets/*
+		header @vaultDocument Cache-Control "no-store"
+		root * /srv/vault
+		try_files {path} /vault.html
+		file_server
+	}
+
 	redir /app /app/ 308
 	handle_path /app/* {
 		import csp_strict

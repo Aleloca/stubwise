@@ -65,10 +65,10 @@ export type AppTarget =
   | { to: "resetPassword"; token: string }
   | { to: "emailChange"; token: string }
   | { to: "desktopGoogle"; search: Record<string, string> }
-  /** La cassaforte (`#/vault`), la sua pagina di configurazione e l'associazione del Mac (fase 2, solo build web). */
-  | { to: "vault" }
-  | { to: "vaultSetup" }
-  | { to: "vaultPair"; state: string };
+  /** Il login, con un ritorno in elenco chiuso (`next`, lo valida la pagina del login). */
+  | { to: "login"; search?: Record<string, string> }
+  /** La cassaforte (`#/vault`). La fase 2 sta nella pagina a sé: {@link vaultPagePath}. */
+  | { to: "vault" };
 
 const seg = (value: string) => encodeURIComponent(value);
 const query = (params: Record<string, string>) => {
@@ -136,12 +136,10 @@ export function appRoute(target: AppTarget): string {
       return `/email-change/${seg(target.token)}`;
     case "desktopGoogle":
       return `/desktop-google${query(target.search)}`;
+    case "login":
+      return `/login${target.search ? query(target.search) : ""}`;
     case "vault":
       return "/vault";
-    case "vaultSetup":
-      return "/vault-setup";
-    case "vaultPair":
-      return `/vault-pair${query({ state: target.state })}`;
   }
 }
 
@@ -157,6 +155,23 @@ export function appPath(target: AppTarget): string {
  */
 export function appUrl(publicUrl: string | null | undefined, target: AppTarget): string {
   return `${(publicUrl ?? "").replace(/\/+$/, "")}${appPath(target)}`;
+}
+
+/**
+ * La pagina A SÉ della cassaforte (revisione di sicurezza della fase 2, I-2;
+ * design della cassaforte nel browser §10): un documento suo, con la sua CSP
+ * stretta, sotto l'ingresso dell'app (`/app/vault/`, e con l'app alla radice
+ * `/vault/`). Ci si entra SEMPRE con una navigazione completa, mai con un
+ * cambio di frammento dall'app.
+ */
+export type VaultPage = "setup" | "recover" | "pair" | "passkeys";
+
+export function vaultPagePath(page: VaultPage, search?: Record<string, string>): string {
+  return `${APP_ENTRY}vault/#/${page}${search ? query(search) : ""}`;
+}
+
+export function vaultPageUrl(publicUrl: string | null | undefined, page: VaultPage, search?: Record<string, string>): string {
+  return `${(publicUrl ?? "").replace(/\/+$/, "")}${vaultPagePath(page, search)}`;
 }
 
 /**

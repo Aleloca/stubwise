@@ -1,4 +1,4 @@
-import { appUrl } from "@stubwise/shared";
+import { vaultPageUrl } from "@stubwise/shared";
 import type { DeviceIdentity, StoredDevice } from "./vaultDevice";
 import type { SealResponse } from "./vaultLock";
 import type { Pairing } from "./vaultRemote";
@@ -8,7 +8,7 @@ import type { Pairing } from "./vaultRemote";
 //
 // 1. `start()`: il main genera la coppia del dispositivo, chiede
 //    l'accoppiamento COL SUO PAT (`POST /api/vault/device-pairings`), apre nel
-//    browser `<istanza>/app/#/vault-pair?state=<s>` (`appUrl`: la pagina della nuova app
+//    browser `<istanza>/app/vault/#/pair?state=<s>` (`vaultPageUrl`: la pagina a sé della cassaforte
 //    nel browser, fase 2 della cassaforte; prima era il web vecchio,
 //    `/vault-pair`) — nell'URL SOLO lo state
 //    (pubblica e nome il browser li legge dal server) — e restituisce
@@ -135,7 +135,7 @@ export function createVaultPairing(deps: VaultPairingDeps) {
       };
       await deps.openExternal(
         // Dall'helper dei link: quando la nuova app passa alla radice, cambia da sé.
-        appUrl(identity.instanceUrl, { to: "vaultPair", state: pairing.state }),
+        vaultPageUrl(identity.instanceUrl, "pair", { state: pairing.state }),
       );
       return { ok: true, fingerprint: await deps.fingerprint(pair.publicKey) };
     } catch (error) {

@@ -1,7 +1,6 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { primaryButton, secondaryButton } from "../../tasks/controls";
-import { BusyLabel } from "../../entry/parts";
+import { BusyLabel, primaryButton, secondaryButton } from "./ui";
 
 /** Il nome del file scaricato: uguale in ogni lingua, così si ritrova. */
 export const RECOVERY_KIT_FILE_NAME = "stubwise-recovery-kit.txt";

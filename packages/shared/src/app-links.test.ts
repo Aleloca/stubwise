@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { APP_ENTRY, appPath, appUrl, legacyWebPath, RESERVED_DOC_PAGE_SLUGS, RESERVED_REPOSITORY_SLUGS, unreservedSlug } from "./app-links.js";
+import { APP_ENTRY, appPath, appUrl, vaultPagePath, vaultPageUrl, legacyWebPath, RESERVED_DOC_PAGE_SLUGS, RESERVED_REPOSITORY_SLUGS, unreservedSlug } from "./app-links.js";
 
 describe("i link della nuova app (app-links)", () => {
   it("una task si apre col parametro `task`, una richiesta col suo id, il progetto sulla panoramica", () => {
@@ -46,10 +46,16 @@ describe("i link della nuova app (app-links)", () => {
 describe("revisione dei link: codici vuoti e slug riservati", () => {
   it("la cassaforte: la pagina, la configurazione e l'associazione del Mac (fase 2)", () => {
     expect(appPath({ to: "vault" })).toBe("/app/#/vault");
-    expect(appPath({ to: "vaultSetup" })).toBe("/app/#/vault-setup");
-    expect(appPath({ to: "vaultPair", state: "c3Rh-dGU_" })).toBe("/app/#/vault-pair?state=c3Rh-dGU_");
-    expect(appUrl("https://stubwise.example/", { to: "vaultPair", state: "a b" })).toBe(
-      "https://stubwise.example/app/#/vault-pair?state=a+b",
+  });
+
+  it("I-2: la pagina a sé della cassaforte sta sotto l'ingresso dell'app (`/app/vault/`), e ci si entra coi suoi frammenti", () => {
+    expect(vaultPagePath("setup")).toBe(`${APP_ENTRY}vault/#/setup`);
+    expect(appPath({ to: "login", search: { next: "vault-pair", state: "s" } })).toBe("/app/#/login?next=vault-pair&state=s");
+    expect(vaultPagePath("recover")).toBe("/app/vault/#/recover");
+    expect(vaultPagePath("passkeys")).toBe("/app/vault/#/passkeys");
+    expect(vaultPagePath("pair", { state: "c3Rh-dGU_" })).toBe("/app/vault/#/pair?state=c3Rh-dGU_");
+    expect(vaultPageUrl("https://stubwise.example/", "pair", { state: "a b" })).toBe(
+      "https://stubwise.example/app/vault/#/pair?state=a+b",
     );
   });
 

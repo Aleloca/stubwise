@@ -25,6 +25,15 @@ export const FORBIDDEN = {
     { re: /stubwise\??\.vault\b/, why: "il ponte del desktop (window.stubwise.vault)" },
     { re: /vault_bridge_missing/, why: "i moduli della cassaforte del desktop (vaultDesktop.ts, vault/electron.ts)" },
   ],
+  // I-2 (revisione della fase 2): la pagina a sé della cassaforte
+  // (`dist-vault/`). Né il ponte del desktop né un pezzo dell'app: chat,
+  // Claude, impostazioni, amministrazione, la politica HTML dell'app.
+  vault: [
+    { re: /stubwise\??\.vault\b/, why: "il ponte del desktop (window.stubwise.vault)" },
+    { re: /vault_bridge_missing/, why: "i moduli della cassaforte del desktop" },
+    { re: /["']\/api\/(?:chat|claude|settings|admin)\b/, why: "il livello dati dell'app (chat, Claude, impostazioni, amministrazione)" },
+    { re: /["']stubwise-html["']/, why: "la politica HTML dell'app (Trusted Types)" },
+  ],
 };
 
 /**
@@ -34,6 +43,10 @@ export const FORBIDDEN = {
 export const REQUIRED = {
   electron: [{ re: /vault_bridge_missing/, why: "i moduli della cassaforte del desktop" }],
   web: [
+    { re: /stubwise-vault-worker/, why: "l'avvio del worker della cassaforte" },
+    { re: /["']stubwise-vault["']/, why: "il canale fra le schede" },
+  ],
+  vault: [
     { re: /stubwise-vault-worker/, why: "l'avvio del worker della cassaforte" },
     { re: /["']stubwise-vault["']/, why: "il canale fra le schede" },
   ],
@@ -61,7 +74,7 @@ export function violations(dir, target) {
   for (const { re, why } of REQUIRED[target]) if (!re.test(all)) out.push({ file: "(bundle)", why: `manca ${why}` });
   // Revisione I-1: la crittografia dello sblocco sta SOLO nel worker, mai nei
   // file della pagina (il sigillo si apre in un reame che la pagina non tocca).
-  if (target === "web") {
+  if (target === "web" || target === "vault") {
     for (const path of files(dir)) {
       if (/worker-[\w-]+\.js$/.test(path)) continue;
       const text = readFileSync(path, "utf8");
@@ -71,7 +84,7 @@ export function violations(dir, target) {
     }
   }
   // Il file del worker deve esistere a sé, fuori dal bundle della pagina.
-  if (target === "web" && ![...files(dir)].some((p) => /worker-[\w-]+\.js$/.test(p))) {
+  if ((target === "web" || target === "vault") && ![...files(dir)].some((p) => /worker-[\w-]+\.js$/.test(p))) {
     out.push({ file: "(bundle)", why: "manca il file del worker della cassaforte" });
   }
   return out;
@@ -80,7 +93,7 @@ export function violations(dir, target) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const [dirArg, target] = process.argv.slice(2);
   if (!dirArg || !target) {
-    console.error("uso: check-vault-target.mjs <cartella> <electron|web>");
+    console.error("uso: check-vault-target.mjs <cartella> <electron|web|vault>");
     process.exit(2);
   }
   const dir = resolve(dirArg);

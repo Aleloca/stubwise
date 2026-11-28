@@ -50,12 +50,13 @@ async function barWith(state: "no_key" | "inactive" | "locked" | "disabled", per
 }
 
 describe("la barra porta alla pagina della cassaforte", () => {
-  it("web, senza chiave: «Create your key» apre `#/vault-setup`", async () => {
+  it("web, senza chiave: «Create your key» fa una navigazione COMPLETA alla pagina a sé (I-2)", async () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     vi.stubEnv("VITE_STUBWISE_TARGET", "web");
     await barWith("no_key", "p-laura");
     fireEvent.click(await screen.findByRole("button", { name: "Create your key" }));
-    expect(window.location.hash).toBe("#/vault-setup");
+    expect(assign).toHaveBeenCalledWith("/app/vault/#/setup");
+    expect(window.location.hash).toBe("");
   });
 
   it("web, non attiva: al full admin «Activate the vault», agli altri niente", async () => {
@@ -63,7 +64,7 @@ describe("la barra porta alla pagina della cassaforte", () => {
     vi.stubEnv("VITE_STUBWISE_TARGET", "web");
     await barWith("inactive", "p-roberta");
     fireEvent.click(await screen.findByRole("button", { name: "Activate the vault" }));
-    expect(window.location.hash).toBe("#/vault-setup");
+    expect(assign).toHaveBeenCalledWith("/app/vault/#/setup");
   });
 
   it("web, non attiva, chi non è full admin: nessun bottone", async () => {
@@ -79,7 +80,7 @@ describe("la barra porta alla pagina della cassaforte", () => {
     vi.stubEnv("VITE_STUBWISE_TARGET", "electron");
     await barWith("no_key", "p-laura");
     fireEvent.click(await screen.findByRole("button", { name: "Open in the browser" }));
-    expect(assign).toHaveBeenCalledWith("/app/#/vault-setup");
+    expect(assign).toHaveBeenCalledWith("/app/vault/#/setup");
   });
 
   it("Mac senza Touch ID o con la cassaforte solo dal browser: «Open in the browser» apre la cassaforte della nuova app", async () => {

@@ -14069,7 +14069,23 @@
         "code_required": "Non hai una passkey: scrivi il codice dell'app di autenticazione per confermare.",
         "presence_required": "Conferma che sei tu per continuare.",
         "invalid_second_factor": "Quel codice non è giusto. Riprova.",
-        "locked": "Troppi tentativi sbagliati: aspetta qualche minuto e riprova."
+        "locked": "Troppi tentativi sbagliati: aspetta qualche minuto e riprova.",
+        "credential_mismatch": "La passkey che hai toccato non è quella richiesta. Riprova."
+      },
+      "page": {
+        "loading": "Controllo la cassaforte…",
+        "nav": "Pagine della cassaforte",
+        "backToApp": "Torna a Stubwise",
+        "passkeys": "Passkey della cassaforte",
+        "passkeysLead": "Quali delle tue passkey aprono la cassaforte. Le passkey si aggiungono e si tolgono in Stubwise, in Preferenze → Sicurezza.",
+        "passkeysNoKey": "Non hai ancora una chiave della cassaforte: creala prima, poi le tue passkey potranno aprirla.",
+        "passkeysHint": "Per aprire la cassaforte anche con un'altra passkey, usa «Passkey della cassaforte» qui sotto.",
+        "kitExpired": "Il kit è stato dimenticato (sono passati 10 minuti, o la cassaforte si è chiusa). Incollalo di nuovo.",
+        "confirmTitle": "Conferma che sei tu",
+        "confirmLead": "Tocca una delle tue passkey per continuare.",
+        "confirmCode": "Non hai una passkey: scrivi il codice dell'app di autenticazione.",
+        "confirm": "Conferma",
+        "confirming": "Confermo…"
       }
     }
   },

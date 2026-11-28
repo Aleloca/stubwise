@@ -14069,7 +14069,23 @@
         "code_required": "You have no passkey: type the code from your authenticator app to confirm.",
         "presence_required": "Confirm it's you to continue.",
         "invalid_second_factor": "That code isn't right. Try again.",
-        "locked": "Too many wrong attempts: wait a few minutes and try again."
+        "locked": "Too many wrong attempts: wait a few minutes and try again.",
+        "credential_mismatch": "The passkey you touched isn't the one asked for. Try again."
+      },
+      "page": {
+        "loading": "Checking the vault…",
+        "nav": "Vault pages",
+        "backToApp": "Back to Stubwise",
+        "passkeys": "Passkeys for the vault",
+        "passkeysLead": "Which of your passkeys open the vault. Add or remove passkeys in Stubwise, in Preferences → Security.",
+        "passkeysNoKey": "You don't have a vault key yet: create it first, then your passkeys can open it.",
+        "passkeysHint": "To open the vault with another passkey too, use «Passkeys for the vault» below.",
+        "kitExpired": "The kit was forgotten (10 minutes passed, or the vault closed). Paste it again.",
+        "confirmTitle": "Confirm it's you",
+        "confirmLead": "Touch one of your passkeys to continue.",
+        "confirmCode": "You have no passkey: type the code from your authenticator app.",
+        "confirm": "Confirm",
+        "confirming": "Confirming…"
       }
     }
   },

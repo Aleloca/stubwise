@@ -1,4 +1,4 @@
-import { appPath, appRoute } from "@stubwise/shared";
+import { appPath, vaultPagePath } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PairingDialog } from "./PairingDialog";
@@ -57,13 +57,14 @@ export function openVaultInBrowser(): void {
 }
 
 /**
- * La pagina della cassaforte (fase 2, design §10): attivarla, creare la
- * propria chiave. Nella build web è una pagina di qui; dal Mac si apre nel
- * browser (la stessa pagina della nuova app, non il web vecchio).
+ * La pagina A SÉ della cassaforte (fase 2, design §10; revisione I-2):
+ * attivarla, creare la propria chiave. Un documento suo, con la sua CSP: ci
+ * si entra SEMPRE con una navigazione completa, mai cambiando il frammento.
+ * Dal Mac si apre nel browser.
  */
 export function openVaultSetup(): void {
-  if (isWebAppBuild()) window.location.hash = `#${appRoute({ to: "vaultSetup" })}`;
-  else if (isAppBuild()) openInWeb(appPath({ to: "vaultSetup" }));
+  if (isWebAppBuild()) window.location.assign(vaultPagePath("setup"));
+  else if (isAppBuild()) openInWeb(vaultPagePath("setup"));
 }
 
 export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {

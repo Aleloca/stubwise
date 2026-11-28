@@ -55,4 +55,20 @@ describe("check-vault-target", () => {
     // Il main chiede l'associazione (`device-pairings`, senza `lookup`): resta lecito.
     expect(forbidden('fetch("/api/vault/device-pairings")')).toEqual([]);
   });
+
+  it("I-2: vault, la pagina a sé: il worker a sé e nessun pezzo dell'app né il ponte del desktop", () => {
+    const d = bundle('const c=new BroadcastChannel("stubwise-vault");const w="stubwise-vault-worker";');
+    expect(violations(d, "vault").map((v) => v.why)).toContain("manca il file del worker della cassaforte");
+    writeFileSync(join(d, "worker-abc.js"), "AES-GCM");
+    expect(violations(d, "vault")).toEqual([]);
+    const forbidden = (text) => {
+      writeFileSync(join(d, "index-abc.js"), `${text};new BroadcastChannel("stubwise-vault");"stubwise-vault-worker"`);
+      return violations(d, "vault").map((v) => v.why);
+    };
+    for (const text of ['fetch("/api/chat/x")', 'fetch("/api/claude/x")', 'fetch("/api/settings/x")', 'fetch("/api/admin/x")', 'createPolicy("stubwise-html",p)', "window.stubwise?.vault"])
+      expect(forbidden(text), text).not.toEqual([]);
+    expect(forbidden('fetch("/api/auth/me")')).toEqual([]);
+    expect(forbidden('importKey("pkcs8",x)')).toContain("la crittografia dello sblocco fuori dal worker");
+  });
 });
+
