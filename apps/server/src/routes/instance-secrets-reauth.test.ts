@@ -78,8 +78,14 @@ describe("la riconferma sulle rotte con segreti", () => {
     const [row] = await db.select().from(aiProviders).where(eq(aiProviders.id, created.id));
     expect(row!.label).toBe("Rinominato");
 
+    const [before] = await db.select().from(instanceSettings);
     expect((await call(stale, "PUT", "/api/settings/instance", { contentLanguage: "it" })).statusCode).toBe(200);
+    // Col segreto nel corpo (la chiave S3: i segreti Slack non ci sono più, R2)
+    // serve la riconferma, anche per azzerarlo, e niente si scrive.
+    await expectReauth(await call(stale, "PUT", "/api/settings/instance", { contentLanguage: "it", s3SecretKey: "segreto-nuovo" }));
     await expectReauth(await call(stale, "PUT", "/api/settings/instance", { contentLanguage: "it", s3SecretKey: "" }));
+    const [settings] = await db.select().from(instanceSettings);
+    expect(settings?.s3SecretKeyEncrypted ?? null).toBe(before?.s3SecretKeyEncrypted ?? null);
   });
 });
 
