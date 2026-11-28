@@ -76,7 +76,7 @@ describe("la card di una proposta passata nella build app", () => {
       ctx,
     );
     expect(n).toMatchObject({ kind: "google.proposal_handed", objectCode: "AUD", link: "#/home" });
-    expect(n.webHref).toBeUndefined();
+    expect(n).not.toHaveProperty("webHref");
     expect(n.proposalDecided).toBeUndefined();
     const text = cardText(n);
     expect(text).toContain("A mail proposal handed to AUD");
@@ -104,10 +104,10 @@ describe("la card di una proposta passata nella build app", () => {
     expect(archived.proposalDecided).toBeUndefined();
   });
 
-  it("una card di prima (senza `sourceProposalId`): «Open in web», come oggi", () => {
+  it("una card di prima (senza `sourceProposalId`): la pagina più vicina, mai il web vecchio", () => {
     const n = presentInboxItem(item({ google: undefined }), ctx);
-    expect(n.link).toBe("");
-    expect(n.webHref).toBe("/inbox");
+    expect(n.link).toBe("#/p/AUD");
+    expect(n).not.toHaveProperty("webHref");
     expect(n.proposalDecided).toBeUndefined();
   });
 });
