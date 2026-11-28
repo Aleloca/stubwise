@@ -72,6 +72,8 @@ const BEA: ProjectMember = {
   createdAt: "2026-10-22T10:00:00.000Z",
   // Area 9, F1: i permessi effettivi con le fonti (il web non li legge ancora).
   permissions: [],
+  explicit: true,
+  workspaceId: null,
 };
 
 const USERS = [

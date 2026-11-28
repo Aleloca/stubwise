@@ -1,3 +1,4 @@
+import { emitLoggedOut, emitSessionStarted } from "../../sessionEvents";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { ApiError } from "@stubwise/api-client";
 import { passkeyAuthenticationOptionsSchema } from "@stubwise/shared";
@@ -68,6 +69,8 @@ export function currentMe(): Promise<AuthMe> {
 
 /** L'ultima persona vista dentro: anche dopo un 401 a metà, che azzera `session.personId`. */
 let lastPerson: string | null = null;
+/** L'ultimo `sessionTag` visto (I-3): uno diverso è una sessione nuova. */
+let lastSessionTag: string | null = null;
 
 export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
   const before = lastPerson;
@@ -79,6 +82,16 @@ export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
       forgetClientCaches();
     }
     lastPerson = me.user.id;
+    // I-3: una sessione nuova (un login) la si annuncia alle altre schede.
+    const tag = (me as { sessionTag?: string | null }).sessionTag ?? null;
+    // Solo un CAMBIO rispetto a un tag già visto qui: aprire una scheda nuova
+    // non chiude le altre. (Una scheda caricata fuori che poi entra non lo
+    // annuncia: le altre le chiude il worker al primo uso, I-3.)
+    if (tag !== null && tag !== lastSessionTag) {
+      const changed = lastSessionTag !== null;
+      lastSessionTag = tag;
+      if (changed) emitSessionStarted();
+    }
     session.personId = me.user.id;
     session.partial = false;
     return me.user.id;
@@ -133,6 +146,15 @@ function forgetClientCaches(): void {
  * (`docs/invariants/permissions.md`: il client li legge, non li deduce), e
  * dalla fetta 3 quelli di reparto (`department.home.manage`).
  */
+/**
+ * I permessi d'istanza di chi è dentro, dal viewer già letto (nessuna lettura
+ * in più di `/api/auth/me`); solo se non c'è ancora, si legge il viewer.
+ */
+export async function instancePermissionsNow(): Promise<readonly string[]> {
+  if (viewerMe) return viewerMe.instancePermissions as readonly string[];
+  return (await getViewer()).instancePermissions as readonly string[];
+}
+
 export const getViewer: typeof Fake.getViewer = async () => {
   // La lettura di `getSessionPerson` vale una volta sola (l'avvio): un viewer
   // riletto dopo un cambio di permessi chiede di nuovo `/api/auth/me`.
@@ -163,6 +185,8 @@ const logout: Auth["logout"] = async () => {
   } finally {
     session.personId = null;
     session.partial = false;
+    // La cassaforte della scheda si chiude, e lo dice alle altre (design §8).
+    emitLoggedOut();
   }
   return { ok: true };
 };

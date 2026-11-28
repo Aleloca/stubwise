@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, hkdfSync, randomBytes } from "node:crypto";
 import { and, asc, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -45,6 +45,7 @@ import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-fact
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import { lockedErrorSchema, rejectAttempt } from "./second-factor-replies.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
+import { applyInviteWorkspaces, assertInviteWorkspaces, inviteWorkspacesOf, saveInviteWorkspaces } from "../services/workspaces.js";
 import {
   applyInviteGrants,
   assertInviteGrants,
@@ -233,6 +234,44 @@ const credentialsSchema = z.object({
  * Sessioni opache: il cookie contiene solo l'id (firmato), lo stato vive
  * nella tabella `sessions`.
  */
+/**
+ * La cassaforte nel browser (I-3): l'etichetta OPACA della sessione del cookie,
+ * per `GET /api/auth/me`. Un HMAC-SHA256 dell'id della sessione con la chiave
+ * del server, con un prefisso di dominio: stabile per la sessione, diversa a
+ * ogni login, e dall'etichetta non si risale all'id (che è la credenziale).
+ * Un PAT o il token della chat non hanno una sessione del cookie: `null`.
+ *
+ * La chiave dell'HMAC è una SOTTOCHIAVE HKDF della chiave di cifratura, con
+ * un `info` suo (seconda revisione di sicurezza, m-5): la chiave che cifra i
+ * segreti del server non firma anche un valore che esce verso il client.
+ */
+const sessionTagKeys = new WeakMap<Buffer, Buffer>();
+function sessionTagKey(key: Buffer): Buffer {
+  let sub = sessionTagKeys.get(key);
+  if (!sub) {
+    sub = Buffer.from(hkdfSync("sha256", key, Buffer.alloc(0), "stubwise:session-tag:v1", 32));
+    sessionTagKeys.set(key, sub);
+  }
+  return sub;
+}
+
+/**
+ * La chiave si legge solo per una sessione del cookie: il getter di
+ * `app.encryptionKey` LANCIA su un'app costruita senza chiave (i test), e
+ * un PAT non deve passarci. Senza chiave l'etichetta è `null`, mai un 500 di
+ * `/me` (in produzione la chiave è obbligatoria, `config.ts`).
+ */
+function sessionTagOf(keyOf: () => Buffer, user: { sessionId?: string; patId?: string }): string | null {
+  if (!user.sessionId || user.patId !== undefined) return null;
+  let key: Buffer;
+  try {
+    key = keyOf();
+  } catch {
+    return null;
+  }
+  return createHmac("sha256", sessionTagKey(key)).update(`stubwise:session-tag:v1:${user.sessionId}`).digest("base64url").slice(0, 32);
+}
+
 export async function authRoutes(
   instance: FastifyInstance,
   opts: AuthRoutesOptions,
@@ -539,6 +578,8 @@ export async function authRoutes(
       instancePermissions: [...request.user!.instancePermissions],
       projectPermissions: await projectPermissionsMap(app.db, request.user!),
       departmentPermissions: await departmentPermissionsMap(app.db, request.user!.id),
+      // La cassaforte nel browser (I-3): l'etichetta opaca della sessione del cookie.
+      sessionTag: sessionTagOf(() => app.encryptionKey, request.user!),
       // Rimandi, lotto 5: i reparti, nell'ordine della persona (il primo colora le iniziali).
       departments: await app.db
         .select({ id: departments.id, name: departments.name, colorToken: departments.colorToken })
@@ -610,6 +651,8 @@ export async function authRoutes(
           slackUserId: z.string().min(1).optional(),
           instanceRoleId: z.uuid().optional(),
           projects: z.array(inviteProjectSchema).max(200).optional(),
+          // Workspace (D9): le workspace in cui l'invitato entra (senza ruolo: il Viewer, D3).
+          workspaces: z.array(z.object({ workspaceId: z.uuid(), roleId: z.uuid().optional() })).max(50).optional(),
         }),
         response: {
           // `id` (review di F1, I2): l'id OPACO dell'invito, quello delle viste.
@@ -658,6 +701,7 @@ export async function authRoutes(
           // Senza ruolo nell'invito si risolve e si verifica il preset
           // `User` (ruling R51): il ruolo salvato non è mai implicito.
           const roleId = await assertInviteGrants(tx, request.user!, instanceRoleId, grants);
+          const workspaceGrants = await assertInviteWorkspaces(tx, request.user!, request.body.workspaces ?? []);
           await tx.insert(invites).values({
             token,
             email,
@@ -668,9 +712,10 @@ export async function authRoutes(
             invitedByUserId: request.user!.id,
           });
           await saveInviteGrants(tx, token, grants);
+          await saveInviteWorkspaces(tx, token, workspaceGrants);
           warnings = await inviteDepartmentWarnings(tx, request.user!, grants);
           // Area 9, F2: con l'id opaco e i nomi, mai il token.
-          await recordChange(tx, { type: "invite.created", actor: request.user!, projectId: null, data: { object: inviteObject(token, email), params: await inviteParams(tx, roleId, grants) } });
+          await recordChange(tx, { type: "invite.created", actor: request.user!, projectId: null, data: { object: inviteObject(token, email), params: await inviteParams(tx, roleId, grants, workspaceGrants) } });
         });
       } catch (error) {
         return sendRoleRuleError(reply, error);
@@ -845,6 +890,7 @@ export async function authRoutes(
           // I progetti dell'invito vanno letti PRIMA di consumarlo: il delete
           // li porta via in cascata.
           const grants = await inviteGrants(tx, invite.token);
+          const workspaceGrants = await inviteWorkspacesOf(tx, invite.token);
           const [consumed] = await tx
             .delete(invites)
             .where(eq(invites.token, invite.token))
@@ -873,6 +919,10 @@ export async function authRoutes(
               { projectId: grant.projectId, roleId: grant.roleId, reason },
               "invite: progetto dell'invito scartato all'accettazione",
             ),
+          );
+          // Workspace (D9): riverificate allo stesso modo (R51).
+          await applyInviteWorkspaces(tx, created.id, workspaceGrants, invite.invitedByUserId, (grant, reason) =>
+            request.log.warn({ workspaceId: grant.workspaceId, roleId: grant.roleId, reason }, "invite: workspace dell'invito scartata all'accettazione"),
           );
           return created;
         });

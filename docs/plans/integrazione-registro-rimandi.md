@@ -1387,6 +1387,51 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 9 — Amministrazione, preferenze, accesso
 
+- **⌘K, i recenti condivisi col web vecchio** *(S, accettato, revisione di
+  `feat/ritiro-buchi-minori`, M4, 28 nov 2026)*: web vecchio e nuova app
+  scrivono le stesse righe di `search_history` (una per utente, tipo e
+  oggetto), quindi l'ultimo che apre riscrive `title` e `route`. Dalla stessa
+  revisione la nuova app ricostruisce l'indirizzo da tipo e oggetto (I1 a) e
+  il web vecchio apre una `route` `#/…` in `/app/` (I1 b): resta solo che il
+  titolo e il codice mostrati sono quelli dell'ultima apertura, da chiunque
+  sia venuta. Si chiude col ritiro del web vecchio.
+- **Brief: il prototipo non chiede `tickets.view_all`** *(S, divergenza
+  dichiarata, stessa revisione, M2)*: sul server entrambe le letture del brief
+  (`/briefs/latest`, `/api/briefs/:id`) lo vogliono; nel prototipo il brief
+  lo legge chi vede il progetto, e Giulia, la persona del brief in Overview,
+  Claude e Docs, non ha `tickets.view_all` in STW. La build app rispetta il
+  server (403 → «non disponibile»). Allinearlo vuol dire cambiare la specifica
+  di quelle schermate: è una scelta di prodotto.
+- **Repositories, l'indirizzo a mano quando l'elenco della piattaforma
+  fallisce** *(S, revisione di `feat/repository-nuova-app`, M2, 27 nov
+  2026)*: il web vecchio lascia incollare l'URL del repository se l'account
+  non riesce a elencarli. Il prototipo (shape `project-repositories.md`) non
+  lo prevede: la creazione guidata parte sempre dall'elenco, e senza elenco
+  dice che l'account non vede il repository. Si riapre con una scelta di
+  prodotto, non come rifinitura.
+- **Repositories, `name_taken` lo controlla il client** *(S, accettato,
+  stessa revisione, M5)*: la shape vuole un nome unico nel progetto («ACQ
+  already has a repository called…»), il server no (`repositories` non ha un
+  unico su progetto e nome). L'adattatore (`projectRepositories.ts`) lo
+  controlla sull'elenco, senza maiuscole, prima del POST: due creazioni
+  insieme possono ancora passare. Si chiude con un unico sul server.
+- **Repositories, il segreto del webhook nel 201 della creazione** *(S,
+  accettato, stessa revisione, M4)*: `POST /api/repositories` lo restituisce
+  una volta. Il parse dell'adattatore lo scarta (`repositorySaveResponseSchema`,
+  c'è il test), ma il JSON grezzo attraversa il renderer: l'IPC `api:request`
+  nel desktop, la scheda Network nella build web. Non resta in nessuna
+  cache. Se la regola diventa «mai nel renderer», serve un flag ADDITIVO sul
+  server per ometterlo (per esempio `?omitWebhookSecret=1`), che il web
+  vecchio non manda.
+- **Repositories, l'esito dell'import dei file d'ambiente** *(S, accettato,
+  stessa revisione, M9)*: una chiave ripetuta nel contenuto conta due volte
+  in `imported` (il server faceva già così prima di `replaced`/`skipped`), e
+  `existing`, da cui nasce `replaced`, si legge FUORI dalla transazione
+  dell'import: un import concorrente sullo stesso file può far dire
+  «nuova» a una chiave appena sostituita. I valori restano giusti, sbaglia
+  solo il conteggio. Si chiude deduplicando le chiavi e leggendo `existing`
+  dentro la transazione (`apps/server/src/routes/project-env-files.ts`).
+
 - Audit vera dei membri di progetto *(O)* (area 6, F2, 12 nov 2026): oggi
   `putProjectMember` non lascia traccia, e i Contributor aggiunti (e tolti)
   da una conferma della posta lasciano solo una riga nel log della rotta.
@@ -1979,6 +2024,38 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   più un errore diverso da 403/404; il motivo dell'eliminazione spenta dal
   server (`deleteBlockedBy`, M1).
 
+## Workspace (27 nov 2026, `docs/plans/2026-11-27-workspace-design.md`)
+
+- **D8, le workspace come filtro fuori da All projects** *(M)*: Tasks,
+  Planning, Posta, Drive e i selettori di progetto non filtrano ancora per
+  workspace. Il server non ne ha bisogno: `GET /api/workspaces` dà già gli id
+  dei progetti di ogni workspace visibile.
+- **«Annulla» di Claude su un ingresso, troppo prudente** *(O, revisione del
+  lotto 3, M-1)*: il controllo «qualcuno ha scritto dopo» guarda le voci
+  `workspace.member_*` della PERSONA, non della workspace. Se nel frattempo la
+  persona entra in un'altra workspace o ne esce, l'annulla rifiuta. È un
+  rifiuto di troppo, mai un annulla sbagliato. Da stringere filtrando le voci
+  per workspace (`data.object` o una colonna).
+- **La card di chi entra segue il suo progetto d'appoggio** *(O, M-4)*:
+  `member.added` di una workspace vive nel primo progetto aperto. Se quel
+  progetto esce dalla workspace o si archivia, la card sparisce anche per chi
+  è ancora dentro. Da rivedere se servirà un avviso d'istanza senza progetto
+  nel catalogo.
+- **`deleteUser` e il progetto di `last_manager`** *(S, M-6)*: il servizio
+  porta il `projectId` nell'errore senza il filtro r.1414 (lo applicano le
+  rotte). Oggi non ha chiamanti (R27); chi lo collega a una rotta passi
+  l'errore da `lastManagerProject` come `PATCH /api/roles/:id`.
+- **Il costo per riga delle letture centrali** *(S, revisione del lotto 1)*:
+  `visibleProjectIds`, `projectPermissionsMap` (`/api/auth/me`) e
+  `projectIdsWithPermission` passano tutti i progetti aperti con le
+  sottoquery di `project_access`, e quella dei reparti si ripete per riga.
+  Vanno bene fino a qualche centinaio di progetti. Si migliora partendo dalle
+  righe di `project_access` della persona, o portando i reparti in una CTE.
+- **I permessi duplicati nell'array** *(S, lotto 1)*:
+  `projectAccessPermissionsSql` ripete un permesso per ogni fonte. Tutti i
+  chiamanti lo trasformano in un insieme, quindi oggi non ha effetti; un
+  lettore futuro dell'array grezzo conti con `distinct`.
+
 ## Trasversali
 
 - **Rinominare il codice di un progetto rompe i link della nuova app già
@@ -2175,7 +2252,34 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   cookie del browser che avvia il consenso (il web) o all'app desktop, e
   rifiutare un ritorno che non lo porta.
 
+- **Le workspace come filtro fuori da All projects** *(M, decisione D8
+  del maintainer, 27 nov 2026; shape `apps/desktop/.impeccable/shape/workspaces.md`)*:
+  il primo giro le fa vivere nella colonna di All projects, nel filtro della
+  pagina e in ⌘K. Restano fuori Tasks, Planning, Posta, Drive, Releases e i
+  selettori di progetto (raggruppati per workspace), una Home o una
+  panoramica per workspace, i colori delle workspace, le workspace annidate.
+
 ## Chiuse
+
+- ~~**I Docs semantici in ⌘K**~~ *(ritiro del web vecchio, inventario §1.5,
+  27 nov 2026)*: **coperto**. Il gruppo Docs della ⌘K (`useDocSearch` →
+  `searchDocs` in `data/backend/real/docs.ts`) chiama
+  `GET /api/projects/:id/docs/search`, che è ibrida (`retrieveChunksForProject`
+  con gli embedding, lo stesso retrieval della chat di progetto). Non usa
+  `/api/search/docs-semantic`. Manca solo l'indicatore «Refining…» del web
+  vecchio, che il prototipo non ha.
+- ~~**Gli highlights di progetto nei Docs**~~ *(stesso inventario, §1.5)*:
+  **coperto per quanto la shape prevede**. La pagina iniziale dei Docs del
+  progetto (shape `docs.md`) ha START HERE, SPACES, DECISIONS e WHAT'S NEW,
+  e WHAT'S NEW c'è già, aggregato dagli spazi (`getProjectDocsHome`).
+  RECENTLY UPDATED e MOST READ sono dell'indice del REPOSITORY, dove ci sono
+  (`repoHighlights`). `GET /api/projects/:id/docs/highlights` non serve alla
+  nuova app.
+- ~~**Leggere un brief che non è l'ultimo**~~ *(stesso inventario, §1.6,
+  decisione del maintainer del 27 nov 2026)*: qualunque brief del progetto si
+  apre nello stesso pannello (`getBrief`, `GET /api/briefs/:id`), con «Brief of
+  <data> · not the latest» e il link all'ultimo. Le righe della cronologia
+  restano non cliccabili.
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
 

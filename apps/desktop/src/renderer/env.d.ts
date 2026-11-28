@@ -262,4 +262,6 @@ interface Window {
 interface ImportMetaEnv {
   /** Il modo della build (`vite.backend.ts`): `prototype` o `app`. */
   readonly VITE_STUBWISE_BUILD?: "prototype" | "app";
+  /** Cassaforte nel browser, design §4: dove gira la build «app». */
+  readonly VITE_STUBWISE_TARGET?: "electron" | "web";
 }

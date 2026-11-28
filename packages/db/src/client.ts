@@ -31,6 +31,12 @@ export function createDb(databaseUrl: string, opts?: { poolMax?: number }): DbHa
     // Silenzia i NOTICE di Postgres (es. "relation already exists" durante
     // le migrazioni) che altrimenti finirebbero su stderr.
     onnotice: () => {},
+    // I1 (revisione d'insieme della workspace): il JIT di Postgres spento sulle
+    // connessioni dell'app. Le query sono brevi e numerose: una WHERE con
+    // molte sottoquery supera `jit_above_cost` e paga la compilazione LLVM a
+    // OGNI esecuzione (misurato: 2,3 s per l'inbox col JIT acceso, 60–80 ms
+    // spento). Il JIT conviene ai report analitici lunghi, che qui non ci sono.
+    connection: { jit: "off" },
   });
   return { db: drizzle(client, { schema }), client };
 }

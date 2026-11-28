@@ -1,4 +1,4 @@
-import { changeLog, chatChannelMembers, chatChannels, chatMessages, projectMembers, users, type Db } from "@stubwise/db";
+import { changeLog, chatChannelMembers, chatChannels, chatMessages, projectAccess, users, workspaceMembers, type Db } from "@stubwise/db";
 import { userIdsWithPermission } from "@stubwise/notifications";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
@@ -41,7 +41,8 @@ export async function peopleKnownTo(
   const readable = await channelReadableSql(db, viewer);
   // I progetti che chi guarda legge, ARCHIVIATI compresi (decisione di 46, 23
   // nov 2026: un archiviato si legge ancora, e chi c'era resta conosciuto).
-  const mine = sql`(select me.project_id from ${projectMembers} me where me.user_id = ${viewer.id})`;
+  // Membro esplicito o di workspace (0239, `project_access`).
+  const mine = sql`(select me.project_id from ${projectAccess} me where me.user_id = ${viewer.id})`;
   const rows = await db
     .select({ id: users.id })
     .from(users)
@@ -51,7 +52,9 @@ export async function peopleKnownTo(
         or(
           // Claude (l'utente di sistema) lo conoscono tutti: si assegna, si chiama nella Chat.
           eq(users.isAgent, true),
-          sql`exists (select 1 from ${projectMembers} pm where pm.user_id = ${users.id} and pm.project_id in ${mine})`,
+          sql`exists (select 1 from ${projectAccess} pm where pm.user_id = ${users.id} and pm.project_id in ${mine})`,
+          // D5 (workspace): le persone di una STESSA workspace si conoscono anche senza progetti.
+          sql`exists (select 1 from ${workspaceMembers} wm_them join ${workspaceMembers} wm_me on wm_me.workspace_id = wm_them.workspace_id where wm_them.user_id = ${users.id} and wm_me.user_id = ${viewer.id})`,
           // Gli ex membri: ogni uscita lascia una voce nel registro, sul membro.
           sql`exists (select 1 from ${changeLog} cl where cl.type = 'member.removed' and cl.subject_id = ${users.id}::text and cl.project_id in ${mine})`,
           // I membri e gli autori dei canali che chi guarda legge (la regola di `channelReadableSql`).

@@ -118,6 +118,8 @@ export function createPerson(input: {
   password: string;
   instanceRoleId: string;
   projects: { projectId: string; roleId: string }[];
+  /** D9: le workspace dell'invito. */
+  workspaces?: { workspaceId: string; roleId: string }[];
 }): string {
   const id = newId("p");
   PEOPLE.push({
@@ -139,6 +141,10 @@ export function createPerson(input: {
       secondFactor: null,
     });
     for (const p of input.projects) s.memberships.push({ personId: id, ...p });
+    for (const w of input.workspaces ?? []) {
+      if (s.workspaces.some((x) => x.id === w.workspaceId))
+        s.workspaceMembers.push({ workspaceId: w.workspaceId, personId: id, roleId: w.roleId });
+    }
   });
   return id;
 }
@@ -181,6 +187,7 @@ export async function register(
     projects: invite!.projects.filter(
       (p) => state.projectsById.has(p.projectId) && roles.has(p.roleId),
     ),
+    workspaces: (invite!.workspaces ?? []).filter((w) => roles.has(w.roleId)),
   });
   // Il link resta custodito: chi lo riapre legge «già usato». Per
   // registrarsi non vale più, perché `statusOf` guarda `acceptedAt`.

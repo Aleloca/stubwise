@@ -318,6 +318,7 @@
     "second_factor_stage_mismatch": "This step no longer applies: sign in again",
     "second_factor_done": "You're already signed in",
     "reauth_required": "This action needs you to confirm with your second factor again",
+"vault_unlock_required": "This vault action needs a recent unlock with your passkey",
     "second_factor_setup_required": "Set up your authenticator app before this action",
     "no_passkeys": "No passkeys registered",
     "cannot_reset_own_second_factor": "To change your own two-step verification use Settings → Security",
@@ -417,7 +418,11 @@
       "setupSubtitle": "This action requires two-step verification: scan the QR code with an authenticator app, then enter the first code it shows.",
       "confirm": "Confirm",
       "confirmPending": "Confirming…",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "vaultTitle": "Unlock the vault",
+      "vaultSubtitle": "This vault action needs a recent unlock: confirm with your passkey.",
+      "vaultUnlock": "Unlock with passkey",
+      "vaultPending": "Unlocking…"
     },
     "totpEnrollment": {
       "qrAlt": "QR code for the authenticator app",
@@ -3457,6 +3462,9 @@
       "departments": {
         "manage": "Manage departments"
       },
+      "workspaces": {
+        "manage": "Manage workspaces"
+      },
       "people": {
         "activity": {
           "view": "View people's daily activity"
@@ -3621,7 +3629,8 @@
       "open_failed": "The passkey did not open your key, or the key the server says is yours is not the sealed one: nothing was encrypted. Try again or use another passkey; if it happens again, tell an admin.",
       "new_passkey_unsupported": "This passkey does not support PRF: it cannot open the vault. Nothing was added.",
       "stale_key": "Your vault key changed in another tab: lock the vault and open it again.",
-      "nothing_opened": "None of the credentials opened in this browser: the confirmation was not sent. Wait for another reader, or use the recovery kit."
+      "nothing_opened": "None of the credentials opened in this browser: the confirmation was not sent. Wait for another reader, or use the recovery kit.",
+      "unlock_unsupported": "This passkey can't unlock the vault in this browser: use one that supports it."
     },
     "kit": {
       "intro": "This is the vault recovery kit. It is shown now and never again: print it or save it outside Stubwise (not on the same server). Only a full admin uses it, to confirm pending access when nobody else can.",

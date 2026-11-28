@@ -129,7 +129,7 @@ describe("le proposte del polso, dal server", () => {
     } as unknown as InboxItem;
     const n = presentInboxItem(item, { taskCodes: new Map(), projectCodes: new Map([[PRJ, "TRM"]]) });
     expect(n.link).toBe("#/home");
-    expect(n.webHref).toBeUndefined();
+    expect(n).not.toHaveProperty("webHref");
     expect(n.objectCode).toBe("TRM");
     vi.unstubAllEnvs();
   });

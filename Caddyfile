@@ -45,6 +45,18 @@
 		-Server
 	}
 
+	# Nessun Service Worker sull'origine (seconda revisione di sicurezza della
+	# cassaforte nel browser, m-7): il browser manda `Service-Worker: script`
+	# quando registra o aggiorna un worker, e qui si rifiuta, qualunque sia il
+	# file. Uno script iniettato non installa così un intermediario che resti
+	# fra le schede e le richieste dopo che l'XSS è chiuso. È il PRIMO `handle`
+	# del sito: i `handle` sono esclusivi, e un `respond` fuori da un `handle`
+	# girerebbe dopo di loro.
+	@serviceWorkerScript header Service-Worker script
+	handle @serviceWorkerScript {
+		respond 403
+	}
+
 	# Eccezione al DENY globale: la vista HTML del grafo graphify DEVE stare
 	# nell'<iframe sandbox> della tab Grafo della SPA (same-origin). Il framing
 	# resta comunque vincolato: il server manda `frame-ancestors 'self'` nella
@@ -109,6 +121,11 @@
 		# COOP: una finestra aperta da un'altra origine non tiene un riferimento
 		# all'app (nota della cassaforte nel browser, §2.2 e M4).
 		header Cross-Origin-Opener-Policy "same-origin"
+		# Cassaforte nel browser, revisione I-4 (§2.3): Trusted Types sulla
+		# nuova app, e il worker della cassaforte dal file del bundle. Un
+		# SECONDO campo CSP: si somma a quello dell'origine (valgono tutti e due).
+		# Solo le due politiche nostre, senza `default` e senza duplicati.
+		header +Content-Security-Policy "require-trusted-types-for 'script'; trusted-types stubwise-vault-worker stubwise-html; worker-src 'self'"
 		# index.html (e il fallback) mai in cache: un deploy, o una revoca, arriva
 		# al primo caricamento. Gli asset hanno l'hash nel nome e restano in cache.
 		@appDocument not path /assets/*

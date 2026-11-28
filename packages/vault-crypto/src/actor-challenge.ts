@@ -12,6 +12,7 @@
 
 import { toBase64Url } from "./encoding.js";
 import { unwrapItemKey, wrapItemKey } from "./items.js";
+import { subtle } from "./runtime.js";
 
 const CHALLENGE_BYTES = 32;
 
@@ -27,7 +28,7 @@ export async function wrapActorChallenge(
   personKeyId: string,
 ): Promise<string> {
   if (secret.length !== CHALLENGE_BYTES) throw new Error("la sfida vuole un segreto di 32 byte");
-  const key = await globalThis.crypto.subtle.importKey(
+  const key = await subtle().importKey(
     "raw",
     new Uint8Array(secret),
     { name: "AES-GCM", length: 256 },
@@ -45,5 +46,5 @@ export async function openActorChallenge(
   personKeyId: string,
 ): Promise<string> {
   const key = await unwrapItemKey(wrapped, privateKey, challengeAad(challengeId), personKeyId);
-  return toBase64Url(await globalThis.crypto.subtle.exportKey("raw", key));
+  return toBase64Url(await subtle().exportKey("raw", key));
 }

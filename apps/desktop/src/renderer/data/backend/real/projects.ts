@@ -57,7 +57,9 @@ async function membersOf(projectId: string): Promise<string[]> {
   try {
     const rows = await appClient().request<ProjectMember[]>(
       "GET",
-      `/api/projects/${encodeURIComponent(projectId)}/members`,
+      // M4: anche chi vede il progetto solo per la workspace (assegnabile come gli
+      // altri), come i `memberIds` che il server dà già sull'elenco dei progetti.
+      `/api/projects/${encodeURIComponent(projectId)}/members?include=workspace`,
     );
     return rows.map((m) => m.userId);
   } catch {

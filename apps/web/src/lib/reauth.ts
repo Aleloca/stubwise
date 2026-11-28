@@ -16,7 +16,12 @@
  * perché lì il corpo è già la stringa JSON, che si rimanda così com'è.
  */
 
-export type ReauthReason = "reauth_required" | "second_factor_setup_required";
+/**
+ * `vault_unlock_required` (I-3): una rotta della cassaforte vuole uno SBLOCCO
+ * recente (passkey, purpose "vault"), non una riconferma: il dialogo lancia lo
+ * sblocco, poi la richiesta riparte come per le altre.
+ */
+export type ReauthReason = "reauth_required" | "second_factor_setup_required" | "vault_unlock_required";
 
 export interface ReauthRequest {
   /** Progressivo: il dialogo lo usa come `key`, così ogni richiesta parte pulita. */
@@ -107,7 +112,9 @@ async function reauthReason(response: Response): Promise<ReauthReason | null> {
       typeof body === "object" && body !== null ? (body as { code?: unknown }).code : undefined,
     )
     .catch(() => undefined);
-  return code === "reauth_required" || code === "second_factor_setup_required" ? code : null;
+  return code === "reauth_required" || code === "second_factor_setup_required" || code === "vault_unlock_required"
+    ? code
+    : null;
 }
 
 /**

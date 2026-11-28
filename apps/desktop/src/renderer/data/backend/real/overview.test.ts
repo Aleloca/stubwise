@@ -4,6 +4,7 @@ import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTask, ST
 import { createMilestone, deleteMilestone, updateMilestone } from "./milestones";
 import { listMilestones } from "./statuses";
 import {
+  getBrief,
   getLatestBrief,
   listDecisionLog,
   listPortfolioActivityPage,
@@ -204,6 +205,39 @@ describe("brief e cronologia dal server", () => {
     });
     installFakeServer({ [`GET /api/projects/${PROJECT_ID}/briefs/latest`]: { body: null } });
     expect(await getLatestBrief(PROJECT_ID)).toBeNull();
+  });
+
+  it("un brief per id (GET /api/briefs/:id): la vista dell'Overview, l'incipit come il server; 404 (invisibile o ignoto) e non pronto: null", async () => {
+    const row = {
+      id: BRIEF,
+      projectId: PROJECT_ID,
+      periodStart: "2026-10-19",
+      periodEnd: "2026-10-25",
+      status: "done",
+      summary: null,
+      sections: { whereWeAre: "Behind on export", whatChanged: "Two PRs merged" },
+      notificationId: null,
+      createdAt: AT,
+      finishedAt: AT,
+    };
+    installFakeServer({ [`GET /api/briefs/${BRIEF}`]: { body: row } });
+    expect(await getBrief(BRIEF)).toEqual({
+      id: BRIEF,
+      projectId: PROJECT_ID,
+      periodStart: "2026-10-19",
+      periodEnd: "2026-10-25",
+      headline: "Behind on export",
+      summary: "Behind on export\n\nTwo PRs merged",
+      createdAt: AT,
+    });
+    installFakeServer({ [`GET /api/briefs/${BRIEF}`]: { body: { ...row, status: "running", sections: null } } });
+    expect(await getBrief(BRIEF)).toBeNull();
+    // Nessuna rotta: il fakeServer risponde 404, come per un progetto invisibile.
+    installFakeServer({});
+    expect(await getBrief(BRIEF)).toBeNull();
+    // 403 (senza `tickets.view_all`): anche questo «non disponibile» (M2).
+    installFakeServer({ [`GET /api/briefs/${BRIEF}`]: { status: 403, body: { code: "forbidden", message: "Missing permission" } } });
+    expect(await getBrief(BRIEF)).toBeNull();
   });
 
   it("una pagina di cronologia: gli eventi del prototipo, il segno della pagina dopo; un evento monco si scarta", async () => {

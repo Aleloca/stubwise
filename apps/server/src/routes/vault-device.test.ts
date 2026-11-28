@@ -290,10 +290,10 @@ describe("il sigillo (POST /api/vault/device-seals): nasce SOLO dal browser, con
     expect(await sealsOf(ada.id)).toHaveLength(0);
   });
 
-  it("da una sessione senza riconferma recente → 403 `reauth_required`; niente scritto", async () => {
+  it("da una sessione senza sblocco recente della cassaforte → 403 `vault_unlock_required`; niente scritto", async () => {
     const pair = await pairing(ada);
     const res = await call("POST", "/api/vault/device-seals", { cookie: await staleCookie(ada.id) }, await sealBody(ada, pair));
-    expect([res.statusCode, res.json().code]).toEqual([403, "reauth_required"]);
+    expect([res.statusCode, res.json().code]).toEqual([403, "vault_unlock_required"]);
     expect(await sealsOf(ada.id)).toHaveLength(0);
   });
 
@@ -454,7 +454,7 @@ describe("i Mac dal browser (GET /api/vault/device-seals, DELETE /api/vault/devi
     }
   });
 
-  it("il Mac di un'altra persona → 404, intatto; senza riconferma recente → 403 `reauth_required`", async () => {
+  it("il Mac di un'altra persona → 404, intatto; senza un secondo fattore recente → 403 `reauth_required` (m-2: la riconferma normale, non lo sblocco)", async () => {
     const [row] = await sealsOf(ada.id);
     const other = await call("DELETE", `/api/vault/device-seals/${row!.id}`, { cookie: bob.cookie });
     expect(other.statusCode).toBe(404);
@@ -503,7 +503,7 @@ describe("i Mac di un'altra persona, da un full admin (D-6)", () => {
     expect((await sealsOf(fay.id))[0]!.revokedAt).toBeNull();
   });
 
-  it("il full admin senza riconferma recente → 403 `reauth_required`; un id di un'altra persona → 404", async () => {
+  it("il full admin senza un secondo fattore recente → 403 `reauth_required` (m-2); un id di un'altra persona → 404", async () => {
     const stale = await call("DELETE", `/api/vault/users/${fay.id}/device-seals/${sealId}`, { cookie: await staleCookie(adminId) });
     expect([stale.statusCode, stale.json().code]).toEqual([403, "reauth_required"]);
     const [eveSeal] = await testDb.db.select().from(vaultDeviceSeals).where(eq(vaultDeviceSeals.revokedReason, "replaced"));

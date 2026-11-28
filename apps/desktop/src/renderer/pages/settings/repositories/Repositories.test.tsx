@@ -1,9 +1,14 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { failNext, resetApi, setLatency } from "../../../data/api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { failNext, projectSettings, resetApi, setLatency } from "../../../data/api";
 import { state } from "../../../data/store";
-import { resetViewerGrants, revokeProjectPermission } from "../../../data/viewer";
+import {
+  grantInstancePermission,
+  resetViewerGrants,
+  revokeInstancePermission,
+  revokeProjectPermission,
+} from "../../../data/viewer";
 import { setLanguage } from "../../../i18n";
 import { clearToasts } from "../../../tasks-ui/Toast";
 import { renderRoute } from "../../../test/renderRoute";
@@ -13,7 +18,9 @@ import { renderRoute } from "../../../test/renderRoute";
 // la pagina del repository e il webhook. Laura è Project Lead in ACQ
 // (`repos.manage`); Marco è Developer in ACQ: `repos.view` senza
 // `repos.manage` (ruling (T4): lo scenario «da Sara» si fa con lui). OLV
-// non ha il modulo Releases; Giulia ne è Project Lead.
+// non ha il modulo Releases; Giulia ne è Project Lead. Scegliere un account
+// git vuole anche `git_accounts.manage` d'istanza (la regola del server):
+// Laura lo riceve in ogni test, e il blocco «senza git_accounts.manage» lo toglie.
 
 const LAURA = "p-laura";
 const MARCO = "p-marco";
@@ -23,8 +30,10 @@ const ACQ = "prj-acq";
 beforeEach(() => {
   setLatency(0);
   resetApi();
+  grantInstancePermission(LAURA, "git_accounts.manage");
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   clearToasts();
   resetViewerGrants();
   act(() => setLanguage("en"));
@@ -431,6 +440,30 @@ describe("in sola lettura (Marco: repos.view, non repos.manage)", () => {
   });
 });
 
+describe("senza git_accounts.manage (Laura gestisce i repository, ma gli account git sono dell'istanza)", () => {
+  beforeEach(() => revokeInstancePermission(LAURA, "git_accounts.manage"));
+
+  it("l'elenco: «Add repository» spento con la sua frase e «Who?» sugli account git", async () => {
+    await openList(LAURA);
+    const add = screen.getByRole("button", { name: "Add repository" });
+    expect(add).toHaveAttribute("aria-disabled", "true");
+    expect(add).toHaveAccessibleDescription(/needs permission to manage git accounts/);
+    await userEvent.click(add);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Who can manage git accounts/ })).toBeInTheDocument();
+  });
+
+  it("la pagina: account git e revisore spenti con la frase; il resto si modifica", async () => {
+    await openRepository(LAURA, "repo-acq", "portale-utenti");
+    const details = screen.getByRole("region", { name: "Details" });
+    const account = within(details).getByRole("combobox", { name: "Git account" });
+    expect(account).toBeDisabled();
+    expect(account).toHaveAccessibleDescription(/Changing the git account or the reviewer needs permission to manage git accounts\./);
+    expect(await within(details).findByRole("combobox", { name: "Review account" })).toBeDisabled();
+    expect(within(details).getAllByRole("textbox").length).toBeGreaterThan(0);
+  });
+});
+
 describe("OLV, senza il modulo Releases", () => {
   it("la sezione c'è, senza le parti dell'8a", async () => {
     state.repositories.push({
@@ -448,5 +481,90 @@ describe("OLV, senza il modulo Releases", () => {
     expect(screen.getByRole("region", { name: "Details" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Releases" })).toBeNull();
     expect(screen.queryByText("Colleagues' pull requests")).toBeNull();
+  });
+});
+
+// La revisione di feat/repository-nuova-app: ciò che il prototipo non produce da
+// sé (avvisi, dettagli della piattaforma, 409) arriva da uno spy sul livello dati,
+// con la forma dell'adattatore vero.
+describe("la revisione: avvisi, dettagli della piattaforma, rami, conflitti", () => {
+  /** Fino al passo 4 con audin/fatture-api su main. */
+  async function toAccess(user: ReturnType<typeof userEvent.setup>) {
+    await openList(LAURA);
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    const dialog = await wizard();
+    const next = () => within(dialog).getByRole("button", { name: "Next" });
+    await user.click(within(dialog).getByRole("radio", { name: /Bitbucket Audin/ }));
+    await user.click(next());
+    await user.type(within(dialog).getByRole("searchbox", { name: "Find a repository" }), "fatture");
+    await user.click(await within(dialog).findByRole("radio", { name: /audin\/fatture-api/ }));
+    await user.click(next());
+    await waitFor(async () => expect(await stepHeading(dialog, "Branch")).toHaveFocus());
+    return { dialog, next };
+  }
+
+  it("M1/I2: una creazione riuscita con avvisi li dice sopra l'elenco, in parole", async () => {
+    const user = userEvent.setup();
+    const original = projectSettings.createRepository;
+    vi.spyOn(projectSettings, "createRepository").mockImplementation(async (...args) => {
+      const r = await original(...args);
+      return r.ok ? { ...r, warnings: ["release_branch_not_set", "main_account_identity_unresolved"] } : r;
+    });
+    const { dialog, next } = await toAccess(user);
+    await user.click(next());
+    await user.click(within(dialog).getByRole("button", { name: "Verify access" }));
+    expect(await within(dialog).findByText("Access works.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const box = document.querySelector("[data-save-warnings]") as HTMLElement;
+    expect(screen.getByText("fatture-api was added, but:")).toBeInTheDocument();
+    expect(box).toHaveTextContent(/still the default/);
+    expect(box).toHaveTextContent(/read:user:bitbucket/);
+  });
+
+  it("M2: la verifica fallita mostra il dettaglio della piattaforma", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(projectSettings, "checkRepositoryAccess").mockResolvedValue({ ok: true, outcome: "invalid_credentials", detail: "missing repo:write" });
+    const { dialog, next } = await toAccess(user);
+    await user.click(next());
+    await user.click(within(dialog).getByRole("button", { name: "Verify access" }));
+    expect(await within(dialog).findByText("The platform says: missing repo:write")).toBeInTheDocument();
+  });
+
+  it("M6: i rami che l'account non vede: resta il predefinito, e lo si dice", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(projectSettings, "listRemoteBranches").mockRejectedValue(new Error("not_visible"));
+    const { dialog } = await toAccess(user);
+    expect(within(dialog).getByRole("combobox", { name: "Branch" })).toHaveValue("main");
+    expect(await within(dialog).findByText(/Bitbucket Audin can't see this repository's branches on Bitbucket/)).toBeInTheDocument();
+  });
+
+  it("M1: un salvataggio con un avviso lo dice sotto i campi; M7: un 409 ha la sua frase", async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(projectSettings, "updateRepository").mockResolvedValueOnce({ ok: true, warnings: ["default_review_account_invalid"] });
+    await openRepository(LAURA, "repo-acq", "portale-utenti");
+    const test = screen.getByRole("textbox", { name: "Test command" });
+    await user.clear(test);
+    await user.type(test, "pnpm test:ci");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/the default reviewer didn't pass the checks/)).toBeInTheDocument();
+    spy.mockResolvedValueOnce({ ok: false, error: "invalid", reason: "repository_changed_concurrently" } as never);
+    await user.type(test, "x");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/git accounts changed while you were saving/)).toBeInTheDocument();
+  });
+
+  it("M3: un webhook che fallisce dice il messaggio della piattaforma", async () => {
+    const user = userEvent.setup();
+    const original = projectSettings.configureRepositoryWebhook;
+    vi.spyOn(projectSettings, "configureRepositoryWebhook").mockImplementation(async (id) => {
+      await projectSettings.simulateNextWebhookSetup("failed");
+      const r = await original(id);
+      return r.ok ? { ...r, detail: "token lacks webhook scope" } : r;
+    });
+    await openRepository(LAURA, "repo-acq", "portale-utenti");
+    const webhook = screen.getByRole("region", { name: "Webhook" });
+    await user.click(within(webhook).getByRole("button", { name: "Configure automatically" }));
+    expect(await within(webhook).findByText("The platform says: token lacks webhook scope")).toBeInTheDocument();
   });
 });

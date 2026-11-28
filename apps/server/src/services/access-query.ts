@@ -1,5 +1,5 @@
 import { departmentGrantsOf, type DepartmentGrant } from "./department-access.js";
-import { memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
+import { projectAccess, projectAccessPermissionsSql, projectAccessRowCounts, projectMemberPermissions, projectMembers, projects, roles, users, workspaces, type Db } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   effectiveProjectPermissions,
@@ -48,6 +48,8 @@ const reason = (kind: AccessReason["kind"], extra: Partial<AccessReason> = {}): 
   at: null,
   departmentId: null,
   departmentName: null,
+  workspaceId: null,
+  workspaceName: null,
   ...extra,
 });
 
@@ -95,6 +97,8 @@ interface Membership {
   rolePermissions: string[] | null;
   /** Ruolo ∪ personali, da `memberPermissionsSql`: null se non membro. */
   memberPermissions: string[] | null;
+  /** Workspace (lotto 4): i ruoli di workspace della persona in questo progetto, per il motivo «workspace». */
+  workspaceRoles: { workspaceId: string; workspaceName: string; roleId: string; roleName: string; permissions: string[] }[];
 }
 
 /** I permessi di progetto di una persona in un progetto, coi motivi. */
@@ -120,28 +124,71 @@ function projectWithReasons(
       ...grants
         .filter((g) => g.permission === permission)
         .map((g) => reason("grant", { byUserId: g.grantedByUserId, at: g.grantedAt.toISOString() })),
-      // Area 9, F8: «via <reparto>», solo se è membro (un reparto non rende membri).
-      ...(membership?.rolePermissions
+      // Workspace (lotto 4): «dalla workspace <nome>», col ruolo di workspace.
+      ...(membership?.workspaceRoles ?? [])
+        .filter((w) => w.permissions.includes(permission))
+        .map((w) => reason("workspace", { workspaceId: w.workspaceId, workspaceName: w.workspaceName, roleId: w.roleId, roleName: w.roleName })),
+      // Area 9, F8: «via <reparto>», solo se è membro (un reparto non rende
+      // membri); membro anche per workspace (0239, D10).
+      ...(membership?.memberPermissions
         ? departmentGrants.filter((g) => g.permission === permission).map((g) => reason("department", { departmentId: g.departmentId, departmentName: g.departmentName }))
         : []),
     ],
   }));
 }
 
+/**
+ * Chi accede ai progetti (membri espliciti e, 0239, persone di workspace), una
+ * riga per persona e progetto: i permessi effettivi sono l'unione delle fonti;
+ * il ruolo (`role*`) è quello del membro ESPLICITO, null per chi accede solo
+ * per workspace (il motivo «workspace» lo aggiunge il lotto 4 delle workspace).
+ */
 async function memberships(db: Db, projectIds: readonly string[], userIds?: readonly string[]): Promise<Membership[]> {
   if (projectIds.length === 0) return [];
-  return db
+  const access = db
+    .selectDistinct({ projectId: projectAccess.projectId, userId: projectAccess.userId })
+    .from(projectAccess)
+    .where(and(inArray(projectAccess.projectId, [...projectIds]), projectAccessRowCounts, ...(userIds ? [inArray(projectAccess.userId, [...userIds])] : [])))
+    .as("ma");
+  const rows = await db
     .select({
-      projectId: projectMembers.projectId,
-      userId: projectMembers.userId,
+      projectId: access.projectId,
+      userId: access.userId,
       roleId: memberRoles.id,
       roleName: memberRoles.name,
       rolePermissions: memberRoles.permissions,
-      memberPermissions: memberPermissionsSql(memberRoles.permissions, projectMembers.projectId, projectMembers.userId),
+      memberPermissions: projectAccessPermissionsSql(access.projectId, access.userId),
     })
-    .from(projectMembers)
-    .innerJoin(memberRoles, eq(memberRoles.id, projectMembers.roleId))
-    .where(and(inArray(projectMembers.projectId, [...projectIds]), ...(userIds ? [inArray(projectMembers.userId, [...userIds])] : [])));
+    .from(access)
+    .leftJoin(projectMembers, and(eq(projectMembers.projectId, access.projectId), eq(projectMembers.userId, access.userId)))
+    .leftJoin(memberRoles, eq(memberRoles.id, projectMembers.roleId));
+  const viaWorkspace = await db
+    .select({
+      projectId: projectAccess.projectId,
+      userId: projectAccess.userId,
+      workspaceId: workspaces.id,
+      workspaceName: workspaces.name,
+      roleId: memberRoles.id,
+      roleName: memberRoles.name,
+      permissions: memberRoles.permissions,
+    })
+    .from(projectAccess)
+    .innerJoin(workspaces, eq(workspaces.id, projectAccess.workspaceId))
+    .innerJoin(memberRoles, eq(memberRoles.id, projectAccess.roleId))
+    .where(
+      and(
+        eq(projectAccess.source, "workspace"),
+        inArray(projectAccess.projectId, [...projectIds]),
+        projectAccessRowCounts,
+        ...(userIds ? [inArray(projectAccess.userId, [...userIds])] : []),
+      ),
+    );
+  return rows.map((r) => ({
+    ...r,
+    workspaceRoles: viaWorkspace
+      .filter((w) => w.projectId === r.projectId && w.userId === r.userId)
+      .map(({ workspaceId, workspaceName, roleId, roleName, permissions }) => ({ workspaceId, workspaceName, roleId, roleName, permissions })),
+  }));
 }
 
 async function grantsOf(db: Db, projectIds: readonly string[], userIds?: readonly string[]) {
@@ -238,7 +285,8 @@ export async function whatCan(db: Db, viewer: Viewer, userId: string, projectId:
   const perProject: WhatCanResponse["projects"] = [];
   for (const { id, name } of names) {
     const permissions = projectWithReasons(person, byProject.get(id), grants.filter((g) => g.projectId === id), fromDepartments);
-    if (permissions) perProject.push({ projectId: id, projectName: name, permissions });
+    // Workspace (lotto 4): la workspace da cui la persona vede il progetto, se c'è.
+    if (permissions) perProject.push({ projectId: id, projectName: name, workspaceName: byProject.get(id)?.workspaceRoles[0]?.workspaceName ?? null, permissions });
   }
   return { userId, instance: instanceWithReasons(person), projects: perProject };
 }
@@ -268,24 +316,22 @@ export async function viewerLosesIf(db: Db, viewer: Viewer, roleId: string, next
   const lost = new Set<string>();
   for (const p of instBefore) if (!instAfter.has(p)) lost.add(p);
 
-  const mine = await db
-    .select({
-      projectId: projectMembers.projectId,
-      roleId: projectMembers.roleId,
-      rolePermissions: memberRoles.permissions,
-      memberPermissions: memberPermissionsSql(memberRoles.permissions, projectMembers.projectId, projectMembers.userId),
-    })
-    .from(projectMembers)
-    .innerJoin(memberRoles, eq(memberRoles.id, projectMembers.roleId))
-    .where(eq(projectMembers.userId, viewer.id));
-  const projectIds = mine.map((m) => m.projectId);
+  // Una riga per FONTE (0239): il ruolo esplicito e quello di workspace, che
+  // possono essere entrambi il ruolo che cambia.
+  const rows = await db
+    .select({ projectId: projectAccess.projectId, roleId: projectAccess.roleId, rolePermissions: memberRoles.permissions })
+    .from(projectAccess)
+    .innerJoin(memberRoles, eq(memberRoles.id, projectAccess.roleId))
+    .where(and(eq(projectAccess.userId, viewer.id), projectAccessRowCounts));
+  const projectIds = [...new Set(rows.map((m) => m.projectId))];
   const grants = groupByUser(await grantsOf(db, projectIds, [viewer.id])).get(viewer.id) ?? [];
   const fromDepartments = (await departmentGrantsOf(db, [viewer.id])).map((g) => g.permission);
-  for (const m of mine) {
-    // Dopo: il ruolo nuovo (se è questo) più le fonti che non dipendono dal ruolo.
-    const others = [...grants.filter((g) => g.projectId === m.projectId).map((g) => g.permission), ...fromDepartments];
-    const before = effectiveProjectPermissions(instBefore, m.memberPermissions ?? []) ?? new Set();
-    const after = effectiveProjectPermissions(instAfter, [...swap(m.roleId, m.rolePermissions), ...others]) ?? new Set();
+  for (const projectId of projectIds) {
+    const mine = rows.filter((r) => r.projectId === projectId);
+    // Dopo: i ruoli nuovi (se è questo) più le fonti che non dipendono dal ruolo.
+    const others = [...grants.filter((g) => g.projectId === projectId).map((g) => g.permission), ...fromDepartments];
+    const before = effectiveProjectPermissions(instBefore, [...mine.flatMap((m) => m.rolePermissions), ...others]) ?? new Set();
+    const after = effectiveProjectPermissions(instAfter, [...mine.flatMap((m) => swap(m.roleId, m.rolePermissions)), ...others]) ?? new Set();
     for (const p of before) if (!after.has(p)) lost.add(p);
   }
   const removed = role.permissions.filter((p) => !nextPermissions.includes(p));

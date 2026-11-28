@@ -1,5 +1,13 @@
-import { searchDocsSemanticResultsSchema, searchResultsSchema } from "@stubwise/shared";
-import type { Reader, SearchDocsSemanticResults, SearchResults } from "@stubwise/shared";
+import { z } from "zod";
+import { searchDocsSemanticResultsSchema, searchHistoryItemSchema, searchResultsSchema } from "@stubwise/shared";
+import type {
+  Reader,
+  RecordSearchHistoryBody,
+  SearchDocsSemanticResults,
+  SearchEntityType,
+  SearchHistoryItem,
+  SearchResults,
+} from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { toQuery } from "../query.js";
 
@@ -39,6 +47,30 @@ export function createSearchEndpoints(request: ApiRequest) {
         undefined,
         searchDocsSemanticResultsSchema,
       );
+    },
+
+    /**
+     * La cronologia della ricerca di chi chiama: i risultati APERTI di recente
+     * (non le query), dal più recente, filtrati a lettura dai permessi. Con
+     * `repositoryId`, quelli di quello spazio Docs. La posta non c'è mai.
+     */
+    history(repositoryId?: string): Promise<Reader<SearchHistoryItem>[]> {
+      return request("GET", `/api/search/history${toQuery({ repositoryId })}`, undefined, z.array(searchHistoryItemSchema));
+    },
+
+    /** Ricorda un risultato aperto (upsert per tipo e oggetto). 204. */
+    remember(body: RecordSearchHistoryBody): Promise<void> {
+      return request("POST", "/api/search/history", body);
+    },
+
+    /** Toglie una voce (idempotente). 204. */
+    forget(type: SearchEntityType, entityId: string): Promise<void> {
+      return request("DELETE", `/api/search/history/${encodeURIComponent(type)}/${encodeURIComponent(entityId)}`);
+    },
+
+    /** Svuota tutta la cronologia di chi chiama. 204. */
+    clearHistory(): Promise<void> {
+      return request("DELETE", "/api/search/history");
     },
   };
 }

@@ -1,4 +1,4 @@
-import { detachedRepositorySchema, releasePipelineSchema, repositorySchema, webhookSecretResultSchema } from "@stubwise/shared";
+import { detachedRepositorySchema, releasePipelineSchema, repositorySaveResponseSchema, repositorySchema, webhookSecretResultSchema } from "@stubwise/shared";
 import { z } from "zod";
 import type { DetachedRepository, Reader, Repository, WebhookSecretResult } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
@@ -15,16 +15,67 @@ import { seg } from "../query.js";
  * ⚠️ **Le scritture sono poche e nominate, ed è una scelta di prodotto**:
  * l'app mobile non configura un repository (credenziali, webhook, comandi,
  * grafo). Le eccezioni servono all'app desktop e hanno un metodo ciascuna:
- * le impostazioni di rilascio (area 8) e la rigenerazione del segreto del
- * webhook (area 9, F5). Chi aggiunge qui una `create`/`patch` generica stia
- * aggiungendo una superficie nuova, non completando questa.
+ * le impostazioni di rilascio (area 8), la rigenerazione del segreto del
+ * webhook (area 9, F5) e, col ritiro del web vecchio (inventario §1.3), la
+ * pagina Repositories intera: creare, modificare i dettagli, configurare il
+ * webhook, i file d'ambiente. Il mobile non le chiama.
  *
  * ⚠️ **Il segreto HMAC del webhook NON è in `repositorySchema`** e non passa
  * di qui: permetterebbe di forgiare webhook di merge e forzare i ticket a
  * `done`. Si legge solo dalla rotta admin dedicata, che questo pacchetto non
- * mappa. Lo stesso vale per i file d'ambiente del progetto, che vivono
- * altrove e restano fuori dall'app (design §8).
+ * mappa (la creazione lo restituisce una volta: `repositorySaveResponseSchema`
+ * non lo ha, quindi il parse lo scarta). Dei file d'ambiente passano i
+ * NOMI delle variabili e quando sono state scritte, mai i valori.
  */
+
+/** Un file d'ambiente come lo dà il server: nomi delle variabili, mai i valori. */
+export const envFileSchema = z.object({
+  id: z.uuid(),
+  environmentId: z.uuid(),
+  path: z.string(),
+  vars: z.array(z.object({ key: z.string(), setAt: z.iso.datetime().optional() })),
+});
+
+/** L'esito di un import: `replaced` e `skipped` mancano da un server di prima. */
+export const envImportResultSchema = z.object({
+  count: z.number().int(),
+  imported: z.array(z.string()),
+  replaced: z.array(z.string()).default([]),
+  skipped: z.array(z.object({ line: z.number().int(), reason: z.string() })).default([]),
+});
+
+/** L'esito di «Configure automatically» (il segreto e le credenziali non escono mai). */
+export const configureWebhookResultSchema = z.object({
+  ok: z.literal(true),
+  created: z.boolean(),
+  updated: z.boolean(),
+  detail: z.string(),
+  url: z.string(),
+});
+
+/** Il corpo della creazione (`repos.manage` nel progetto e `git_accounts.manage`). */
+export interface CreateRepositoryInput {
+  projectId: string;
+  name: string;
+  gitAccountId: string;
+  repoUrl: string;
+  defaultBranch: string;
+  testCommand?: string | null;
+  installCommand?: string | null;
+}
+
+/** I campi della pagina del repository (patch: gli assenti restano invariati). */
+export interface UpdateRepositoryInput {
+  name?: string;
+  repoUrl?: string;
+  gitAccountId?: string;
+  reviewGitAccountId?: string | null;
+  testCommand?: string | null;
+  installCommand?: string | null;
+  graphEnabled?: boolean;
+  protectedBranches?: string[];
+  releaseBranch?: string | null;
+}
 export function createRepositoriesEndpoints(request: ApiRequest) {
   return {
     /**
@@ -82,6 +133,46 @@ export function createRepositoriesEndpoints(request: ApiRequest) {
      */
     regenerateWebhookSecret(slug: string): Promise<Reader<WebhookSecretResult>> {
       return request("POST", `/api/repositories/${seg(slug)}/webhook-secret`, undefined, webhookSecretResultSchema);
+    },
+    /**
+     * Ritiro del web vecchio: crea un repository nel progetto. 403 senza
+     * `git_accounts.manage` (scegliere l'account è una decisione d'istanza).
+     * Il segreto del webhook della risposta non arriva al chiamante.
+     */
+    create(input: CreateRepositoryInput) {
+      return request("POST", "/api/repositories", input, repositorySaveResponseSchema);
+    },
+    /** I dettagli della pagina del repository; cambiare l'account vuole `git_accounts.manage`. */
+    update(slug: string, patch: UpdateRepositoryInput) {
+      return request("PATCH", `/api/repositories/${seg(slug)}`, patch, repositorySaveResponseSchema);
+    },
+    /** «Configure automatically» del webhook (`repos.manage`); 422 `git_provider_error` col messaggio della piattaforma. */
+    configureWebhook(slug: string) {
+      return request("POST", `/api/repositories/${seg(slug)}/configure-webhook`, undefined, configureWebhookResultSchema);
+    },
+    /** I file d'ambiente del repository (`repos.manage`), di tutti gli ambienti. */
+    envFiles(repositoryId: string) {
+      return request("GET", `/api/repositories/${seg(repositoryId)}/env-files`, undefined, z.array(envFileSchema));
+    },
+    /** Un file vuoto in un ambiente (nessuna riconferma). 409 se il percorso c'è già. */
+    createEnvFile(repositoryId: string, input: { environmentId: string; path: string }) {
+      return request("POST", `/api/repositories/${seg(repositoryId)}/env-files`, input, envFileSchema);
+    },
+    /** Importa un testo `.env` (riconferma). Il testo va al server e non torna. */
+    importEnvFile(repositoryId: string, fileId: string, content: string) {
+      return request("POST", `/api/repositories/${seg(repositoryId)}/env-files/${seg(fileId)}/import`, { content }, envImportResultSchema);
+    },
+    /** Imposta una variabile (riconferma): il valore va al server e non torna. */
+    setEnvVar(repositoryId: string, fileId: string, key: string, value: string): Promise<void> {
+      return request("PUT", `/api/repositories/${seg(repositoryId)}/env-files/${seg(fileId)}/vars/${seg(key)}`, { value }).then(() => undefined);
+    },
+    /** Toglie una variabile (riconferma). */
+    removeEnvVar(repositoryId: string, fileId: string, key: string): Promise<void> {
+      return request("DELETE", `/api/repositories/${seg(repositoryId)}/env-files/${seg(fileId)}/vars/${seg(key)}`);
+    },
+    /** Elimina un file e le sue variabili (riconferma). */
+    deleteEnvFile(repositoryId: string, fileId: string): Promise<void> {
+      return request("DELETE", `/api/repositories/${seg(repositoryId)}/env-files/${seg(fileId)}`);
     },
     /**
      * Area 9, F6: i repository senza progetto (Amministrazione). 403 a chi non

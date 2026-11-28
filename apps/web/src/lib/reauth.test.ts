@@ -104,6 +104,16 @@ describe("riconferma dal client API", () => {
     await expect(result).rejects.toMatchObject({ code: "second_factor_setup_required" });
   });
 
+  it("`vault_unlock_required` (I-3) chiede lo sblocco della cassaforte", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(403, { code: "vault_unlock_required", message: "Recent vault unlock required" }),
+    );
+    const result = api.post("/api/vault/keys", {});
+    expect((await waitForRequest()).reason).toBe("vault_unlock_required");
+    settleReauth(false);
+    await expect(result).rejects.toMatchObject({ code: "vault_unlock_required" });
+  });
+
   it("si ripete UNA volta: un secondo 403 arriva al chiamante senza un altro dialogo", async () => {
     fetchMock.mockImplementation(async () => reauthRequired());
     const result = api.post("/api/pats", { name: "ci", expiresAt: null });

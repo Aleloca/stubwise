@@ -40,6 +40,7 @@ const { FUTURE_NAMESPACES, calls, truncated, intake, refusal } = vi.hoisted(() =
     "access",
     "claude",
     "instance",
+    "searchHistory",
   ] as const,
 }));
 
@@ -457,6 +458,13 @@ const INTEGRATED_CALLS = new Set([
   "recordDecision",
   "setDecisionSuperseded",
   "getLatestBrief",
+  // Ritiro del web vecchio: un brief per id, anche non l'ultimo (`GET /api/briefs/:id`).
+  "getBrief",
+  // Ritiro del web vecchio: i risultati recenti della ⌘K (`/api/search/history`).
+  "searchHistory.listRecentResults",
+  "searchHistory.rememberResult",
+  "searchHistory.forgetResult",
+  "searchHistory.clearRecentResults",
   "listTimelinePage",
   "listPortfolioActivityPage",
   "projectPulse",
@@ -674,6 +682,21 @@ const INTEGRATED_CALLS = new Set([
   // Area 8, F1 (`releases-repo-settings`): la sezione «Repositories» ridotta.
   "releases.getRepositorySettings",
   "releases.setRepoPrMode",
+  // Ritiro del web vecchio (inventario §1.3): «Repositories» intera, l'adattatore
+  // `projectRepositories.ts` (elenco, pagina, webhook, file d'ambiente, creazione).
+  "projectSettings.listProjectRepositories",
+  "projectSettings.listRemoteRepositories",
+  "projectSettings.listRemoteBranches",
+  "projectSettings.checkRepositoryAccess",
+  "projectSettings.createRepository",
+  "projectSettings.updateRepository",
+  "projectSettings.configureRepositoryWebhook",
+  "projectSettings.listEnvFiles",
+  "projectSettings.createEnvFile",
+  "projectSettings.importEnvFile",
+  "projectSettings.setEnvVar",
+  "projectSettings.removeEnvVar",
+  "projectSettings.deleteEnvFile",
   // Area 8, F3: Support (letture e scritture sulle rotte di 72).
   "support.listSupportConversations",
   // La ricerca ⌘K di Support (rimandi, lotto 5).
@@ -975,6 +998,17 @@ describe("aree non integrate nella build app", () => {
     }
   });
 
+  it("la palette a query vuota legge i recenti, e solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home");
+    await screen.findByRole("region", { name: /^My tasks/ });
+    await user.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog");
+    await waitFor(() => expect(calls).toContain("searchHistory.listRecentResults"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
   // Review area 8 F1, m5: le ricerche della palette delle aree non integrate non partono.
   it("cercare nella palette legge solo chiamate integrate (rilasci, Support e Servers accese)", async () => {
     const user = userEvent.setup();
@@ -995,7 +1029,6 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  // Area 8, F1 (46): «Repositories» ridotta, senza «nuovo repository» né l'editor dell'area 9.
   // Revisione di feat/impostazioni-progetto, M7: Usage e AI delle impostazioni.
   it("aprire Settings → Usage e Settings → AI legge solo chiamate integrate", async () => {
     signedInAs("p-laura");
@@ -1010,19 +1043,45 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("aprire Repositories legge solo chiamate integrate, senza «Add repository»", async () => {
+  // Ritiro del web vecchio (inventario §1.3): «Repositories» intera, sulle
+  // rotte dei repository (prima, area 8 F1, era ridotta al blocco Releases).
+  it("aprire Repositories legge solo chiamate integrate", async () => {
     // Laura vede il codice di AUD (`repos.view`): la sezione è sua.
     signedInAs("p-laura");
     renderRoute("/p/AUD/settings/repositories");
-    await waitFor(() => expect(calls).toContain("releases.getRepositorySettings"));
+    await waitFor(() => expect(calls).toContain("projectSettings.listProjectRepositories"));
     await settle();
-    expect(screen.queryByRole("button", { name: /Add repository/ })).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("la creazione guidata (?new=1) nella build app: legge solo chiamate integrate, senza riquadri del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/p/AUD/settings/repositories?new=1");
+    const dialog = await screen.findByRole("dialog", { name: /Add a repository to AUD/ });
+    await settle();
+    expect(within(dialog).queryByRole("region", { name: "Prototype only" })).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("aprire un repository legge solo chiamate integrate, file d'ambiente compresi, senza riquadri del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/p/AUD/settings/repositories?repo=repo-aud");
+    await waitFor(() => expect(calls).toContain("projectSettings.listEnvFiles"));
+    await settle();
+    expect(screen.queryByRole("region", { name: "Prototype only" })).toBeNull();
     expect(outside()).toEqual([]);
   });
 
   // Area 8, F1 (`releases-prs` e `releases`): PR, coda e rilasci dal server; ambienti «in arrivo».
   // Area 8, F2 (R6): Preferenze → Notifiche è accesa (`alerts`); legge le
   // iscrizioni dal server e nient'altro di non integrato.
+  it("il pannello di un brief (?brief=) legge solo chiamate integrate", async () => {
+    renderRoute("/p/AUD/overview?brief=brief-aud-2026-10-12");
+    await waitFor(() => expect(calls).toContain("getBrief"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
   it("aprire Preferenze → Notifiche legge solo chiamate integrate", async () => {
     renderRoute("/preferences/notifications");
     expect(

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { generatePersonKeyPair } from "./keys.js";
 import {
   decryptPassword,
@@ -22,6 +22,25 @@ describe("encryptPassword / decryptPassword", () => {
   it("la password cifrata incollata su un'altra credenziale non si decifra (AAD)", async () => {
     const { ciphertext, itemKey } = await encryptPassword("cred-1", "segreta");
     await expect(decryptPassword("cred-2", ciphertext, itemKey)).rejects.toThrow();
+  });
+});
+
+describe("unwrapItemKey per leggere (M2, cassaforte nel browser §6)", () => {
+  it("`extractable: false`: la chiave della voce non si esporta, e decifra lo stesso", async () => {
+    const person = await generatePersonKeyPair();
+    const { ciphertext, itemKey } = await encryptPassword("cred-1", "s3cret");
+    const wrapped = await wrapItemKey(itemKey, person.publicKey, "cred-1", "key-1");
+    const key = await unwrapItemKey(wrapped, person.privateKey, "cred-1", "key-1", { extractable: false });
+    expect(key.extractable).toBe(false);
+    await expect(crypto.subtle.exportKey("raw", key)).rejects.toThrow();
+    expect(await decryptPassword("cred-1", ciphertext, key)).toBe("s3cret");
+  });
+
+  it("di default resta estraibile (la condivisione la ricifra per un altro)", async () => {
+    const person = await generatePersonKeyPair();
+    const { itemKey } = await encryptPassword("cred-1", "s3cret");
+    const wrapped = await wrapItemKey(itemKey, person.publicKey, "cred-1", "key-1");
+    expect((await unwrapItemKey(wrapped, person.privateKey, "cred-1", "key-1")).extractable).toBe(true);
   });
 });
 
@@ -94,3 +113,61 @@ describe("encryptForInsert", () => {
     }
   });
 });
+
+describe("m-4: unwrapItemKey non lascia la chiave in chiaro", () => {
+  it("il buffer decifrato da WebCrypto è azzerato dopo l'import", async () => {
+    const pair = await generatePersonKeyPair();
+    const { itemKey } = await encryptPassword("c-1", "s3cret");
+    const wrapped = await wrapItemKey(itemKey, pair.publicKey, "c-1", "k-1");
+    const privateKey = await crypto.subtle.importKey("pkcs8", pair.privateKeyPkcs8.slice(), { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+    const outputs: ArrayBuffer[] = [];
+    const real = crypto.subtle.decrypt.bind(crypto.subtle);
+    const spy = vi.spyOn(crypto.subtle, "decrypt").mockImplementation((async (...a: Parameters<SubtleCrypto["decrypt"]>) => {
+      const out = await real(...a);
+      outputs.push(out);
+      return out;
+    }) as never);
+    try {
+      await unwrapItemKey(wrapped, privateKey, "c-1", "k-1");
+      expect(outputs).toHaveLength(1);
+      expect(outputs[0]!.byteLength).toBe(32);
+      expect(new Uint8Array(outputs[0]!).every((b) => b === 0)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("revisione finale: wrap e unwrap azzerano la chiave grezza e il segreto ECDH", () => {
+  it("il `raw` esportato da wrapItemKey e lo `shared` di deriveBits (wrap e unwrap) sono azzerati dopo", async () => {
+    const pair = await generatePersonKeyPair();
+    const { itemKey } = await encryptPassword("c-1", "s3cret");
+    const exported: ArrayBuffer[] = [];
+    const derived: ArrayBuffer[] = [];
+    const realExport = crypto.subtle.exportKey.bind(crypto.subtle);
+    const realDerive = crypto.subtle.deriveBits.bind(crypto.subtle);
+    const ex = vi.spyOn(crypto.subtle, "exportKey").mockImplementation((async (format: KeyFormat, key: CryptoKey) => {
+      const out = await (realExport as (f: KeyFormat, k: CryptoKey) => Promise<ArrayBuffer | JsonWebKey>)(format, key);
+      if (format === "raw" && key.algorithm.name === "AES-GCM") exported.push(out as ArrayBuffer);
+      return out;
+    }) as never);
+    const de = vi.spyOn(crypto.subtle, "deriveBits").mockImplementation((async (...a: Parameters<SubtleCrypto["deriveBits"]>) => {
+      const out = await realDerive(...a);
+      derived.push(out);
+      return out;
+    }) as never);
+    try {
+      const wrapped = await wrapItemKey(itemKey, pair.publicKey, "c-1", "k-1");
+      const privateKey = await crypto.subtle.importKey("pkcs8", pair.privateKeyPkcs8.slice(), { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+      await unwrapItemKey(wrapped, privateKey, "c-1", "k-1");
+      expect(exported).toHaveLength(1);
+      expect(derived).toHaveLength(2);
+      const zero = (b: ArrayBuffer) => b.byteLength > 0 && new Uint8Array(b).every((x) => x === 0);
+      expect([...exported, ...derived].map(zero)).toEqual([true, true, true]);
+    } finally {
+      ex.mockRestore();
+      de.mockRestore();
+    }
+  });
+});
+

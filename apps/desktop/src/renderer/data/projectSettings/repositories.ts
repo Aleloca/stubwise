@@ -6,6 +6,7 @@ import type { GitAccount, TestOutcome } from "../instance/state";
 import type { Project, Repository } from "../model";
 import { gate, newId, now, state, visibleProjectIds } from "../store";
 import { forbidden, writer } from "../writer";
+import { canI as canInstance } from "../instance/common";
 import { canI, managedProject, refuse } from "./common";
 import { openProject } from "./reads";
 import type { ProjectRefusal, ProjectResult } from "./types";
@@ -29,13 +30,20 @@ export { reviewAccountChoices } from "./reviewers";
 //   del controller (pre-flight), P27). Il ramo scelto alla creazione è
 //   quello verso cui Claude apre le PR (`releaseBranch`);
 // - nessuna eliminazione di un repository che sta in un progetto, come sul
-//   web (quello rimasto senza progetto si elimina dal Task 5).
+//   web (quello rimasto senza progetto si elimina dal Task 5);
+// - SCEGLIERE un account git (sfogliarne i repository, verificare, creare,
+//   cambiare l'account o il revisore) vuole anche `git_accounts.manage`
+//   d'istanza: le credenziali sono dell'istanza (regola del server, decisa da
+//   46 col ritiro del web vecchio; prima il prototipo chiedeva il solo
+//   `repos.manage`).
 // Le verifiche e gli esiti simulati stanno nello stato (P29). Una voce per
 // campo cambiato (`repository.updated`, `params.field`); il webhook scrive
 // `repository.webhook_configured` con lo stato di prima e di dopo.
 
 const VIEW = "repos.view";
 export const MANAGE_REPOS = "repos.manage";
+/** Scegliere un account git: un permesso d'istanza, come sul server. */
+export const CHOOSE_GIT_ACCOUNT = "git_accounts.manage";
 
 /** Il webhook di un repository che entra in un progetto, o che ne esce: da configurare, senza secret. */
 export const notConfiguredWebhook = (): NonNullable<Repository["webhook"]> => ({
@@ -62,6 +70,19 @@ export interface RepositoryView {
   protectedBranches: string[];
   webhook: { state: "not_configured" | "configured" | "failed"; configuredAt: string | null };
 }
+
+/**
+ * Gli avvisi NON bloccanti di un salvataggio riuscito (come
+ * `repository-save-warnings.tsx` del web vecchio): l'identità dell'account
+ * principale che non si legge, il revisore predefinito che non passa i
+ * controlli, e — solo alla creazione — il ramo di rilascio che non si è
+ * salvato dopo che il repository era già nato (revisione I2). Il prototipo
+ * non ha piattaforma: da lui non ne arrivano.
+ */
+export type RepositorySaveWarning =
+  | "main_account_identity_unresolved"
+  | "default_review_account_invalid"
+  | "release_branch_not_set";
 
 export interface RemoteRepository {
   fullName: string;
@@ -168,12 +189,14 @@ export function managedRepository(
 /** I repository del progetto; `null` senza `repos.view` o su un progetto invisibile o archiviato. */
 export async function listProjectRepositories(
   projectId: string,
-): Promise<{ canManage: boolean; repositories: RepositoryView[] } | null> {
+): Promise<{ canManage: boolean; canChooseGitAccount: boolean; repositories: RepositoryView[] } | null> {
   const me = await gate("projectSettings.listProjectRepositories");
   const project = openProject(me, projectId);
   if (!project || !canI(me, VIEW, project.id)) return null;
   return {
     canManage: canI(me, MANAGE_REPOS, project.id),
+    // Aggiungere e cambiare l'account: anche `git_accounts.manage` d'istanza.
+    canChooseGitAccount: canInstance(me, CHOOSE_GIT_ACCOUNT),
     repositories: state.repositories.filter((r) => r.projectId === project.id).map(viewOf),
   };
 }
@@ -190,19 +213,35 @@ export async function listRemoteRepositories(
   projectId?: string,
 ): Promise<RemoteRepository[]> {
   const me = await gate("projectSettings.listRemoteRepositories");
-  if (!managesReposSomewhere(me)) throw forbidden();
+  if (!managesReposSomewhere(me) || !canInstance(me, CHOOSE_GIT_ACCOUNT)) throw forbidden();
   if (!accountOf(gitAccountId)) return [];
   const project = projectId ? openProject(me, projectId) : null;
   const taken = new Set(
     project
-      ? state.repositories.filter((r) => r.projectId === project.id).map((r) => r.fullName)
+      ? state.repositories.filter((r) => r.projectId === project.id).map((r) => (r.fullName ?? "").toLowerCase())
       : [],
   );
   return (REMOTE_REPOSITORIES[gitAccountId] ?? []).map((r) => ({
     ...r,
     branches: [...r.branches],
-    inProject: taken.has(r.fullName),
+    // Senza maiuscole, come sul server vero (revisione M5).
+    inProject: taken.has(r.fullName.toLowerCase()),
   }));
+}
+
+/**
+ * I rami di un repository che un account vede, il predefinito per primo:
+ * la creazione guidata li legge per il repository scelto (sul server
+ * l'elenco dei repository non li porta).
+ */
+export async function listRemoteBranches(
+  gitAccountId: string,
+  fullName: string,
+): Promise<{ branches: string[]; defaultBranch: string }> {
+  const me = await gate("projectSettings.listRemoteBranches");
+  if (!managesReposSomewhere(me) || !canInstance(me, CHOOSE_GIT_ACCOUNT)) throw forbidden();
+  const found = remoteOf(gitAccountId, fullName);
+  return found ? { branches: [...found.branches], defaultBranch: found.defaultBranch } : { branches: [], defaultBranch: "main" };
 }
 
 /** La terna scelta, valida: l'account, il repository che quell'account vede, un suo ramo. */
@@ -230,10 +269,11 @@ export async function checkRepositoryAccess(input: {
   gitAccountId: string;
   fullName: string;
   branch: string;
-}): Promise<ProjectResult<{ outcome: TestOutcome }>> {
+}): Promise<ProjectResult<{ outcome: TestOutcome; detail: string | null }>> {
   const me = await writer("projectSettings.checkRepositoryAccess");
   const managed = managedProject(me, input.projectId, MANAGE_REPOS);
   if ("refusal" in managed) return managed.refusal;
+  if (!canInstance(me, CHOOSE_GIT_ACCOUNT)) return refuse.forbidden();
   const triple = chosenTriple(input);
   if ("reason" in triple) return refuse.invalid(triple.reason);
 
@@ -252,7 +292,8 @@ export async function checkRepositoryAccess(input: {
     outcome,
     at: now(),
   });
-  return { ok: true, outcome };
+  // Il dettaglio della piattaforma: il prototipo non ne ha.
+  return { ok: true, outcome, detail: null };
 }
 
 /**
@@ -302,10 +343,11 @@ export async function createRepository(
     installCommand: string | null;
     testCommand: string | null;
   },
-): Promise<ProjectResult<{ repositoryId: string }>> {
+): Promise<ProjectResult<{ repositoryId: string; warnings: RepositorySaveWarning[] }>> {
   const me = await writer("projectSettings.createRepository");
   const managed = managedProject(me, projectId, MANAGE_REPOS);
   if ("refusal" in managed) return managed.refusal;
+  if (!canInstance(me, CHOOSE_GIT_ACCOUNT)) return refuse.forbidden();
   const { project } = managed;
   const triple = chosenTriple(input);
   if ("reason" in triple) return refuse.invalid(triple.reason);
@@ -349,7 +391,7 @@ export async function createRepository(
     projectId: project.id,
     object: repositoryObject(repository),
   });
-  return { ok: true, repositoryId: repository.id };
+  return { ok: true, repositoryId: repository.id, warnings: [] };
 }
 
 /**
@@ -401,7 +443,7 @@ const FIELDS = [
 export async function updateRepository(
   repositoryId: string,
   patch: RepositoryPatch,
-): Promise<ProjectResult> {
+): Promise<ProjectResult<{ warnings: RepositorySaveWarning[] }>> {
   const me = await writer("projectSettings.updateRepository");
   const managed = managedRepository(me, repositoryId);
   if ("refusal" in managed) return managed.refusal;
@@ -422,6 +464,12 @@ export async function updateRepository(
   if (!Array.isArray(branches)) return refuse.invalid("protected_branch");
   const badBranch = branches.findIndex((b) => typeof b !== "string" || b === "" || /\s/.test(b));
   if (badBranch >= 0) return refuse.invalidLine("protected_branch", badBranch + 1);
+  // Cambiare l'account (o il revisore) è sceglierne uno: `git_accounts.manage`.
+  // Rimandare gli stessi valori non è un cambio, come sul server.
+  const changesAccount =
+    (patch.gitAccountId !== undefined && patch.gitAccountId !== (r.gitAccountId ?? null)) ||
+    (patch.reviewGitAccountId !== undefined && patch.reviewGitAccountId !== (r.reviewGitAccountId ?? null));
+  if (changesAccount && !canInstance(me, CHOOSE_GIT_ACCOUNT)) return refuse.forbidden();
   const gitAccountId = patch.gitAccountId ?? r.gitAccountId ?? null;
   const account = accountOf(gitAccountId);
   if (patch.gitAccountId !== undefined && !account) return refuse.invalid("git_account");
@@ -491,7 +539,7 @@ export async function updateRepository(
       ...diff,
       params: { field },
     });
-  return { ok: true };
+  return { ok: true, warnings: [] };
 }
 
 /**
@@ -503,7 +551,7 @@ export async function updateRepository(
  */
 export async function configureRepositoryWebhook(
   repositoryId: string,
-): Promise<ProjectResult<{ state: "configured" | "failed"; updated: boolean }>> {
+): Promise<ProjectResult<{ state: "configured" | "failed"; updated: boolean; detail: string | null }>> {
   const me = await writer("projectSettings.configureRepositoryWebhook");
   const managed = managedRepository(me, repositoryId);
   if ("refusal" in managed) return managed.refusal;
@@ -533,6 +581,7 @@ export async function configureRepositoryWebhook(
     ok: true,
     state: outcome,
     updated: outcome === "configured" && previous === "configured",
+    detail: null,
   };
 }
 

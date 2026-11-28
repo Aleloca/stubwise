@@ -10,6 +10,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { placeEvent, settleSaved } from "./calendarCache";
+import type { RecentResult } from "./searchHistoryModel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { subscribeAccess } from "@backend/runtime";
 import * as api from "@backend/api";
@@ -134,6 +135,7 @@ export const queryKeys = {
   portfolioActivity: (personId: string) => ["as", personId, "timeline", "*portfolio"] as const,
   decisionLog: (personId: string, projectId: string) =>
     ["as", personId, "decisionLog", projectId] as const,
+  brief: (personId: string, briefId: string) => ["as", personId, "brief", briefId] as const,
   latestBrief: (personId: string, projectId: string) =>
     ["as", personId, "latestBrief", projectId] as const,
   notifications: (personId: string) => ["as", personId, "notifications"] as const,
@@ -740,6 +742,67 @@ export function useLatestBrief(projectId: string) {
   return useQuery({
     queryKey: queryKeys.latestBrief(me, projectId),
     queryFn: () => api.getLatestBrief(projectId),
+  });
+}
+
+/**
+ * I risultati aperti di recente nella ⌘K (shape `search-history.md`): solo a
+ * query vuota; con `repositoryId`, quelli di quello spazio Docs. Lettura
+ * accessoria: un errore non ferma la ⌘K (il gruppo semplicemente non c'è).
+ */
+export function useRecentResults(repositoryId: string | null, enabled: boolean) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "recentResults", repositoryId] as const,
+    queryFn: () => api.searchHistory.listRecentResults(repositoryId),
+    enabled,
+    retry: false,
+  });
+}
+
+/** Ricorda, toglie e svuota i recenti; ogni scrittura rilegge i recenti di chi guarda. */
+export function useRecentResultWrites() {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  const reload = () => client.invalidateQueries({ queryKey: ["as", me, "recentResults"] });
+  const remember = useMutation({ mutationFn: api.searchHistory.rememberResult, onSettled: reload });
+  // Togliere e svuotare sono OTTIMISTICI (revisione M3, come il web vecchio):
+  // la riga esce subito da ogni lettura dei recenti, e un errore la rimette
+  // PRIMA del toast di chi chiama.
+  const key = ["as", me, "recentResults"] as const;
+  type Snapshot = [readonly unknown[], RecentResult[] | undefined][];
+  const optimistic = async (keep: (r: RecentResult) => boolean): Promise<Snapshot> => {
+    await client.cancelQueries({ queryKey: key });
+    const previous = client.getQueriesData<RecentResult[]>({ queryKey: key });
+    for (const [k, data] of previous) if (data) client.setQueryData(k, data.filter(keep));
+    return previous;
+  };
+  const restore = (previous: Snapshot | undefined) => {
+    for (const [k, data] of previous ?? []) client.setQueryData(k, data);
+  };
+  const forget = useMutation({
+    mutationFn: (r: { type: RecentResult["type"]; entityId: string }) =>
+      api.searchHistory.forgetResult(r.type, r.entityId),
+    onMutate: (r) => optimistic((x) => !(x.type === r.type && x.entityId === r.entityId)),
+    onError: (_e, _r, previous) => restore(previous),
+    onSettled: reload,
+  });
+  const clear = useMutation({
+    mutationFn: () => api.searchHistory.clearRecentResults(),
+    onMutate: () => optimistic(() => false),
+    onError: (_e, _r, previous) => restore(previous),
+    onSettled: reload,
+  });
+  return { remember, forget, clear };
+}
+
+/** Un brief per id, anche non l'ultimo (`null` = non c'è o non si vede). */
+export function useBrief(briefId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.brief(me, briefId),
+    queryFn: () => api.getBrief(briefId),
+    enabled: briefId !== "",
   });
 }
 
@@ -4607,6 +4670,7 @@ export * from "./queries/support";
 export * from "./queries/servers";
 export * from "./queries/vault";
 export * from "./queries/admin";
+export * from "./queries/workspaces";
 export * from "./queries/docsDownloads";
 export * from "./queries/pulseProposals";
 export * from "./queries/entry";

@@ -18,7 +18,7 @@ import { CHAT_TOOL_READ_ROUTES, CHAT_TOOL_WRITE_ROUTES, isPrivateChatToolRead, i
 import { and, eq, inArray, isNotNull, isNull, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
-import { memberPermissionsSql, projectMembers, projects, roles } from "@stubwise/db";
+import { projectAccessPermissionsSql, projectAccessSql, projects } from "@stubwise/db";
 import {
   effectiveProjectPermissions,
   INSTANCE_PERMISSIONS,
@@ -92,9 +92,14 @@ export type RouteAccess =
  *   fattore usato negli ultimi {@link REAUTH_WINDOW_MS} (login o riconferma).
  * - `"setup_allowed"`: come `true`, ma chi un'app NON l'ha ancora (sessione
  *   di prima del rilascio) passa: sono le rotte con cui la configura.
- * - `"vault"` (I6): come `true`, ma vale ANCHE uno sblocco della cassaforte
- *   recente (`vaultUnlockedAt`). Solo le rotte della cassaforte che lo sblocco
- *   usa (la chiave, i sigilli): lo sblocco non apre le altre riconferme.
+ * - `"vault"` (I6, poi I-3 della cassaforte nel browser): da una sessione del
+ *   browser vale SOLO uno sblocco della cassaforte recente (`vaultUnlockedAt`),
+ *   non un secondo fattore qualunque; senza, 403 `vault_unlock_required`. Solo
+ *   le rotte che lavorano con la chiave aperta (la chiave, i sigilli, i sigilli
+ *   dei dispositivi): lo sblocco non apre le altre riconferme, e un login non
+ *   apre la cassaforte. Le rotte in cui chi chiama può NON avere una chiave da
+ *   sbloccare (l'attivazione, il recupero col kit) restano su `true`. Il PAT
+ *   desktop usa la sua finestra, come per `true`.
  *
  * L'elenco delle rotte che la chiedono è chiuso in `route-access.test.ts`.
  */
@@ -196,13 +201,9 @@ export async function projectPermissionsFor(
   opts: { includeArchived?: boolean } = {},
 ): Promise<ReadonlySet<ProjectPermission> | null> {
   const [row] = await db
-    .select({ memberRolePermissions: memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId) })
+    // Workspace (0239): l'unione delle fonti di `project_access`, la regola in UN posto.
+    .select({ memberRolePermissions: projectAccessPermissionsSql(projects.id, sql`${user.id}::uuid`) })
     .from(projects)
-    .leftJoin(
-      projectMembers,
-      and(eq(projectMembers.projectId, projects.id), eq(projectMembers.userId, user.id)),
-    )
-    .leftJoin(roles, eq(roles.id, projectMembers.roleId))
     .where(and(eq(projects.id, projectId), opts.includeArchived ? undefined : isNull(projects.archivedAt)));
   if (!row) return null;
   return effectiveProjectPermissions(new Set(user.instancePermissions), row.memberRolePermissions);
@@ -334,14 +335,13 @@ export async function projectIdsWithPermission(
     return (await db.select({ id: projects.id }).from(projects).where(and(isNull(projects.archivedAt), moduleOn))).map((r) => r.id);
   }
   const rows = await db
-    .select({ projectId: projectMembers.projectId })
-    .from(projectMembers)
-    .innerJoin(roles, eq(roles.id, projectMembers.roleId))
-    .innerJoin(projects, and(eq(projects.id, projectMembers.projectId), isNull(projects.archivedAt)))
+    .select({ projectId: projects.id })
+    .from(projects)
     .where(
       and(
-        eq(projectMembers.userId, user.id),
-        sql`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)} @> array[${permission}]::text[]`,
+        isNull(projects.archivedAt),
+        // `null @> …` è null: un non membro non passa (workspace, 0239).
+        sql`${projectAccessPermissionsSql(projects.id, sql`${user.id}::uuid`)} @> array[${permission}]::text[]`,
         moduleOn,
       ),
     );
@@ -400,10 +400,10 @@ export async function visibleProjectIds(
 ): Promise<ProjectScope> {
   if (user.instancePermissions.has("instance.full_admin")) return allOpenProjects(db);
   const rows = await db
-    .select({ projectId: projectMembers.projectId })
-    .from(projectMembers)
-    .innerJoin(projects, and(eq(projects.id, projectMembers.projectId), isNull(projects.archivedAt)))
-    .where(eq(projectMembers.userId, user.id));
+    .select({ projectId: projects.id })
+    .from(projects)
+    // Membro esplicito o di una workspace del progetto (0239).
+    .where(and(isNull(projects.archivedAt), projectAccessSql(projects.id, sql`${user.id}::uuid`)));
   return rows.map((r) => r.projectId);
 }
 
@@ -428,13 +428,11 @@ export async function projectPermissionsMap(
       }))
     : await db
         .select({
-          projectId: projectMembers.projectId,
-          permissions: sql<string[]>`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)}`,
+          projectId: projects.id,
+          permissions: sql<string[]>`${projectAccessPermissionsSql(projects.id, sql`${user.id}::uuid`)}`,
         })
-        .from(projectMembers)
-        .innerJoin(roles, eq(roles.id, projectMembers.roleId))
-        .innerJoin(projects, and(eq(projects.id, projectMembers.projectId), open))
-        .where(eq(projectMembers.userId, user.id));
+        .from(projects)
+        .where(and(open, projectAccessSql(projects.id, sql`${user.id}::uuid`)));
   const map: Record<string, ProjectPermission[]> = {};
   for (const row of rows) {
     const effective = effectiveProjectPermissions(instance, row.permissions);
@@ -619,8 +617,20 @@ async function applyReauth(
   }
   const fresh = (d: Date | null | undefined) => d != null && Date.now() - d.getTime() <= REAUTH_WINDOW_MS;
   const at = desktopPat ? user.patSecondFactorAt : user.secondFactorAt;
-  const vaultOk = reauth === "vault" && !desktopPat && fresh(user.vaultUnlockedAt);
-  if (!vaultOk && !fresh(at)) {
+  // `vault` (I6, poi I-3 della cassaforte nel browser): da una sessione del
+  // browser vale SOLO uno sblocco della cassaforte recente, non un secondo
+  // fattore qualunque, altrimenti nei 10 minuti dopo un login le rotte della
+  // cassaforte varrebbero senza averla aperta. Il codice è suo
+  // (`vault_unlock_required`): il client deve SBLOCCARE (passkey, purpose
+  // "vault"), non riconfermare, che qui non servirebbe. Il PAT desktop ha la
+  // sua finestra (`patSecondFactorAt`) e il sigillo del Mac, come prima.
+  if (reauth === "vault" && !desktopPat) {
+    if (!fresh(user.vaultUnlockedAt)) {
+      await apiError(reply, 403, "vault_unlock_required", "Recent vault unlock required");
+    }
+    return;
+  }
+  if (!fresh(at)) {
     await apiError(reply, 403, "reauth_required", "Recent second factor confirmation required");
     return;
   }

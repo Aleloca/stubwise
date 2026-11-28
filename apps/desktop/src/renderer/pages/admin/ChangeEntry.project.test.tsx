@@ -129,7 +129,7 @@ describe("una voce per gruppo, in inglese e in italiano", () => {
     ).toEqual({ ok: true });
     expect(
       await projectSettings.updateRepository("repo-acq", { testCommand: "pnpm test" }),
-    ).toEqual({ ok: true });
+    ).toEqual({ ok: true, warnings: [] });
 
     await openAdminLog(ROBERTA);
     const expected = {
