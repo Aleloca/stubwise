@@ -71,6 +71,14 @@ export const sessionResponseSchema = z.object({
    * delle iniziali nel profilo. `.default([])`: un server più vecchio non li manda.
    */
   departments: z.array(z.object({ id: z.uuid(), name: z.string(), colorToken: z.string() })).default([]),
+  /**
+   * La cassaforte nel browser (I-3, additivo): un'etichetta OPACA della
+   * sessione del cookie, stabile per tutta la sessione e diversa a ogni login
+   * (un HMAC dell'id della sessione col segreto del server; mai l'id). La
+   * scheda che ha aperto la cassaforte la confronta e, se cambia, richiude la
+   * chiave. `null` per un PAT; assente da un server di prima.
+   */
+  sessionTag: z.string().nullable().optional(),
 });
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
 

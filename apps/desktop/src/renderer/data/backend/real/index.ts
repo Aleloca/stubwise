@@ -5,8 +5,6 @@
 // tipata `typeof Fake.<nome>` con un `import type`, così il finto non entra
 // mai nel bundle.
 import type * as Fake from "../../api";
-import * as liveVaultDesktop from "./vaultDesktop";
-import * as liveVaultReads from "./vaultReads";
 import { liveAlerts } from "./alerts";
 import { liveSupport } from "./support";
 import { liveWidgets } from "./supportWidgets";
@@ -30,7 +28,6 @@ import { liveIntegration } from "./projectIntegration";
 import { liveProjectArchive } from "./projectArchive";
 import { liveProjectAutomations } from "./projectAutomations";
 import { liveProjectGeneral } from "./projectGeneral";
-import { listMacsOf, removeMacOf } from "./vaultMacsOf";
 import { getProjectUsage } from "./usage";
 import { liveProjectPlugins } from "./projectPlugins";
 import { liveProjectRepositories } from "./projectRepositories";
@@ -143,15 +140,10 @@ export const support: typeof Fake.support = partialNamespace<typeof Fake.support
  * rotte del PAT desktop di 72); le pagine la raggiungono quando la shape
  * `vault.md` è costruita nel prototipo.
  */
-export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vault", {
-  // Fetta 1: stato, aprire e chiudere, associazione, i propri Mac (dal main).
-  ...liveVaultDesktop,
-  // Fetta 2b: elenchi, dettaglio ed entrate, dalle rotte.
-  ...liveVaultReads,
-  // Ritiro del web vecchio (inventario 1.2): i Mac di un'altra persona, dal browser.
-  listMacsOf,
-  removeMacOf,
-});
+// Cassaforte nel browser, fase 1 (design §4): il modulo lo sceglie il BUILD
+// (`@backend/vault`, target `electron` o `web`), mai una scelta a runtime.
+// I Mac di un'altra persona (inventario 1.2) stanno in tutti e due.
+export { vault } from "@backend/vault";
 
 // Ritiro del web vecchio (inventario 1.4): le proposte del polso, dalle card dell'inbox.
 export { pulse } from "./pulse";

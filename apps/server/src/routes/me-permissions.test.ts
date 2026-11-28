@@ -101,4 +101,10 @@ describe("GET /api/projects/:projectId: myPermissions", () => {
     const body = res.json() as { myPermissions: string[] };
     expect([...body.myPermissions].sort()).toEqual([...PROJECT_PERMISSIONS].sort());
   });
+
+  it("senza chiave di cifratura (un'app di test) /me risponde lo stesso, con sessionTag null", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie: adminCookie } });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { sessionTag?: string | null }).sessionTag ?? null).toBeNull();
+  });
 });

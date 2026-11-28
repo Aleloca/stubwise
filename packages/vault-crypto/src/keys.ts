@@ -5,8 +5,8 @@
 // CryptoKey non estraibile.
 
 import { bytes, formatEnvelope, parseEnvelope, utf8 } from "./encoding.js";
+import { getRandomValues, subtle } from "./runtime.js";
 
-const subtle = () => globalThis.crypto.subtle;
 
 const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
 
@@ -79,7 +79,14 @@ export async function hkdfAesKey(
   info: string,
   salt: Uint8Array = new Uint8Array(0),
 ): Promise<CryptoKey> {
-  const base = await subtle().importKey("raw", bytes(secret), "HKDF", false, ["deriveKey"]);
+  // m-4: la copia del segreto (la PRF, o il segreto ECDH) si azzera appena importata.
+  const copy = bytes(secret);
+  let base: CryptoKey;
+  try {
+    base = await subtle().importKey("raw", copy, "HKDF", false, ["deriveKey"]);
+  } finally {
+    copy.fill(0);
+  }
   return subtle().deriveKey(
     { name: "HKDF", hash: "SHA-256", salt: bytes(salt), info: utf8(info) },
     base,
@@ -90,7 +97,7 @@ export async function hkdfAesKey(
 }
 
 export function randomIv(): Uint8Array<ArrayBuffer> {
-  return globalThis.crypto.getRandomValues(new Uint8Array(12));
+  return getRandomValues(new Uint8Array(12));
 }
 
 /** Prefisso dell'AAD del sigillo; segue lo SHA-256 del punto pubblico (65 byte, `raw`). */
@@ -117,19 +124,25 @@ async function sealAad(publicKey: string): Promise<Uint8Array<ArrayBuffer>> {
 }
 
 /**
- * Verifica che la privata pkcs8 sia la metà di `publicKey`: la si importa un
- * attimo come estraibile per leggerne il punto pubblico (`x`, `y` del JWK) e
- * lo si confronta con quello di `publicKey`. Lancia se non coincidono.
+ * Verifica che la privata pkcs8 sia la metà di `publicKey`, SENZA esportarla
+ * (revisione M-2): la si importa non estraibile e si fa un ECDH di prova con
+ * una coppia effimera, nei due versi. Se la privata è la metà della pubblica i
+ * due segreti coincidono. Lancia se non coincidono.
  */
 export async function assertPairMatches(pkcs8: Uint8Array<ArrayBuffer>, publicKey: string): Promise<void> {
-  const privateKey = await subtle().importKey("pkcs8", pkcs8, ECDH, true, ["deriveBits"]);
-  const jwk = await subtle().exportKey("jwk", privateKey);
-  const expected = JSON.parse(await exportPublicKey(await importPublicKey(publicKey))) as JsonWebKey;
-  // Il JWK della privata porta anche `d`: non esce da questa funzione.
-  delete jwk.d;
-  if (jwk.x !== expected.x || jwk.y !== expected.y) {
-    throw new Error("la chiave privata non corrisponde alla chiave pubblica");
-  }
+  const privateKey = await subtle().importKey("pkcs8", pkcs8, ECDH, false, ["deriveBits"]);
+  const ephemeral = (await subtle().generateKey(ECDH, false, ["deriveBits"])) as CryptoKeyPair;
+  const [mine, theirs] = await Promise.all([
+    subtle().deriveBits({ name: "ECDH", public: ephemeral.publicKey }, privateKey, 256),
+    subtle().deriveBits({ name: "ECDH", public: await importPublicKey(publicKey) }, ephemeral.privateKey, 256),
+  ]);
+  const a = new Uint8Array(mine);
+  const b = new Uint8Array(theirs);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
+  a.fill(0);
+  b.fill(0);
+  if (diff !== 0) throw new Error("la chiave privata non corrisponde alla chiave pubblica");
 }
 
 /**

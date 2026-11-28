@@ -92,9 +92,14 @@ export type RouteAccess =
  *   fattore usato negli ultimi {@link REAUTH_WINDOW_MS} (login o riconferma).
  * - `"setup_allowed"`: come `true`, ma chi un'app NON l'ha ancora (sessione
  *   di prima del rilascio) passa: sono le rotte con cui la configura.
- * - `"vault"` (I6): come `true`, ma vale ANCHE uno sblocco della cassaforte
- *   recente (`vaultUnlockedAt`). Solo le rotte della cassaforte che lo sblocco
- *   usa (la chiave, i sigilli): lo sblocco non apre le altre riconferme.
+ * - `"vault"` (I6, poi I-3 della cassaforte nel browser): da una sessione del
+ *   browser vale SOLO uno sblocco della cassaforte recente (`vaultUnlockedAt`),
+ *   non un secondo fattore qualunque; senza, 403 `vault_unlock_required`. Solo
+ *   le rotte che lavorano con la chiave aperta (la chiave, i sigilli, i sigilli
+ *   dei dispositivi): lo sblocco non apre le altre riconferme, e un login non
+ *   apre la cassaforte. Le rotte in cui chi chiama può NON avere una chiave da
+ *   sbloccare (l'attivazione, il recupero col kit) restano su `true`. Il PAT
+ *   desktop usa la sua finestra, come per `true`.
  *
  * L'elenco delle rotte che la chiedono è chiuso in `route-access.test.ts`.
  */
@@ -612,8 +617,20 @@ async function applyReauth(
   }
   const fresh = (d: Date | null | undefined) => d != null && Date.now() - d.getTime() <= REAUTH_WINDOW_MS;
   const at = desktopPat ? user.patSecondFactorAt : user.secondFactorAt;
-  const vaultOk = reauth === "vault" && !desktopPat && fresh(user.vaultUnlockedAt);
-  if (!vaultOk && !fresh(at)) {
+  // `vault` (I6, poi I-3 della cassaforte nel browser): da una sessione del
+  // browser vale SOLO uno sblocco della cassaforte recente, non un secondo
+  // fattore qualunque, altrimenti nei 10 minuti dopo un login le rotte della
+  // cassaforte varrebbero senza averla aperta. Il codice è suo
+  // (`vault_unlock_required`): il client deve SBLOCCARE (passkey, purpose
+  // "vault"), non riconfermare, che qui non servirebbe. Il PAT desktop ha la
+  // sua finestra (`patSecondFactorAt`) e il sigillo del Mac, come prima.
+  if (reauth === "vault" && !desktopPat) {
+    if (!fresh(user.vaultUnlockedAt)) {
+      await apiError(reply, 403, "vault_unlock_required", "Recent vault unlock required");
+    }
+    return;
+  }
+  if (!fresh(at)) {
     await apiError(reply, 403, "reauth_required", "Recent second factor confirmation required");
     return;
   }

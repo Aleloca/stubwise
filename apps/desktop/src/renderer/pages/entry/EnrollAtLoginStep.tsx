@@ -10,6 +10,7 @@ import { copyText, downloadText } from "../../tasks-ui/exportFile";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { BusyLabel, EntryHeading, ErrorLine, TotpInput, textButton, wrongCodeMessage } from "./parts";
+import { QrImage } from "../../platform/qrImage";
 
 const STEPS = ["scan", "confirm", "save"] as const;
 
@@ -137,11 +138,10 @@ export function EnrollAtLoginStep({
             </ErrorLine>
           ) : setup ? (
             <>
-              <div
-                className="size-40 rounded-md border border-rule bg-white p-2 text-black [&>svg]:size-full"
-                role="img"
-                aria-label={t("entry.reauth.enroll.qrLabel")}
-                dangerouslySetInnerHTML={{ __html: setup.qrSvg }}
+              <QrImage
+                svg={setup.qrSvg}
+                label={t("entry.reauth.enroll.qrLabel")}
+                className="size-40 rounded-md border border-rule bg-white p-2"
               />
               <div className="flex flex-col gap-1.5">
                 <span className="text-sm text-ink-muted">{t("entry.reauth.enroll.cantScan")}</span>

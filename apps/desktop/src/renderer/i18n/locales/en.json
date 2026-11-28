@@ -13900,7 +13900,13 @@
       "unsupported": "This Mac can't open the vault (no Secure Enclave, or a build without it). Open it in the browser.",
       "inactiveAdmin": "Activate it in the browser.",
       "unsupportedWeb": "In the browser, the vault opens on Stubwise's web pages, with your passkey.",
-      "openWebPage": "Open the vault page"
+      "openWebPage": "Open the vault page",
+      "openWeb": "Open · closes after 15 minutes without use",
+      "webLimit": "In the browser, sleep and screen lock close it when you come back.",
+      "openPasskey": "Open with passkey",
+      "passkeyUnsupported": "This passkey can't open the vault: it doesn't support the extension the vault needs. Try another passkey.",
+      "tryAnotherPasskey": "Try another passkey",
+      "openFailedWeb": "The vault couldn't be opened."
     },
     "row": {
       "show": "Show",
@@ -13917,6 +13923,7 @@
       "openFirst": "Open the vault first"
     },
     "copied": "Copied. The clipboard is cleared in 30 seconds.",
+    "copiedWeb": "Copied. Clears from your clipboard in 30 seconds when this tab is in front. Your system's clipboard history may keep it.",
     "revealFailed": "The password couldn't be opened.",
     "revealLimited_one": "You've opened many passwords in a short time. For safety, new ones open again in about {{count}} minute. Ones you've already opened stay readable.",
     "revealLimited_other": "You've opened many passwords in a short time. For safety, new ones open again in about {{count}} minutes. Ones you've already opened stay readable.",

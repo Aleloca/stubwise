@@ -29,14 +29,18 @@ export function useOpenVault() {
     const out = await unlock.mutateAsync(undefined).catch(() => null);
     if (out?.ok) return true;
     // La barra dice già revocata, irraggiungibile o senza Touch ID; annullato è una scelta.
+    // Nel browser: la passkey annullata è una scelta, e una senza PRF la dice la barra.
     const quiet = [
       "touch_id_cancelled",
       "touch_id_unavailable",
       "revoked",
       "unavailable",
       "unpaired",
+      "passkey_failed",
+      "passkey_unsupported",
     ];
-    if (!out || !quiet.includes(out.code)) toast.error(t("vault.bar.openFailed"));
+    if (!out || !quiet.includes(out.code))
+      toast.error(t(isWebAppBuild() ? "vault.bar.openFailedWeb" : "vault.bar.openFailed"));
     return false;
   };
   return { open, pending: unlock.isPending };
@@ -99,8 +103,10 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
       glyph = "●";
       text = (
         <span className="flex flex-col">
-          <span>{t("vault.bar.open")}</span>
+          <span>{t(isWebAppBuild() ? "vault.bar.openWeb" : "vault.bar.open")}</span>
           <span className="text-sm text-ink-muted">{t("vault.bar.recorded")}</span>
+          {/* Design §7: nel browser lo stop e il blocco dello schermo chiudono solo al ritorno. */}
+          {isWebAppBuild() && <span className="text-sm text-ink-muted">{t("vault.bar.webLimit")}</span>}
         </span>
       );
       action = (
@@ -109,7 +115,26 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
         </button>
       );
       break;
+    case "passkey_unsupported":
+      // Cassaforte nel browser (§9): la passkey usata non dà la PRF.
+      text = t("vault.bar.passkeyUnsupported");
+      action = (
+        <button type="button" className={secondaryButton} disabled={pending} onClick={() => void open()}>
+          {t("vault.bar.tryAnotherPasskey")}
+        </button>
+      );
+      break;
     case "locked":
+      if (isWebAppBuild()) {
+        // Cassaforte nel browser (§9): si apre con la passkey, nella scheda.
+        text = t("vault.bar.locked");
+        action = (
+          <button type="button" className={primaryButton} disabled={pending} onClick={() => void open()}>
+            {pending ? t("vault.bar.opening") : t("vault.bar.openPasskey")}
+          </button>
+        );
+        break;
+      }
       text = s.touchId ? t("vault.bar.locked") : t("vault.bar.noTouchId");
       action = s.touchId ? (
         <button

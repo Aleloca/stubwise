@@ -173,6 +173,17 @@ export function useVaultChanges() {
   );
 }
 
+/**
+ * Chi tiene una password in chiaro nel suo stato ascolta i cambi della
+ * cassaforte DIRETTAMENTE (design della cassaforte nel browser §6, I3): una
+ * chiusura arriva subito, senza aspettare la rilettura della query.
+ */
+export function useOnVaultChange(fn: () => void) {
+  const latest = useRef(fn);
+  latest.current = fn;
+  useEffect(() => api.vault.subscribeVaultChanges(() => latest.current()), []);
+}
+
 /** L'esito del ritorno dal browser, a chi ha il dialogo aperto. */
 export function usePairingResult(listener: (result: api.vault.PairingResult) => void) {
   const latest = useRef(listener);

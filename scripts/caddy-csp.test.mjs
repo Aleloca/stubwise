@@ -32,6 +32,15 @@ function block(opener) {
 }
 
 describe("il Caddyfile", () => {
+  it("m-7: nessun Service Worker, un 403 a `Service-Worker: script` nel PRIMO handle del sito", () => {
+    // Il sito dal suo inizio (la graffa di `{$DOMAIN}` confonderebbe `block`).
+    const code = caddyfile.slice(caddyfile.indexOf("{$DOMAIN} {")).replace(/#.*$/gm, "");
+    assert.match(code, /@serviceWorkerScript\s+header\s+Service-Worker\s+script/);
+    assert.match(block("handle @serviceWorkerScript {"), /respond\s+403/);
+    const firstHandle = /\bhandle(?:_path)?\s+(\S+)/.exec(code);
+    assert.equal(firstHandle?.[1], "@serviceWorkerScript", "è il primo handle (i handle sono esclusivi)");
+  });
+
   it("la CSP di base è quella dello script, senza unsafe-inline né unsafe-eval", () => {
     const snippet = block("(csp_strict)");
     assert.ok(snippet.includes(`header Content-Security-Policy "${cspHeader([])}"`), snippet);
