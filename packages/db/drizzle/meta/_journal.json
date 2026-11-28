@@ -1653,6 +1653,20 @@
       "when": 1804896000000,
       "tag": "0237_via_client",
       "breakpoints": true
+    },
+    {
+      "idx": 238,
+      "version": "7",
+      "when": 1804982400000,
+      "tag": "0238_vault_unlock_window",
+      "breakpoints": true
+    },
+    {
+      "idx": 239,
+      "version": "7",
+      "when": 1805068800000,
+      "tag": "0239_workspaces",
+      "breakpoints": true
     }
   ]
 }

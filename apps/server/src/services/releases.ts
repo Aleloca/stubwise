@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import { comments, createTicket, prReleaseNotes, prReviews, projects, releaseCiRuns, releaseCodeSeqs, releases, repositories, servers, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { aiBudgetState, productionForStatus, publishNotification, releaseProductionOf } from "@stubwise/notifications";
 import {
@@ -122,8 +123,8 @@ export async function recordRelease(db: Db, input: RecordReleaseInput): Promise<
           releaseId: row.id,
           releaseCode: code,
           title: input.title,
-          // Senza radice pubblica il link resta RELATIVO (`/app/#/…`): l'app lo apre lo stesso (94).
-          url: `${base}/app/#/p/${repo.projectCode}/releases/${code}`,
+          // Senza radice pubblica il link resta RELATIVO: l'app lo apre lo stesso (94, `app-links`).
+          url: appUrl(base, { to: "release", projectCode: repo.projectCode, releaseCode: code }),
         },
         { projectId: repo.projectId },
       );

@@ -2,6 +2,11 @@ import type { AiModelChoice, AiOperation } from "@stubwise/shared";
 import { alertTypeOf } from "../../domain/alerts/catalog";
 import { accessState } from "../access/index";
 import { addMemberAs, removeMemberAs, setMemberRoleAs } from "../admin/members";
+import {
+  addWorkspaceMemberAs,
+  removeWorkspaceMemberAs,
+  setProjectWorkspaceAs,
+} from "../workspaces/index";
 import { currentChannels } from "../alerts/reads";
 import { setSubscriptionAs } from "../alerts/writes";
 import {
@@ -164,6 +169,14 @@ const onMember = (projectId: string, personId: string, inverse: CatalogInverse):
   projectIds: [projectId],
   inverse,
   objects: [{ kind: "member", projectId, personId }],
+});
+
+/** Una scrittura su una workspace: l'oggetto è d'istanza, come un'impostazione. */
+const onWorkspace = (workspaceId: string, inverse: CatalogInverse): CatalogRun => ({
+  codes: [],
+  projectIds: [],
+  inverse,
+  objects: [{ kind: "instanceSetting", key: `workspace:${workspaceId}` }],
 });
 
 const roleOf = (projectId: string, personId: string): string | null =>
@@ -438,6 +451,73 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
         fn: "setMemberRole",
         args: { projectId, personId, roleId },
       });
+    },
+  },
+  // --- le workspace (D14 del design delle workspace) --------------------------
+  // Gli args sono quelli del server (`userId`); qui `userId` è l'id della
+  // persona del prototipo. Togliere esiste solo come inverso: Claude non toglie
+  // i ruoli per progetto (niente `alsoProjects`).
+  addWorkspaceMember: {
+    apiFn: "workspaces.addMember",
+    baseClass: "B",
+    undoable: true,
+    whoAction: "manageWorkspaces",
+    run(me, args) {
+      const workspaceId = args.workspaceId as string;
+      const userId = args.userId as string;
+      done(addWorkspaceMemberAs(me, workspaceId, userId, (args.roleId as string | undefined) ?? undefined));
+      return onWorkspace(workspaceId, { fn: "removeWorkspaceMember", args: { workspaceId, userId } });
+    },
+  },
+  removeWorkspaceMember: {
+    apiFn: "workspaces.removeMember",
+    baseClass: "B",
+    undoable: true,
+    whoAction: "manageWorkspaces",
+    run(me, args) {
+      const workspaceId = args.workspaceId as string;
+      const userId = args.userId as string;
+      const roleId = accessState().workspaceMembers.find(
+        (m) => m.workspaceId === workspaceId && m.personId === userId,
+      )?.roleId;
+      done(removeWorkspaceMemberAs(me, workspaceId, userId, false));
+      return onWorkspace(
+        workspaceId,
+        roleId ? { fn: "addWorkspaceMember", args: { workspaceId, userId, roleId } } : null,
+      );
+    },
+  },
+  addWorkspaceProject: {
+    apiFn: "workspaces.setProjectWorkspace",
+    baseClass: "B",
+    undoable: true,
+    whoAction: "manageWorkspaces",
+    run(me, args) {
+      const workspaceId = args.workspaceId as string;
+      const projectId = args.projectId as string;
+      // L'inverso: togliere il progetto, o rimetterlo nella workspace di prima.
+      const before = accessState().workspaceProjects.find((w) => w.projectId === projectId)?.workspaceId;
+      done(setProjectWorkspaceAs(me, projectId, workspaceId));
+      return onProject(
+        projectId,
+        before
+          ? { fn: "addWorkspaceProject", args: { workspaceId: before, projectId } }
+          : { fn: "removeWorkspaceProject", args: { workspaceId, projectId } },
+      );
+    },
+  },
+  removeWorkspaceProject: {
+    apiFn: "workspaces.setProjectWorkspace",
+    baseClass: "B",
+    undoable: true,
+    // Togliere non apre accessi: niente riconferma, come il DELETE del server.
+    reauthIf: () => false,
+    whoAction: "manageWorkspaces",
+    run(me, args) {
+      const workspaceId = args.workspaceId as string;
+      const projectId = args.projectId as string;
+      done(setProjectWorkspaceAs(me, projectId, null));
+      return onProject(projectId, { fn: "addWorkspaceProject", args: { workspaceId, projectId } });
     },
   },
   updateProjectGeneral: {

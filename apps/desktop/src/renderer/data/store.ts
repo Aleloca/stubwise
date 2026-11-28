@@ -1,5 +1,8 @@
 import { prLines, type PrLine } from "../domain/claude/taskWork";
 import { SEED_REPLY_JUDGMENTS } from "./seed/mail/replyJudgments";
+import { PULSE_PROPOSALS } from "./seed/pulse";
+import { TASK_DESIGNS } from "./seed/taskDesigns";
+import type { PulseProposalDef } from "./pulse/types";
 import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
 import { matches, type FilterContext } from "../domain/filters";
@@ -190,6 +193,7 @@ import {
   accessState as accessStateNow,
   registerMembershipSync,
   resetAccessState,
+  seatsIn,
   subscribeAccess,
   writeAccess as writeAccessNow,
   type AccessState,
@@ -301,6 +305,11 @@ export type ApiFnName =
   | "withdrawDecision"
   | "createRequest"
   | "updateRequest"
+  | "removeRequestDesign"
+  | "getTaskDesignPlan"
+  | "removeTaskDesign"
+  | "removeTaskPlan"
+  | "removeRequestPlan"
   | "mergeRequest"
   | "archiveRequest"
   | "reopenRequest"
@@ -411,6 +420,11 @@ export type ApiFnName =
   | "chat.answerClaudeQuestion"
   | "chat.listClaudeQuestions"
   // Docs (area 5)
+  | "pulse.listPulseProposals"
+  | "pulse.startPulseProposal"
+  | "pulse.dismissPulseProposal"
+  | "docs.exportCategory"
+  | "docs.downloadGraphJson"
   | "docs.listDocSpaces"
   | "docs.getDocSpace"
   | "docs.listDocTree"
@@ -756,6 +770,18 @@ export type ApiFnName =
   | "auth.reauthenticate"
   | "auth.enrollDuringReauth"
   // Amministrazione (area 9a, Task 4): People, inviti, ruoli, reparti, membri
+  | "workspaces.list"
+  | "workspaces.get"
+  | "workspaces.ofProject"
+  | "workspaces.listMembers"
+  | "workspaces.preview"
+  | "workspaces.create"
+  | "workspaces.rename"
+  | "workspaces.delete"
+  | "workspaces.setProjectWorkspace"
+  | "workspaces.addMember"
+  | "workspaces.setMemberRole"
+  | "workspaces.removeMember"
   | "admin.listPeople"
   | "admin.getPerson"
   | "admin.setInstanceRole"
@@ -921,6 +947,7 @@ export type ApiFnName =
   // Repository, file d'ambiente, Integration, Plugins (Task 4)
   | "projectSettings.listProjectRepositories"
   | "projectSettings.listRemoteRepositories"
+  | "projectSettings.listRemoteBranches"
   | "projectSettings.checkRepositoryAccess"
   | "projectSettings.simulateNextRepositoryCheck"
   | "projectSettings.createRepository"
@@ -1257,6 +1284,10 @@ interface State {
   meetingTranscripts: MeetingTranscript[];
   /** Le proposte della posta, condivise fra i destinatari membri del progetto. */
   mailProposals: MailProposal[];
+  /** Le proposte del polso (shape `pulse-proposals.md`). */
+  pulseProposals: PulseProposalDef[];
+  /** Design e piano salvati sulle task (shape `design-plan-remove.md`), per id. */
+  taskDesigns: Record<string, { design: string | null; plan: string | null }>;
   /** Le bozze, per persona e conversazione. */
   mailDrafts: MailDraft[];
   /** La posta non ancora arrivata: la porta dentro l'allineamento della sua casella. */
@@ -1400,6 +1431,19 @@ function withClaudeSeedActivity(task: Task): Task {
   return latest && latest > task.lastActivityAt ? { ...task, lastActivityAt: latest } : task;
 }
 
+/**
+ * `memberIds` del seme con anche chi vede il progetto dalla workspace
+ * (shape `workspaces.md`): le appartenenze del seme nascono da `memberIds`,
+ * le persone di workspace no, quindi si aggiungono qui, sugli accessi appena
+ * ripristinati. Dopo il seme le allinea `registerMembershipSync`.
+ */
+function withWorkspaceSeats(project: Project): Project {
+  const extra = seatsIn(accessStateNow())
+    .filter((x) => x.projectId === project.id && !project.memberIds.includes(x.personId))
+    .map((x) => x.personId);
+  return extra.length === 0 ? project : { ...project, memberIds: [...project.memberIds, ...extra] };
+}
+
 function freshState(): State {
   return {
     access: resetAccessState(),
@@ -1426,7 +1470,7 @@ function freshState(): State {
     instance: seedInstanceState(),
     googleWorkspaces: seedGoogleWorkspaces(),
     proposalsBeforeUnlink: new Map(),
-    projects: PROJECTS.map(copy),
+    projects: PROJECTS.map(copy).map(withWorkspaceSeats),
     statuses: PROJECT_STATUSES.map(copy),
     tasks: TASKS.map(copy).map(withClaudeSeedActivity),
     deletedTasks: [],
@@ -1509,6 +1553,8 @@ function freshState(): State {
     mailReplyJudgments: new Map(SEED_REPLY_JUDGMENTS),
     meetingTranscripts: MEETING_TRANSCRIPTS.map(copy),
     mailProposals: [...MAIL_PROPOSALS, ...CALENDAR_PROPOSALS].map(copy),
+    pulseProposals: PULSE_PROPOSALS.map(copy),
+    taskDesigns: structuredClone(TASK_DESIGNS),
     mailDrafts: MAIL_DRAFTS.map(copy),
     mailIncoming: MAIL_INCOMING.map(copy),
     mailClassificationLog: new Map(),
@@ -1682,6 +1728,9 @@ export function emptyStore(): void {
   writeAccessNow((a) => {
     a.roles = a.roles.filter((r) => r.preset);
     a.memberships = [];
+    a.workspaces = [];
+    a.workspaceProjects = [];
+    a.workspaceMembers = [];
     a.grants = [];
     a.departments = [];
     a.people = [];

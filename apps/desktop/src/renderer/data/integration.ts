@@ -72,6 +72,13 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // report, discovery, pulse coi giorni, brief) e il tetto delle correzioni,
     // sulla lettura e la PATCH del progetto.
     "automations",
+    // Ritiro del web vecchio (inventario 1.3): General (nome, descrizione,
+    // modulo Docs) e AI (l'account preferito), sulla PATCH del progetto.
+    "general",
+    "ai",
+    // E Usage, per chi ha `project.usage.view`, sul filtro per progetto di
+    // `GET /api/ai-usage/summary`.
+    "usage",
   ]),
   // Area 9, F1, R9: «Who can?» sulle rotte del server.
   // Area 9, F1, R7: People e Roles sulle letture calcolate del server.
@@ -100,6 +107,11 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   ]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([
+    // Le workspace (shape workspaces.md): colonna di All projects, pagina
+    // filtrata, People, Members e Settings → General, sulle rotte `/api/workspaces`.
+    "workspaces",
+    // Ritiro del web vecchio (27 nov 2026): le proposte del polso in «Da decidere».
+    "pulse-proposals",
     // Registro, area 9 r.1121: le frasi «spento» di brief, Docs notturni,
     // pulse e report (panoramica, Docs, Activity), dagli interruttori veri.
     "project-switches",

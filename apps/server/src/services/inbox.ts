@@ -40,14 +40,18 @@ import {
   comments,
   notifications,
   prReviews,
-  projectMembers,
+  projectAccess,
+  projectAccessRowCounts,
   projects,
+  workspaceProjects,
+  workspaces,
   serverFixes,
   servers,
   tickets,
   users,
   type Db,
 } from "@stubwise/db";
+import { scopeIncludes, visibleProjectIds } from "../auth/access.js";
 import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
 import { t, type Language } from "@stubwise/i18n";
@@ -60,6 +64,8 @@ import {
   isReviewFailedEvent,
   kindOffers,
   notificationVisibleToRecipient,
+  linkContextsFor,
+  type CardLinkContext,
   cardPermissions,
   cardPermissionsOf,
   reviewOutcomeOf,
@@ -854,7 +860,15 @@ export interface InboxItem extends ViaClaudeFields {
   /** Area 10, F5: chi ha annullato l'ingresso di una card `member.added` («Undone by»), derivato a lettura, o null. */
   undoneBy: { id: string; name: string } | null;
   /** Area 10, F5: i pezzi delle frasi di una card `member.added`, derivati a lettura (R-G5), o null. */
-  memberAdded: { addedUserId: string; addedName: string | null; roleName: string | null; actorName: string | null } | null;
+  memberAdded: {
+    addedUserId: string;
+    addedName: string | null;
+    roleName: string | null;
+    actorName: string | null;
+    workspaceId: string | null;
+    workspaceName: string | null;
+    projectIds: string[];
+  } | null;
   /** Area 4, Chat: solo `chat.mention` e `chat.question`, il messaggio come lo vede chi legge (`readChatMention`). */
   chat?: {
     channelId: string;
@@ -1040,6 +1054,13 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     db,
     page.map((r) => r.ticketId),
   );
+  // Ritiro del web vecchio: i codici per il link della nuova app di ogni card
+  // (progetto, task, repository, server), poche query per pagina.
+  const linkContexts = await linkContextsFor(
+    db,
+    page.map((r) => ({ id: r.id, kind: r.kind, projectId: r.projectId, ticketId: r.ticketId, event: r.event })),
+    { taskCodes },
+  );
   // Le task ELIMINATE nominate dalle card («Elimina task»): dalla lapide, UNA
   // query per pagina. Il jsonb porta ancora l'id; la colonna è già nulla.
   const goneTickets = await deletedTicketIdsOf(
@@ -1152,6 +1173,8 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
         handed: handedProposalIds.has(sourceProposalIds.get(r.id) ?? ""),
       },
       input.publicUrl,
+      // Ritiro del web vecchio: il link della card nella nuova app, derivato a lettura.
+      linkContexts.get(r.id) ?? {},
     );
     const baseActions = actionsFor(
       {
@@ -1281,7 +1304,13 @@ async function withoutStrangers(
   const unseen = [...new Set(items.flatMap((i) => (i.projectId && !permissionsByCard.get(i.id) ? [i.projectId] : [])))];
   const stillMember = new Set(
     unseen.length > 0
-      ? (await db.select({ id: projectMembers.projectId }).from(projectMembers).where(and(eq(projectMembers.userId, userId), inArray(projectMembers.projectId, unseen)))).map((r) => r.id)
+      ? // Membro esplicito o di workspace (0239).
+        (
+          await db
+            .selectDistinct({ id: projectAccess.projectId })
+            .from(projectAccess)
+            .where(and(eq(projectAccess.userId, userId), inArray(projectAccess.projectId, unseen), projectAccessRowCounts))
+        ).map((r) => r.id)
       : [],
   );
   const invisible = new Set(unseen.filter((p) => !stillMember.has(p)));
@@ -1592,6 +1621,7 @@ function renderItem(
   decisionRow?: DecisionRow,
   viewer: GoogleViewer = { permissions: null, handed: false },
   publicUrl?: string,
+  linkContext: CardLinkContext = {},
 ): { text: string; url?: string; question?: InboxQuestion; pulse?: InboxPulse; google?: InboxGoogle } {
   const question = readQuestion(rawEvent, kind);
   const pulse = readPulse(rawEvent, kind, question);
@@ -1606,7 +1636,7 @@ function renderItem(
   try {
     const event = rawEvent as unknown as NotificationEvent;
     const text = formatNotificationText(event, lang);
-    const url: unknown = openUrl(event, publicUrl);
+    const url: unknown = openUrl(event, publicUrl, linkContext);
     return {
       text: typeof text === "string" && text.trim() !== "" ? text : kind,
       ...(typeof url === "string" && url !== "" ? { url } : {}),
@@ -1807,8 +1837,8 @@ async function memberAddedPartsOf(
   db: Db,
   viewerId: string,
   rows: { id: string; event: unknown }[],
-): Promise<Map<string, { addedUserId: string; addedName: string | null; roleName: string | null; actorName: string | null }>> {
-  type Ev = { addedUserId?: unknown; actorUserId?: unknown; roleId?: unknown; roleName?: unknown };
+): Promise<Map<string, NonNullable<InboxItem["memberAdded"]>>> {
+  type Ev = { addedUserId?: unknown; actorUserId?: unknown; roleId?: unknown; roleName?: unknown; workspaceId?: unknown };
   const isId = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
   const evs = rows.flatMap((r) => {
     const e = (r.event ?? {}) as Ev;
@@ -1826,16 +1856,29 @@ async function memberAddedPartsOf(
     roleIds.length > 0 ? (await db.select({ id: roles.id, name: roles.name }).from(roles).where(inArray(roles.id, roleIds))).map((r) => [r.id, r.name]) : [],
   );
   const nameOf = (id: unknown) => (isId(id) && sees(id) ? (names.get(id) ?? null) : null);
+  // Workspace (lotto 3): il nome di ADESSO e i suoi progetti che chi legge vede.
+  const workspaceIds = [...new Set(evs.flatMap(({ e }) => (isId(e.workspaceId) ? [e.workspaceId] : [])))];
+  const wsNames = new Map(
+    workspaceIds.length > 0 ? (await db.select({ id: workspaces.id, name: workspaces.name }).from(workspaces).where(inArray(workspaces.id, workspaceIds))).map((w) => [w.id, w.name]) : [],
+  );
+  const wsProjects = workspaceIds.length > 0 ? await db.select({ workspaceId: workspaceProjects.workspaceId, projectId: workspaceProjects.projectId }).from(workspaceProjects).where(inArray(workspaceProjects.workspaceId, workspaceIds)) : [];
+  const seenProjects = workspaceIds.length > 0 ? await visibleProjectIds(db, { id: viewerId, instancePermissions: await instancePermissionsOfUser(db, viewerId) }) : [];
   return new Map(
-    evs.map(({ id, e, added }) => [
-      id,
-      {
-        addedUserId: added,
-        addedName: nameOf(added),
-        roleName: isId(e.roleId) ? (roleNames.get(e.roleId) ?? null) : typeof e.roleName === "string" ? e.roleName : null,
-        actorName: nameOf(e.actorUserId),
-      },
-    ]),
+    evs.map(({ id, e, added }) => {
+      const wsId = isId(e.workspaceId) && wsNames.has(e.workspaceId) ? e.workspaceId : null;
+      return [
+        id,
+        {
+          addedUserId: added,
+          addedName: nameOf(added),
+          roleName: isId(e.roleId) ? (roleNames.get(e.roleId) ?? null) : typeof e.roleName === "string" ? e.roleName : null,
+          actorName: nameOf(e.actorUserId),
+          workspaceId: wsId,
+          workspaceName: wsId ? (wsNames.get(wsId) ?? null) : null,
+          projectIds: wsId ? wsProjects.filter((p) => p.workspaceId === wsId && scopeIncludes(seenProjects, p.projectId)).map((p) => p.projectId) : [],
+        },
+      ];
+    }),
   );
 }
 
@@ -1881,8 +1924,8 @@ async function undoneByOfMemberAdded(db: Db, viewerId: string, rows: { id: strin
 
 /**
  * Area 8, F4a: il codice `SRV-<n>` del server di ogni card `monitor.*`, dal
- * suo id nel link dell'evento (`…/monitor/servers/<id>`), in UNA query per
- * pagina. Un server tolto non c'è: nessuna voce.
+ * `serverId` dell'evento (o, per le card di prima, dal suo id nel link del web
+ * vecchio `…/monitor/servers/<id>`), in UNA query per pagina. Un server tolto non c'è: nessuna voce.
  */
 async function serverCodesByNotification(
   db: Db,
@@ -1904,6 +1947,14 @@ async function serverCodesByNotification(
   }
   for (const r of rows) {
     if (r.kind !== "monitor.alert" && r.kind !== "monitor.recovered") continue;
+    // Ritiro del web vecchio: `serverId` nell'evento (le card nuove, il cui
+    // link è quello della nuova app); l'id nel link del web vecchio per quelle
+    // di prima.
+    const serverId = (r.event as { serverId?: unknown }).serverId;
+    if (typeof serverId === "string") {
+      idByCard.set(r.id, serverId.toLowerCase());
+      continue;
+    }
     const url = (r.event as { url?: unknown }).url;
     const m = typeof url === "string" ? /\/monitor\/servers\/([0-9a-f-]{36})(?:[/?#]|$)/i.exec(url) : null;
     if (m) idByCard.set(r.id, m[1]!.toLowerCase());
@@ -2339,7 +2390,10 @@ async function automationCardsFor(db: Db, userId: string, rows: { id: string; ki
   const autoRows = automationIds.length ? await db.select().from(automations).where(inArray(automations.id, automationIds)) : [];
   const runRows = runIds.length ? await db.select().from(automationRuns).where(inArray(automationRuns.id, runIds)) : [];
   const [admin] = await db.select({ yes: sql<boolean>`${userIsFullAdmin(sql`${userId}::uuid`)}` }).from(sql`(select 1) as one`);
-  const memberOf = new Set((await db.select({ projectId: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.userId, userId))).map((m) => m.projectId));
+  // Membro esplicito o di workspace (0239).
+  const memberOf = new Set(
+    (await db.selectDistinct({ projectId: projectAccess.projectId }).from(projectAccess).where(and(eq(projectAccess.userId, userId), projectAccessRowCounts))).map((m) => m.projectId),
+  );
   const sees = (projectId: string) => admin?.yes === true || memberOf.has(projectId);
   // Area 7, F4: una generale la vede solo chi ha il permesso d'istanza delle generali (R-G5).
   const seesGeneral = autoRows.some((a) => a.projectId === null)

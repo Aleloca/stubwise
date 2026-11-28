@@ -32,6 +32,9 @@ const ITEM_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TICKET_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const JOB_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const BASE_URL = "https://stubwise.example.com";
+/** I percorsi della nuova app che il server dà (`appPath`, ritiro del web vecchio). */
+const TASK_PATH = "/app/#/p/ACQ/tasks?task=ACQ-42";
+const requestPath = (id: string) => `/app/#/p/ACQ/requests?request=${id}`;
 
 /** Progetto finto (solo i campi che i tool usano; forma reale di GET /api/projects). */
 function fakeProject(
@@ -65,6 +68,7 @@ function fakeTicket(over: Partial<{ id: string; number: number; type: string; st
     status: over.status ?? "open",
     assigneeId: null,
     labels: [],
+    appPath: TASK_PATH,
     createdAt: "2026-07-22T00:00:00.000Z",
     updatedAt: "2026-07-22T00:00:00.000Z",
   };
@@ -89,6 +93,7 @@ function makeClient() {
     deleteDesign: vi.fn(),
     setPlan: vi.fn(),
     deletePlan: vi.fn(),
+    getTicket: vi.fn().mockResolvedValue({ appPath: TASK_PATH }),
     listPeople: vi.fn(),
     getMe: vi.fn(),
   };
@@ -144,7 +149,7 @@ describe("create_ticket", () => {
     });
     expect(res.isError).toBeUndefined();
     expect(firstText(res)).toContain("#7");
-    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${TASK_PATH}`);
   });
 
   it("passa type/priority espliciti quando forniti", async () => {
@@ -203,7 +208,7 @@ describe("create_ticket", () => {
 describe("convert_backlog_to_ticket", () => {
   it("converte e ritorna ticketNumber + URL", async () => {
     const client = makeClient();
-    client.convertBacklogToTicket.mockResolvedValue({ ticketId: TICKET_ID, ticketNumber: 99 });
+    client.convertBacklogToTicket.mockResolvedValue({ ticketId: TICKET_ID, ticketNumber: 99, ticketAppPath: TASK_PATH });
     const { ctx } = makeCtx(client);
 
     const res = await tool("convert_backlog_to_ticket").handler({ id: ITEM_ID }, ctx);
@@ -211,7 +216,7 @@ describe("convert_backlog_to_ticket", () => {
     expect(client.convertBacklogToTicket).toHaveBeenCalledWith(ITEM_ID);
     expect(res.isError).toBeUndefined();
     expect(firstText(res)).toContain("#99");
-    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${TASK_PATH}`);
   });
 
   it("cattura StubwiseApiError 403 (convert admin-only) in un ToolResult leggibile", async () => {
@@ -282,7 +287,7 @@ describe("create_backlog_item (polling)", () => {
     client.getBacklogJob
       .mockResolvedValueOnce({ status: "queued", resultItemId: null, error: null })
       .mockResolvedValueOnce({ status: "running", resultItemId: null, error: null })
-      .mockResolvedValueOnce({ status: "done", resultItemId: ITEM_ID, error: null });
+      .mockResolvedValueOnce({ status: "done", resultItemId: ITEM_ID, error: null, resultItemAppPath: requestPath(ITEM_ID) });
     const sleep = countingSleep();
     const { ctx } = makeCtx(client, { sleep, pollOptions: { intervalMs: 5, timeoutMs: 10_000 } });
 
@@ -301,7 +306,7 @@ describe("create_backlog_item (polling)", () => {
     expect(sleep).toHaveBeenCalledTimes(2);
     expect(res.isError).toBeUndefined();
     expect(firstText(res)).toContain(ITEM_ID);
-    expect(firstText(res)).toContain(`${BASE_URL}/backlog/${ITEM_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${requestPath(ITEM_ID)}`);
     expect(firstText(res)).toContain("frontmatter");
   });
 
@@ -309,7 +314,7 @@ describe("create_backlog_item (polling)", () => {
     const client = makeClient();
     client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
     client.createBacklogItem.mockResolvedValue({ queued: true, jobId: JOB_ID });
-    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: ITEM_ID, error: null });
+    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: ITEM_ID, error: null, resultItemAppPath: requestPath(ITEM_ID) });
     const { ctx } = makeCtx(client, { sleep: countingSleep(), pollOptions: { intervalMs: 5, timeoutMs: 10_000 } });
     const conversation = [
       { from: "customer", text: "Si può avere il PDF?" },
@@ -373,6 +378,7 @@ describe("create_backlog_item (polling)", () => {
       status: "done",
       resultItemId: CANONICAL_ID,
       error: null,
+      resultItemAppPath: requestPath(CANONICAL_ID),
     });
     const sleep = countingSleep();
     const { ctx } = makeCtx(client, { sleep, pollOptions: { intervalMs: 5, timeoutMs: 10_000 } });
@@ -384,7 +390,7 @@ describe("create_backlog_item (polling)", () => {
 
     expect(res.isError).toBeUndefined();
     expect(firstText(res)).toContain(CANONICAL_ID);
-    expect(firstText(res)).toContain(`${BASE_URL}/backlog/${CANONICAL_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${requestPath(CANONICAL_ID)}`);
   });
 
   it("(e) errore mid-poll transitorio (2 blip sotto soglia) poi 'done' → successo, il blip è tollerato", async () => {
@@ -394,7 +400,7 @@ describe("create_backlog_item (polling)", () => {
     client.getBacklogJob
       .mockRejectedValueOnce(new StubwiseApiError("blip di rete", 502, "bad_gateway"))
       .mockRejectedValueOnce(new StubwiseApiError("altro blip", 503, "unavailable"))
-      .mockResolvedValueOnce({ status: "done", resultItemId: ITEM_ID, error: null });
+      .mockResolvedValueOnce({ status: "done", resultItemId: ITEM_ID, error: null, resultItemAppPath: requestPath(ITEM_ID) });
     const sleep = countingSleep();
     const { ctx } = makeCtx(client, { sleep, pollOptions: { intervalMs: 5, timeoutMs: 10_000 } });
 
@@ -407,7 +413,7 @@ describe("create_backlog_item (polling)", () => {
     // l'esito è il successo, NON un errore.
     expect(res.isError).toBeUndefined();
     expect(firstText(res)).toContain(ITEM_ID);
-    expect(firstText(res)).toContain(`${BASE_URL}/backlog/${ITEM_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${requestPath(ITEM_ID)}`);
     // 3 chiamate (2 in errore + 1 done), con un'attesa dopo ogni blip.
     expect(client.getBacklogJob).toHaveBeenCalledTimes(3);
     expect(sleep).toHaveBeenCalledTimes(2);
@@ -473,7 +479,7 @@ describe("create_backlog_from_design", () => {
   it("risolve il progetto, salva il design verbatim e ritorna itemId + URL", async () => {
     const client = makeClient();
     client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
-    const url = `${BASE_URL}/backlog/${ITEM_ID}`;
+    const url = `${BASE_URL}${requestPath(ITEM_ID)}`;
     client.createBacklogFromDesign.mockResolvedValue({ itemId: ITEM_ID, url });
     const { ctx } = makeCtx(client);
 
@@ -528,7 +534,7 @@ describe("create_backlog_from_design", () => {
 describe("set_design / delete_design / set_plan / delete_plan", () => {
   it("set_design chiama client.setDesign(target, id, content) e conferma con URL", async () => {
     const client = makeClient();
-    client.setDesign.mockResolvedValue({ id: ITEM_ID });
+    client.setDesign.mockResolvedValue({ id: ITEM_ID, appPath: requestPath(ITEM_ID) });
     const { ctx } = makeCtx(client);
 
     const res = await tool("set_design").handler(
@@ -538,12 +544,12 @@ describe("set_design / delete_design / set_plan / delete_plan", () => {
 
     expect(client.setDesign).toHaveBeenCalledWith("backlog", ITEM_ID, "# Design");
     expect(res.isError).toBeUndefined();
-    expect(firstText(res)).toContain(`${BASE_URL}/backlog/${ITEM_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${requestPath(ITEM_ID)}`);
   });
 
   it("set_design su ticket usa l'URL /tickets nel messaggio", async () => {
     const client = makeClient();
-    client.setDesign.mockResolvedValue({ id: TICKET_ID });
+    client.setDesign.mockResolvedValue({ id: TICKET_ID, appPath: TASK_PATH });
     const { ctx } = makeCtx(client);
 
     const res = await tool("set_design").handler(
@@ -552,24 +558,24 @@ describe("set_design / delete_design / set_plan / delete_plan", () => {
     );
 
     expect(client.setDesign).toHaveBeenCalledWith("ticket", TICKET_ID, "corpo");
-    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${TASK_PATH}`);
   });
 
   it("delete_design chiama client.deleteDesign(target, id)", async () => {
     const client = makeClient();
-    client.deleteDesign.mockResolvedValue({ id: ITEM_ID });
+    client.deleteDesign.mockResolvedValue({ id: ITEM_ID, appPath: requestPath(ITEM_ID) });
     const { ctx } = makeCtx(client);
 
     const res = await tool("delete_design").handler({ target: "backlog", id: ITEM_ID }, ctx);
 
     expect(client.deleteDesign).toHaveBeenCalledWith("backlog", ITEM_ID);
     expect(res.isError).toBeUndefined();
-    expect(firstText(res)).toContain(`${BASE_URL}/backlog/${ITEM_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${requestPath(ITEM_ID)}`);
   });
 
   it("set_plan chiama client.setPlan(target, id, content)", async () => {
     const client = makeClient();
-    client.setPlan.mockResolvedValue({ id: TICKET_ID });
+    client.setPlan.mockResolvedValue({ id: TICKET_ID, appPath: TASK_PATH });
     const { ctx } = makeCtx(client);
 
     const res = await tool("set_plan").handler(
@@ -579,12 +585,12 @@ describe("set_design / delete_design / set_plan / delete_plan", () => {
 
     expect(client.setPlan).toHaveBeenCalledWith("ticket", TICKET_ID, "step 1");
     expect(res.isError).toBeUndefined();
-    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${TASK_PATH}`);
   });
 
   it("delete_plan chiama client.deletePlan(target, id)", async () => {
     const client = makeClient();
-    client.deletePlan.mockResolvedValue({ id: ITEM_ID });
+    client.deletePlan.mockResolvedValue({ id: ITEM_ID, appPath: requestPath(ITEM_ID) });
     const { ctx } = makeCtx(client);
 
     const res = await tool("delete_plan").handler({ target: "backlog", id: ITEM_ID }, ctx);
@@ -623,7 +629,7 @@ describe("run_ticket", () => {
     expect(firstText(res)).toContain("domanda");
     expect(firstText(res)).toContain("senza rilanciare run_ticket");
     expect(firstText(res)).toContain(JOB_ID);
-    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${TASK_PATH}`);
   });
 
   it("202 awaiting_plan_approval: dice che serve l'approvazione di un maintainer", async () => {
@@ -640,7 +646,7 @@ describe("run_ticket", () => {
     // Chi ha plans.approve lo approva da qui (lotto 1 della parità).
     expect(firstText(res)).toContain("approve_plan");
     expect(firstText(res)).toContain(JOB_ID);
-    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${TASK_PATH}`);
   });
 
   it("la descrizione dice che una PR aperta non si corregge rilanciando", () => {
@@ -686,7 +692,7 @@ describe("run_ticket", () => {
     expect(firstText(res)).not.toContain("C'è già un job in corso");
     expect(firstText(res)).toContain("ticket di review");
     expect(firstText(res)).toContain("Fai correggere a Stubwise");
-    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${TASK_PATH}`);
   });
 
   it("inoltra mode 'ai_plan' al client", async () => {
@@ -722,7 +728,7 @@ describe("run_ticket", () => {
     expect(firstText(res)).toContain("A job for this ticket is already running");
     // Il job in volo può essere fermo sul gate del piano: il testo lo dice.
     expect(firstText(res)).toContain("che chi ha plans.approve lo approvi: approve_plan");
-    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${TASK_PATH}`);
   });
 
   it("403: propaga il messaggio di permessi insufficienti come ToolResult isError", async () => {
@@ -782,14 +788,14 @@ describe("create_backlog_item per i collaboratori", () => {
     expect(res.isError).toBeUndefined();
     expect(firstText(res)).toContain("#7");
     expect(firstText(res)).toMatch(/backlog/);
-    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+    expect(firstText(res)).toContain(`${BASE_URL}${TASK_PATH}`);
   });
 
   it("voce fusa in una già aperta (creata prima dell'invio) → messaggio di unione col titolo", async () => {
     const client = makeClient();
     client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
     client.createBacklogItem.mockResolvedValue({ queued: true, jobId: JOB_ID });
-    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: ITEM_ID, error: null });
+    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: ITEM_ID, error: null, resultItemAppPath: requestPath(ITEM_ID) });
     client.getBacklogItem.mockResolvedValue({
       id: ITEM_ID,
       title: "Email inviate da Gmail non visibili",
@@ -813,7 +819,7 @@ describe("create_backlog_item per i collaboratori", () => {
     const client = makeClient();
     client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
     client.createBacklogItem.mockResolvedValue({ queued: true, jobId: JOB_ID });
-    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: ITEM_ID, error: null });
+    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: ITEM_ID, error: null, resultItemAppPath: requestPath(ITEM_ID) });
     client.getBacklogItem.mockResolvedValue({
       id: ITEM_ID,
       title: "Gmail",
@@ -840,7 +846,7 @@ describe("create_backlog_item per i collaboratori", () => {
     const client = makeClient();
     client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
     client.createBacklogItem.mockResolvedValue({ queued: true, jobId: JOB_ID });
-    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: ITEM_ID, error: null });
+    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: ITEM_ID, error: null, resultItemAppPath: requestPath(ITEM_ID) });
     client.getBacklogItem.mockResolvedValue({
       id: ITEM_ID,
       title: "Gmail",
@@ -885,6 +891,25 @@ describe("registerWriteTools", () => {
       expect(call[1]).toHaveProperty("description");
       expect(call[1]).toHaveProperty("inputSchema");
       expect(typeof call[2]).toBe("function");
+    }
+  });
+});
+
+describe("ritiro del web vecchio: i link dell'MCP vengono dal server", () => {
+  it("un server di prima (senza appPath) non dà la riga URL, e mai un percorso del web vecchio", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    const { appPath: _ignored, ...old } = fakeTicket({ number: 7 });
+    void _ignored;
+    client.createTicket.mockResolvedValue(old);
+    client.getTicket.mockRejectedValue(new Error("rete"));
+    client.runTicket.mockResolvedValue({ status: "queued", jobId: "job-1" });
+    const { ctx } = makeCtx(client);
+    const created = firstText(await tool("create_ticket").handler({ project: "acme", title: "Nuovo bug" }, ctx));
+    const run = firstText(await tool("run_ticket").handler({ id: TICKET_ID }, ctx));
+    for (const text of [created, run]) {
+      expect(text).not.toContain("URL:");
+      expect(text).not.toMatch(/\/tickets\/|\/backlog\//);
     }
   });
 });

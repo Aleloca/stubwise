@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CLIPBOARD_CLEAR_MS, copyWithAutoClear, revealPassword } from "../../lib/vault/credentials";
+import { CLIPBOARD_CLEAR_MS, copyWithAutoClear, RevealRateLimitedError, revealPassword } from "../../lib/vault/credentials";
 import { useVault } from "../../lib/vault/vault-context";
 import { UnlockDialog, vaultErrorMessage } from "./unlock-dialog";
 
@@ -115,7 +115,9 @@ export function RevealButtons({ credentialId, name }: { credentialId: string; na
             text:
               cause instanceof DOMException
                 ? t("vault:credentials.revealFailed")
-                : vaultErrorMessage(cause, t),
+                : cause instanceof RevealRateLimitedError
+                  ? t("vault:credentials.revealRateLimited", { count: Math.max(1, Math.ceil(cause.retryAfterSeconds / 60)) })
+                  : vaultErrorMessage(cause, t),
           });
         } finally {
           setBusy(false);

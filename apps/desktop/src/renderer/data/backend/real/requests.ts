@@ -306,6 +306,24 @@ export const updateRequest: typeof Fake.updateRequest = async (id, patch) => {
 export const mergeRequest: typeof Fake.mergeRequest = async (id, intoId) =>
   fromView((await appClient().requests.merge(id, intoId)) as ProjectRequestView);
 
+/**
+ * Togliere design o piano (shape `design-plan-remove.md`, DP-Q1): il DELETE
+ * della voce di backlog, poi la richiesta riletta. Già tolto da un altro
+ * (404 `no_active_design`) non è un errore.
+ */
+async function removeField(id: string, field: "design" | "plan"): Promise<ProjectRequest> {
+  try {
+    await appClient().request("DELETE", `/api/backlog/${encodeURIComponent(id)}/${field}`);
+  } catch (error) {
+    // M1: «già tolto» è SOLO `no_active_design` (il DELETE del piano non dà 404 se il piano non c'è).
+    if (!(error instanceof ApiError && error.code === "no_active_design")) throw error;
+  }
+  return fromView((await appClient().requests.get(id)) as ProjectRequestView);
+}
+
+export const removeRequestDesign: typeof Fake.removeRequestDesign = (id) => removeField(id, "design");
+export const removeRequestPlan: typeof Fake.removeRequestPlan = (id) => removeField(id, "plan");
+
 export const archiveRequest: typeof Fake.archiveRequest = async (id) =>
   fromView((await appClient().requests.archive(id)) as ProjectRequestView);
 

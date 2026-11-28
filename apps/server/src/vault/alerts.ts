@@ -2,6 +2,7 @@ import { users, type Db } from "@stubwise/db";
 import { userIsFullAdmin, type DbOrTx, type SecurityAlertSubject } from "@stubwise/notifications";
 import { and, ne } from "drizzle-orm";
 import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
+import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 
 /**
  * Avvisi di sicurezza della cassaforte (`security.alert`). Non contengono
@@ -18,6 +19,24 @@ const defaultWarn: AlertWarn = (message) => console.warn(message);
 /** Alla persona: la sua chiave della cassaforte è stata creata. */
 export async function publishVaultKeyCreated(db: DbOrTx, userId: string): Promise<void> {
   await publishSecurityAlert(db, userId, "vault_key_created", null);
+}
+
+/**
+ * Alla persona: un sigillo della sua chiave è stato aggiunto o sostituito
+ * (I7). Non lancia mai: il sigillo è già salvato (e la riga del registro con
+ * lui), quindi un avviso mancato è una riga di log, non un 500.
+ */
+export async function publishVaultSealChanged(
+  db: DbOrTx,
+  userId: string,
+  subject: "vault_seal_added" | "vault_seal_replaced",
+  warn: AlertWarn = defaultWarn,
+): Promise<void> {
+  try {
+    await publishSecurityAlert(db, userId, subject, null);
+  } catch (error) {
+    warn(`[vault] avviso ${subject} non recapitato a ${userId} (${errorText(error)})`);
+  }
 }
 
 /**
@@ -53,6 +72,25 @@ async function publishToOtherFullAdmins(
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * C2: una raffica di letture della stessa persona (`REVEAL_BURST`). Avviso a
+ * lei (se non è stata lei, se ne accorge) e agli altri full admin, con la sua
+ * email. Non lancia mai: la lettura è già avvenuta.
+ */
+export async function publishVaultRevealBurst(
+  db: DbOrTx,
+  user: { id: string; email: string },
+  warn: AlertWarn = defaultWarn,
+): Promise<void> {
+  try {
+    await recordSecurityEvent(db, { kind: "vault_reveal_burst", user });
+    await publishSecurityAlert(db, user.id, "vault_reveal_burst", null);
+  } catch (error) {
+    warn(`[vault] avviso vault_reveal_burst non recapitato a ${user.id} (${errorText(error)})`);
+  }
+  await publishToOtherFullAdmins(db, user, "vault_reveal_burst", warn);
 }
 
 /** La chiave di recupero è stata usata: avviso agli altri full admin. */

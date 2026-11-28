@@ -147,7 +147,8 @@ describe("area 9: le letture calcolate dell'amministrazione", () => {
     const inv = clientWith([{ id: "i_x", email: "x@acme.com", createdAt: "2026-11-16T10:00:00.000Z", expiresAt: "2026-11-17T10:00:00.000Z", expired: false }]);
     expect((await inv.client.admin.invites())[0]).toMatchObject({ projects: [], instanceRole: null });
     const ch = clientWith({});
-    expect(await ch.client.admin.inviteChoices()).toEqual({ instanceRoles: [], defaultInstanceRoleId: null, projects: [] });
+    // `workspaces` (lotto 4 delle workspace) col suo default: una risposta senza il campo si legge.
+    expect(await ch.client.admin.inviteChoices()).toEqual({ instanceRoles: [], defaultInstanceRoleId: null, projects: [], workspaces: [] });
     const del = clientWith(null, 204);
     await del.client.admin.revokeInvite("i_abc");
     expect([call(del.fetchImpl).method, call(del.fetchImpl).url]).toEqual(["DELETE", "/api/admin/invites/i_abc"]);

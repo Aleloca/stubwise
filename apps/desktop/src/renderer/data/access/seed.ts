@@ -250,6 +250,40 @@ function seedPeople(): PersonAccess[] {
 }
 
 /** Lo stato degli accessi del seme, nuovo a ogni chiamata. */
+/**
+ * Le workspace del seme (shape `workspaces.md`, §7): due con dei progetti e
+ * il resto in «No workspace». Stanno sui progetti nati dopo il fixture di
+ * parità (gli inattivi del 10b e VRD) più STW e AUD, e non cambiano i
+ * permessi di nessuno sui progetti del fixture:
+ * - «Clienti storici» (ORT, SPZ, LNT, BSC): Nicola la vede SOLO dalla
+ *   workspace, da Viewer; Marco c'è da Developer, e in tutti e quattro è
+ *   anche membro per progetto (le due fonti insieme);
+ * - «Prodotti» (STW, AUD, VRD): nessuno ancora, lo stato vuoto di People.
+ */
+function seedWorkspaces(): Pick<AccessState, "workspaces" | "workspaceProjects" | "workspaceMembers"> {
+  const created = `${daysFromToday(-40)}T09:00:00Z`;
+  return {
+    workspaces: [
+      { id: "ws-storici", slug: "clienti-storici", name: "Clienti storici", createdAt: created },
+      { id: "ws-prodotti", slug: "prodotti", name: "Prodotti", createdAt: created },
+    ],
+    workspaceProjects: [
+      ...["prj-ort", "prj-spz", "prj-lnt", "prj-bsc"].map((projectId) => ({
+        workspaceId: "ws-storici",
+        projectId,
+      })),
+      ...["prj-stw", "prj-aud", "prj-vrd"].map((projectId) => ({
+        workspaceId: "ws-prodotti",
+        projectId,
+      })),
+    ],
+    workspaceMembers: [
+      { workspaceId: "ws-storici", personId: "p-nicola", roleId: roleIdOf("viewer") },
+      { workspaceId: "ws-storici", personId: "p-marco", roleId: roleIdOf("developer") },
+    ],
+  };
+}
+
 export function seedAccessState(): AccessState {
   return {
     roles: seedRoles(),
@@ -258,6 +292,7 @@ export function seedAccessState(): AccessState {
     departments: seedDepartments(),
     people: seedPeople(),
     revocations: [],
+    ...seedWorkspaces(),
     // Gli ex membri del seme, allineati al registro (`member.removed` di
     // Federico da AUD, data/seed/changelog.ts): revisione del lotto 2, I3.
     formerMemberships: [{ projectId: "prj-aud", personId: "p-federico" }],

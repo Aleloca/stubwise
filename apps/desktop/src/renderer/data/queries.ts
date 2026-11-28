@@ -1465,6 +1465,33 @@ export function useCreateRequest() {
   );
 }
 
+/** Design e piano salvati su una task, per la sua pagina (shape `design-plan-remove.md`). */
+export function useTaskDesignPlan(taskId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "taskDesign", taskId] as const,
+    queryFn: () => api.getTaskDesignPlan(taskId),
+  });
+}
+
+/** Togliere design o piano di una task: si rilegge anche la task (la descrizione torna l'originale). */
+export function useRemoveTaskDesignPlan() {
+  return useWrite(
+    ({ taskId, which }: { taskId: string; which: "design" | "plan" }) =>
+      which === "design" ? api.removeTaskDesign(taskId) : api.removeTaskPlan(taskId),
+    ["taskDesign", ...TASK_AREAS],
+  );
+}
+
+/** Togliere design o piano di una richiesta (shape `design-plan-remove.md`). */
+export function useRemoveRequestDesignPlan() {
+  return useWrite(
+    ({ id, which }: { id: string; which: "design" | "plan" }) =>
+      which === "design" ? api.removeRequestDesign(id) : api.removeRequestPlan(id),
+    REQUEST_AREAS,
+  );
+}
+
 export function useUpdateRequest() {
   return useWrite(
     ({ id, patch }: { id: string; patch: Parameters<typeof api.updateRequest>[1] }) =>
@@ -4643,6 +4670,9 @@ export * from "./queries/support";
 export * from "./queries/servers";
 export * from "./queries/vault";
 export * from "./queries/admin";
+export * from "./queries/workspaces";
+export * from "./queries/docsDownloads";
+export * from "./queries/pulseProposals";
 export * from "./queries/entry";
 export * from "./queries/me";
 export * from "./queries/instance";

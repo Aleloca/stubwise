@@ -760,7 +760,7 @@ function withCodes(text: string): ReactNode {
     if (i % 2 === 0) return <Fragment key={i}>{part}</Fragment>;
     if (new RegExp(`^${CODE_IN_TEXT.source}$`).test(part)) return <CodeLink key={i} code={part} />;
     // Un codice di progetto: chi legge lo vede (le note non nominano mai l'invisibile).
-    if (/^[A-Z]{2,4}$/.test(part)) {
+    if (/^[A-Z][A-Z0-9]{1,5}$/.test(part)) {
       return (
         <a
           key={i}

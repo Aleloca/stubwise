@@ -1,3 +1,5 @@
+import { appUrl } from "@stubwise/shared";
+import { serverAppUrl } from "@stubwise/notifications";
 import { environmentServers, projectEnvironments, serverEpisodes, serverMetrics, servers, serviceChecks, type Db } from "@stubwise/db";
 import {
   publishNotification,
@@ -149,7 +151,15 @@ export async function evaluateMonitorAlertsOnce(
   }
 
   for (const server of allServers) {
-    const url = `${base}/monitor/servers/${server.id}`;
+    // Ritiro del web vecchio: la pagina del server nella nuova app (`app-links`),
+    // nel progetto se il legame è univoco. Pigra: un giro senza avvisi non la
+    // compone, e i ricevitori leggono il server da `serverId`, non dall'URL.
+    let urlOnce: Promise<string> | undefined;
+    const url = () =>
+      (urlOnce ??= refs()
+        .then((r) => serverAppUrl(db, base, server.id, r.projectId ?? null))
+        // Una lettura che fallisce non toglie l'avviso: il link va alla Home (M2).
+        .catch(() => appUrl(base, { to: "home" })));
     // Ancore risolte al massimo UNA volta per server (e solo se si notifica).
     const refs = lazyServerRefs(db, server.id);
     // Stato host (offline + soglie): isolato dai check, isolato dagli altri server.
@@ -168,7 +178,7 @@ export async function evaluateMonitorAlertsOnce(
         .where(eq(serviceChecks.serverId, server.id));
       for (const check of checks) {
         try {
-          await evaluateCheck(db, publish, refs, server.name, check, url, now);
+          await evaluateCheck(db, publish, refs, server.name, server.id, check, url, now);
         } catch (err) {
           console.error(
             `[stubwise-worker] monitor-alerts: check ${check.id} fallito: ${errText(err)}`,
@@ -269,7 +279,7 @@ async function evaluateServerStatus(
   publish: PublishFn,
   refs: () => Promise<PublishOpts>,
   server: typeof servers.$inferSelect,
-  url: string,
+  url: () => Promise<string>,
   now: Date,
 ): Promise<void> {
   const nowIso = now.toISOString();
@@ -277,7 +287,7 @@ async function evaluateServerStatus(
   const active: Record<string, { since: string; notifiedAt: string | null }> = {
     ...(server.activeAlerts ?? {}),
   };
-  const pending: NotificationEvent[] = [];
+  const pending: Omit<Extract<NotificationEvent, { kind: "monitor.alert" | "monitor.recovered" }>, "url">[] = [];
   let changed = false;
 
   /** Entra in allarme (una volta sola) o resta silente (anti-spam). */
@@ -289,14 +299,14 @@ async function evaluateServerStatus(
     if (active[key]) return;
     active[key] = { since: nowIso, notifiedAt: nowIso };
     changed = true;
-    pending.push({ kind: "monitor.alert", serverName: server.name, condition, detail, url });
+    pending.push({ kind: "monitor.alert", serverName: server.name, serverId: server.id, condition, detail });
   };
   /** Esce dall'allarme (recovered) se una chiave era attiva. */
   const exit = (key: string, condition: MonitorCondition, detail: string): void => {
     if (!active[key]) return;
     delete active[key];
     changed = true;
-    pending.push({ kind: "monitor.recovered", serverName: server.name, condition, detail, url });
+    pending.push({ kind: "monitor.recovered", serverName: server.name, serverId: server.id, condition, detail });
   };
 
   const status = computeServerStatus(server.lastSeenAt, server.sampleIntervalSeconds, now);
@@ -389,8 +399,9 @@ async function evaluateServerStatus(
   }
   if (pending.length > 0) {
     const opts = await refs();
+    const link = await url();
     for (const event of pending) {
-      await safePublish(publish, db, event, opts);
+      await safePublish(publish, db, { ...event, url: link } as NotificationEvent, opts);
     }
   }
 }
@@ -442,8 +453,9 @@ async function evaluateCheck(
   publish: PublishFn,
   refs: () => Promise<PublishOpts>,
   serverName: string,
+  serverId: string,
   check: typeof serviceChecks.$inferSelect,
-  url: string,
+  url: () => Promise<string>,
   now: Date,
 ): Promise<void> {
   if (check.enabled && check.lastStatus === "down" && check.downNotifiedAt === null) {
@@ -454,7 +466,7 @@ async function evaluateCheck(
     await safePublish(
       publish,
       db,
-      { kind: "monitor.alert", serverName, condition: "check_down", detail, url },
+      { kind: "monitor.alert", serverName, serverId, condition: "check_down", detail, url: await url() },
       await refs(),
     );
     return;
@@ -474,8 +486,9 @@ async function evaluateCheck(
         kind: "monitor.recovered",
         serverName,
         condition: "check_down",
+        serverId,
         detail: `Check "${check.name}" di nuovo raggiungibile`,
-        url,
+        url: await url(),
       },
       await refs(),
     );

@@ -392,7 +392,7 @@ function VariableRow({
   onReplace,
   onRemove,
 }: {
-  variable: { key: string; setAt: string };
+  variable: { key: string; setAt: string | null };
   onReplace: () => void;
   onRemove: () => void;
 }) {
@@ -406,9 +406,12 @@ function VariableRow({
         <code title={variable.key} className="min-w-0 truncate font-code text-sm text-ink">
           {variable.key}
         </code>
-        <span className="num ml-auto shrink-0 text-xs text-ink-muted @min-[720px]:ml-0">
-          {t("settings.envFiles.setAt", { date: formatDate(variable.setAt, i18n.language) })}
-        </span>
+        {/* Senza data (un server di prima) la riga non la mostra: mai una data inventata. */}
+        {variable.setAt && (
+          <span className="num ml-auto shrink-0 text-xs text-ink-muted @min-[720px]:ml-0">
+            {t("settings.envFiles.setAt", { date: formatDate(variable.setAt, i18n.language) })}
+          </span>
+        )}
       </span>
       <span className="flex justify-end gap-1">
         <button type="button" className={rowButton} onClick={onReplace}>

@@ -42,12 +42,18 @@ interface Search {
   /** Area 10b (S5): il progetto (codice) e il ruolo (id) con cui il dialogo nasce. */
   inviteProject?: string;
   inviteRole?: string;
+  /** Shape `workspaces.md` (D9): la workspace da cui si arriva («Invite someone new to the instance»). */
+  inviteWorkspace?: string;
 }
 
 /** Progetto e ruolo dell'indirizzo, se ci sono (la riga D di Claude, area 10b). */
 const presetOf = (search: Search): InvitePreset | null =>
-  search.inviteProject
-    ? { projectCode: search.inviteProject, roleId: search.inviteRole ?? null }
+  search.inviteProject || search.inviteWorkspace
+    ? {
+        projectCode: search.inviteProject ?? "",
+        roleId: search.inviteRole ?? null,
+        ...(search.inviteWorkspace ? { workspaceId: search.inviteWorkspace } : {}),
+      }
     : null;
 
 const listOf = (value: string | undefined): string[] => (value ? value.split(",") : []);
@@ -79,6 +85,7 @@ export function PeoplePage() {
         invite: undefined,
         inviteProject: undefined,
         inviteRole: undefined,
+        inviteWorkspace: undefined,
       }),
       replace: true,
     });

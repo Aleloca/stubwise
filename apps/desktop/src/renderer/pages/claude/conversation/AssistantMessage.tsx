@@ -118,7 +118,7 @@ const LINK_TARGET = /\]\(((?:#\/|who:)[^)\s]+)\)/g;
  * progetto; `who:seeUsage` (area 10b, S3) → un'azione d'istanza, senza codice.
  */
 const whoOf = (href: string) => {
-  const m = /^who:([A-Za-z]+)(?:\/([A-Z]{2,4}))?$/.exec(href);
+  const m = /^who:([A-Za-z]+)(?:\/([A-Z][A-Z0-9]{1,5}))?$/.exec(href);
   return m ? { action: m[1]!, code: m[2] ?? null } : null;
 };
 
@@ -179,9 +179,9 @@ export function useInternalLinks(text: string): LinkRenderer {
  * §3.1): «**ACQ** — 4 stalled tasks…», o senza codice («Other projects — $40»).
  */
 /** Il codice di progetto in testa a una riga di catalogo («- **ACQ** — …»). */
-const CATALOG_CODE = /^- \*\*([A-Z]{2,4})\*\* — /gm;
+const CATALOG_CODE = /^- \*\*([A-Z][A-Z0-9]{1,5})\*\* — /gm;
 
-const CATALOG_ROW = /^(?:\*\*([A-Z]{2,4})\*\*|([^*\n]+?)) — (.+)$/;
+const CATALOG_ROW = /^(?:\*\*([A-Z][A-Z0-9]{1,5})\*\*|([^*\n]+?)) — (.+)$/;
 
 /**
  * Le righe di catalogo di S2/S3: un elenco puntato le cui voci sono tutte

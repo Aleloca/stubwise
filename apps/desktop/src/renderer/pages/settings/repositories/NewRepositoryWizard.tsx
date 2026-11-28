@@ -6,16 +6,19 @@ import {
   useCheckRepositoryAccess,
   useCreateRepository,
   useGitAccounts,
+  useRemoteBranches,
   useRemoteRepositories,
   useSeesGitAccounts,
   useSimulateNextRepositoryCheck,
   type GitAccountView,
+  type RepositorySaveWarning,
   type TestOutcome,
 } from "../../../data/queries";
 import type { Project } from "../../../data/types";
 import { Dialog, DialogField, inputClass } from "../../../tasks-ui/Dialog";
 import { AiSkeleton } from "../../admin/ai/parts";
 import { CHECK_MS, CheckWords, CrossGlyph, wait } from "../../admin/integrations/parts";
+import { isAppBuild } from "../../../data/build";
 import { PrototypeBox } from "../../automations/shared";
 import { Segmented, selectClass } from "../../automations/builder/controls";
 import { ErrorLine } from "../../entry/parts";
@@ -55,7 +58,12 @@ export function NewRepositoryWizard({
 }: {
   project: Project;
   onClose: () => void;
-  onCreated: (repositoryId: string, name: string) => void;
+  onCreated: (
+    repositoryId: string,
+    name: string,
+    warnings: RepositorySaveWarning[],
+    provider: "github" | "bitbucket" | null,
+  ) => void;
 }) {
   const { t } = useTranslation();
   const accounts = useGitAccounts();
@@ -72,7 +80,9 @@ export function NewRepositoryWizard({
   const [name, setName] = useState("");
   const [branch, setBranch] = useState<string | null>(null);
   const [find, setFind] = useState("");
-  const [verified, setVerified] = useState<(Triple & { outcome: TestOutcome }) | null>(null);
+  const [verified, setVerified] = useState<
+    (Triple & { outcome: TestOutcome; detail: string | null }) | null
+  >(null);
   const [checking, setChecking] = useState(false);
   const [nextCheck, setNextCheck] = useState<TestOutcome>("ok");
   const [testCommand, setTestCommand] = useState("");
@@ -84,6 +94,13 @@ export function NewRepositoryWizard({
   const remote = useRemoteRepositories(accountId, project.id);
   const account = accounts.data?.find((a) => a.id === accountId) ?? null;
   const chosen = remote.data?.find((r) => r.fullName === fullName) ?? null;
+  // I rami del repository scelto (il predefinito per primo); finché non arrivano, il predefinito.
+  const remoteBranches = useRemoteBranches(accountId, fullName);
+  const branchChoices = remoteBranches.data?.branches.length
+    ? remoteBranches.data.branches
+    : chosen
+      ? chosen.branches
+      : [];
   const platform = account ? t(`settings.repos.platforms.${account.provider}`) : "";
   const triple: Triple | null =
     accountId && fullName && branch ? { accountId, fullName, branch } : null;
@@ -153,7 +170,7 @@ export function NewRepositoryWizard({
           }),
           wait(CHECK_MS),
         ]);
-        if (result.ok) setVerified({ ...asked, outcome: result.outcome });
+        if (result.ok) setVerified({ ...asked, outcome: result.outcome, detail: result.detail ?? null });
         return result;
       },
       () => undefined,
@@ -192,7 +209,7 @@ export function NewRepositoryWizard({
       // primo colpo, invece di restare sul passo 4 (e di dire «name taken»
       // al Create successivo).
       (result) => {
-        if (result.ok) onCreated(result.repositoryId, name.trim());
+        if (result.ok) onCreated(result.repositoryId, name.trim(), result.warnings ?? [], account?.provider ?? null);
       },
     );
     setCreating(false);
@@ -313,7 +330,7 @@ export function NewRepositoryWizard({
                   onChange={(e) => setBranch(e.target.value)}
                   className={`${selectClass} h-8 w-64 max-w-full font-code`}
                 >
-                  {chosen.branches.map((b) => (
+                  {branchChoices.map((b) => (
                     <option key={b} value={b}>
                       {b === chosen.defaultBranch
                         ? t("settings.repos.wizard.branchOption", { branch: b })
@@ -324,6 +341,14 @@ export function NewRepositoryWizard({
                 <span className="max-w-[56ch] text-sm text-pretty text-ink-muted">
                   {t("settings.repos.wizard.branchBody")}
                 </span>
+                {/* I rami che non arrivano (revisione M6): resta il predefinito, e lo si dice. */}
+                {remoteBranches.isError && (
+                  <ErrorLine>
+                    {remoteBranches.error instanceof Error && remoteBranches.error.message === "not_visible"
+                      ? t("settings.repos.wizard.branchesNotVisible", { account: account?.name ?? "", platform })
+                      : t("settings.repos.wizard.branchesError")}
+                  </ErrorLine>
+                )}
               </DialogField>
             )}
             {step === 4 && account && triple && (
@@ -333,6 +358,7 @@ export function NewRepositoryWizard({
                 triple={triple}
                 checking={checking}
                 result={sameTriple ? (verified?.outcome ?? null) : null}
+                detail={sameTriple ? (verified?.detail ?? null) : null}
                 stale={verified !== null && !sameTriple}
                 notVerified={notVerified}
                 onVerify={() => void verify()}
@@ -646,6 +672,7 @@ function AccessStep({
   triple,
   checking,
   result,
+  detail,
   stale,
   notVerified,
   onVerify,
@@ -658,6 +685,8 @@ function AccessStep({
   triple: Triple;
   checking: boolean;
   result: TestOutcome | null;
+  /** Il dettaglio della piattaforma (i controlli falliti, il suo messaggio), quando c'è. */
+  detail: string | null;
   stale: boolean;
   notVerified: boolean;
   onVerify: () => void;
@@ -706,6 +735,13 @@ function AccessStep({
           </span>
           <span className="min-w-0">
             {t(`settings.repos.wizard.outcomes.${result}`, { account: account.name, platform })}
+            {detail && (
+              <span data-check-detail className="mt-0.5 block text-ink-muted">
+                {detail === "credentials_undecryptable"
+                  ? t("settings.repos.wizard.undecryptable", { account: account.name })
+                  : t("settings.repos.wizard.platformSays", { detail })}
+              </span>
+            )}
           </span>
         </p>
       )}
@@ -713,18 +749,21 @@ function AccessStep({
         <div className="compose-enter flex flex-col gap-3">{commands}</div>
       )}
       {notVerified && <ErrorLine>{t("settings.repos.wizard.notVerified")}</ErrorLine>}
-      <PrototypeBox>
-        <p className="text-sm text-ink-muted">{t("settings.repos.wizard.prototype.intro")}</p>
-        <Segmented<TestOutcome>
-          label={t("settings.repos.wizard.prototype.label")}
-          value={nextCheck}
-          options={(["ok", "invalid_credentials", "unreachable"] as const).map((o) => ({
-            value: o,
-            label: t(`settings.repos.wizard.prototype.${o}`),
-          }))}
-          onChange={onNextCheck}
-        />
-      </PrototypeBox>
+      {/* Solo nel prototipo: nella build app la verifica è quella vera. */}
+      {!isAppBuild() && (
+        <PrototypeBox>
+          <p className="text-sm text-ink-muted">{t("settings.repos.wizard.prototype.intro")}</p>
+          <Segmented<TestOutcome>
+            label={t("settings.repos.wizard.prototype.label")}
+            value={nextCheck}
+            options={(["ok", "invalid_credentials", "unreachable"] as const).map((o) => ({
+              value: o,
+              label: t(`settings.repos.wizard.prototype.${o}`),
+            }))}
+            onChange={onNextCheck}
+          />
+        </PrototypeBox>
+      )}
     </>
   );
 }

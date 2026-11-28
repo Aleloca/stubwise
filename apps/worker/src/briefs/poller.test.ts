@@ -428,10 +428,9 @@ describe("notifica project.brief", () => {
     expect(event.periodEnd).toBe("2026-09-06");
     // La headline è la prima sezione, non tutto il brief.
     expect(event.headline).toBe("Il progetto è a metà del lavoro sul login.");
-    // Il link porta alla ROADMAP, dove il brief si legge in mezzo agli eventi.
-    expect(event.projectUrl).toBe(
-      `https://stubwise.example.com/projects/${projectId}/roadmap`,
-    );
+    // Ritiro del web vecchio: la panoramica del progetto nella nuova app, col brief aperto.
+    const [proj] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
+    expect(event.projectUrl).toBe(`https://stubwise.example.com/app/#/p/${proj!.code}/overview?brief=${brief!.id}`);
     // Il markdown completo viaggia come `summary`: è la section del DM Slack.
     expect(event.summary as string).toContain("## ");
   });

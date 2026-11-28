@@ -1,3 +1,4 @@
+import { ticketUrl } from "./shared.js";
 import { randomUUID } from "node:crypto";
 import type {
   ErrorEvent,
@@ -392,14 +393,6 @@ async function processTicketEvent(
   );
 }
 
-/**
- * Compone l'URL del ticket: assoluto se `publicUrl` è valorizzato, altrimenti
- * solo il path. publicUrl viene normalizzato togliendo gli slash finali.
- */
-function ticketUrl(publicUrl: string | undefined, ticketId: string): string {
-  const base = (publicUrl ?? "").replace(/\/+$/, "");
-  return `${base}/tickets/${ticketId}`;
-}
 
 /**
  * Notifica `ticket.created` per un ticket SDK appena creato (best-effort, DOPO
@@ -428,7 +421,7 @@ async function notifyTicketCreated(
         ticketTitle: ticket.title,
         projectName: opts?.projectName ?? "",
         source: ticket.source,
-        ticketUrl: ticketUrl(opts?.publicUrl, ticket.id),
+        ticketUrl: await ticketUrl(db, opts?.publicUrl, ticket.id),
       },
       { projectId: ticket.projectId, ticketId: ticket.id },
     );

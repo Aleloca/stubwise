@@ -8,6 +8,7 @@ import {
   type AccessState,
   type PermissionSource,
   type RoleDef,
+  seatProjectIdsIn,
 } from "../access/index";
 import { requireReauth } from "../auth/reauth";
 import { person as addressOf } from "../seed/mail/helpers";
@@ -92,9 +93,8 @@ export const instanceHoldings = (me: string): PermissionMap => effectivePermissi
 /** I permessi di progetto avuti in almeno un progetto, o d'istanza (solo per ciò che non arriva in nessun progetto). */
 function holdingsSomewhere(me: string): PermissionMap {
   const map = new Map<string, PermissionSource[]>(effectivePermissions(me));
-  for (const m of accessState().memberships) {
-    if (m.personId !== me) continue;
-    for (const [perm, sources] of effectivePermissions(me, m.projectId))
+  for (const projectId of seatProjectIdsIn(accessState(), me)) {
+    for (const [perm, sources] of effectivePermissions(me, projectId))
       if (!map.has(perm)) map.set(perm, sources);
   }
   return map;
@@ -205,6 +205,14 @@ export function sourceView(source: PermissionSource): SourceView {
         kind: "department",
         departmentId: source.departmentId,
         departmentName: departmentName(source.departmentId),
+      };
+    case "workspace":
+      return {
+        kind: "workspace",
+        workspaceId: source.workspaceId,
+        workspaceName: accessState().workspaces.find((w) => w.id === source.workspaceId)?.name ?? "",
+        roleId: source.roleId,
+        roleName: roleById(source.roleId)?.name ?? "",
       };
     case "full_admin":
       return { kind: "full_admin" };

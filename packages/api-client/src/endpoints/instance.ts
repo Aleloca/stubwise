@@ -91,6 +91,30 @@ export function createGitAccountEndpoints(request: ApiRequest) {
     validate(id: string) {
       return request("POST", `/api/git-accounts/${seg(id)}/validate`, undefined, gitValidateResponseSchema);
     },
+    /**
+     * Ritiro del web vecchio (la creazione di un repository): i repository che
+     * l'account vede sulla piattaforma, i rami di uno, e la verifica che lo
+     * raggiunga. Tutte con `git_accounts.manage`.
+     */
+    repositories(id: string) {
+      return request(
+        "GET",
+        `/api/git-accounts/${seg(id)}/repositories`,
+        undefined,
+        z.array(z.object({ fullName: z.string(), name: z.string(), cloneUrl: z.string(), defaultBranch: z.string().nullable() })),
+      );
+    },
+    branches(id: string, repo: string) {
+      return request(
+        "GET",
+        `/api/git-accounts/${seg(id)}/branches?repo=${encodeURIComponent(repo)}`,
+        undefined,
+        z.object({ branches: z.array(z.string()), defaultBranch: z.string().nullable() }),
+      );
+    },
+    validateRepo(id: string, repo: string) {
+      return request("GET", `/api/git-accounts/${seg(id)}/validate-repo?repo=${encodeURIComponent(repo)}`, undefined, gitValidateResponseSchema);
+    },
     setDefaultReviewer(id: string): Promise<Reader<DefaultReviewerResponse>> {
       return request("PUT", `/api/git-accounts/${seg(id)}/default-reviewer`, undefined, defaultReviewerResponseSchema);
     },
@@ -218,10 +242,20 @@ export function createInstanceStatusEndpoints(request: ApiRequest) {
  */
 export function createUsageEndpoints(request: ApiRequest) {
   return {
-    summary(input: { range: UsageRange; groupBy: UsageDimension; thenBy?: UsageDimension }): Promise<Reader<UsageSummary>> {
+    /**
+     * Con `projectId` (Settings → Usage del progetto) i soli consumi di quel
+     * progetto: 404 se fuori dallo scope di chi guarda o invisibile. Un server
+     * di prima ignora il parametro.
+     */
+    summary(input: { range: UsageRange; groupBy: UsageDimension; thenBy?: UsageDimension; projectId?: string }): Promise<Reader<UsageSummary>> {
       const r = input.range;
       const range = "days" in r ? { days: String(r.days) } : "month" in r ? { month: "1" } : { from: r.from, to: r.to };
-      return request("GET", `/api/ai-usage/summary${toQuery({ ...range, groupBy: input.groupBy, thenBy: input.thenBy })}`, undefined, usageSummarySchema);
+      return request(
+        "GET",
+        `/api/ai-usage/summary${toQuery({ ...range, groupBy: input.groupBy, thenBy: input.thenBy, projectId: input.projectId })}`,
+        undefined,
+        usageSummarySchema,
+      );
     },
   };
 }

@@ -112,13 +112,24 @@ describe("il registro del catalogo", () => {
       if (!full) expect(declaredClassOf(fn)).toBe(entry.baseClass);
     }
     expect(fns.filter((fn) => declaredClassOf(fn) === "C").sort()).toEqual(
-      ["addMember", "registerPlugin", "removeMember", "setMemberRole", "updatePluginRef"].sort(),
+      [
+        "addMember",
+        "registerPlugin",
+        "removeMember",
+        "setMemberRole",
+        "updatePluginRef",
+        // Le workspace (D14): le due «add» aprono un accesso, quindi la riconferma.
+        "addWorkspaceMember",
+        "addWorkspaceProject",
+      ].sort(),
     );
     // Le parziali (decisione del maintainer in F7: la classe segue la rotta):
     // saveStorage chiede il codice solo con una chiave, che Claude non porta mai;
     // updateWebhook solo con un URL nuovo, che da Claude non entra (72, F7).
     expect(fns.filter((fn) => CLAUDE_CATALOG[fn].reauthIf).sort()).toEqual(
-      ["saveStorage", "updateWebhook"].sort(),
+      // Togliere un progetto da una workspace usa la stessa funzione di
+      // metterlo, ma non apre accessi: come il DELETE del server, mai C.
+      ["saveStorage", "updateWebhook", "removeWorkspaceProject"].sort(),
     );
     expect(declaredClassOf("updateWebhook")).toBe("B");
   });
@@ -185,6 +196,11 @@ const SCENARIOS: Partial<Record<ClaudeActionFn, () => Record<string, unknown>>> 
   addMember: () => ({ projectId: OLV, personId: "p-laura", roleId: "role-developer" }),
   removeMember: () => ({ projectId: OLV, personId: "p-davide" }),
   setMemberRole: () => ({ projectId: OLV, personId: "p-davide", roleId: "role-developer" }),
+  // Le workspace (D14): gli args del server (`userId`).
+  addWorkspaceMember: () => ({ workspaceId: "ws-storici", userId: "p-irene", roleId: "role-viewer" }),
+  removeWorkspaceMember: () => ({ workspaceId: "ws-storici", userId: "p-nicola" }),
+  addWorkspaceProject: () => ({ workspaceId: "ws-storici", projectId: OLV }),
+  removeWorkspaceProject: () => ({ workspaceId: "ws-storici", projectId: "prj-ort" }),
   updateProjectGeneral: () => ({ projectId: OLV, name: "Olive" }),
   setProjectAi: () => ({ projectId: OLV, providerId: "prv-backup-max", exclusive: false }),
   saveProjectAutomations: () => {

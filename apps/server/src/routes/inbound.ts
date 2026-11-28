@@ -133,7 +133,7 @@ export async function inboundRoutes(
       return reply.code(201).send({
         id: ticket.id,
         number: ticket.number,
-        ...(publicUrl !== undefined ? { url: ticketUrl(publicUrl, ticket.id) } : {}),
+        ...(publicUrl !== undefined ? { url: await ticketUrl(app.db, publicUrl, ticket.id) } : {}),
       });
     },
   );

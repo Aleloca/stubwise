@@ -282,6 +282,11 @@ describe("cassaforte: attivazione e chiavi delle persone", () => {
 
   it("aggiunge il sigillo di un'altra passkey alla propria chiave; non a quella di un altro", async () => {
     const mine = (await req("GET", "/api/vault/keys/mine", member.headers)).json() as { id: string };
+    const sealAlerts = async () =>
+      (await listInbox(testDb.db, { userId: member.id, lang: "it" })).items.filter(
+        (i) => i.kind === "security.alert" && /passkey ora apre la tua cassaforte|sigillo della cassaforte/i.test(i.text),
+      );
+    const alertsBefore = (await sealAlerts()).length;
     const ok = await req("POST", `/api/vault/keys/${mine.id}/seals`, member.headers, {
       passkeyId: memberPasskey2Id,
       sealedPrivateKey: envelope(),
@@ -297,8 +302,15 @@ describe("cassaforte: attivazione e chiavi delle persone", () => {
         .select()
         .from(securityEvents)
         .where(and(eq(securityEvents.userId, member.id), eq(securityEvents.kind, "vault_seal_replaced")));
-    // Un sigillo NUOVO non è una sostituzione (l'aggiunta della passkey è già nel registro).
+    // Un sigillo NUOVO non è una sostituzione, ma (I7, indurimento) lascia la SUA riga e
+    // avvisa la persona: una passkey in più che apre la cassaforte è un fatto da sapere.
     expect(await sealEvents()).toHaveLength(0);
+    const added = await testDb.db
+      .select()
+      .from(securityEvents)
+      .where(and(eq(securityEvents.userId, member.id), eq(securityEvents.kind, "vault_seal_added")));
+    expect(added).toHaveLength(1);
+    expect(await sealAlerts()).toHaveLength(alertsBefore + 1);
     // Lo stesso sigillo riscritto: è una sostituzione, e finisce nel registro.
     const replacement = envelope();
     const replaced = await req("POST", `/api/vault/keys/${mine.id}/seals`, member.headers, {
@@ -307,6 +319,8 @@ describe("cassaforte: attivazione e chiavi delle persone", () => {
     });
     expect(replaced.statusCode).toBe(204);
     expect(await sealEvents()).toHaveLength(1);
+    // Anche la sostituzione avvisa la persona.
+    expect(await sealAlerts()).toHaveLength(alertsBefore + 2);
 
     const [adminKey] = await testDb.db
       .select({ id: vaultPersonKeys.id })

@@ -1,24 +1,27 @@
+import { appUrl } from "@stubwise/shared/app-links";
+import { repositoryDocsAppUrl } from "./app-link-targets.js";
 import type { DbOrTx } from "./dispatch.js";
 import type { DocsNightlyAttentionEvent } from "./format.js";
 import { publishNotification, type PublishOpts } from "./publish.js";
 
 /** Cosa sa chi pubblica: l'evento senza `kind` e senza URL, più la base pubblica. */
 export type DocsNightlyAttentionInput = Omit<DocsNightlyAttentionEvent, "kind" | "docsUrl"> & {
-  /** Base pubblica dell'istanza (`PUBLIC_URL`); il link porta a `/docs/:repositoryId`. */
+  /** Base pubblica dell'istanza (`PUBLIC_URL`); il link porta ai Docs del repository nella nuova app. */
   publicUrl: string;
 };
 
-/** Costruisce l'evento `docs.nightly_attention` (il `docsUrl` è derivato, mai passato a mano). */
+/**
+ * Costruisce l'evento `docs.nightly_attention`. Il `docsUrl` lo deriva
+ * {@link publishDocsNightlyAttention} dal DB (`repositoryDocsAppUrl`: lo slug
+ * del repository nel suo progetto), mai chi pubblica.
+ */
 export function buildDocsNightlyAttentionEvent(
   input: DocsNightlyAttentionInput,
+  docsUrl: string,
 ): DocsNightlyAttentionEvent {
-  const { publicUrl, ...rest } = input;
-  const base = publicUrl.replace(/\/+$/, "");
-  return {
-    kind: "docs.nightly_attention",
-    ...rest,
-    docsUrl: `${base}/docs/${input.repositoryId}`,
-  };
+  const { publicUrl: _publicUrl, ...rest } = input;
+  void _publicUrl;
+  return { kind: "docs.nightly_attention", ...rest, docsUrl };
 }
 
 /**
@@ -36,7 +39,9 @@ export async function publishDocsNightlyAttention(
   const publish = deps.publish ?? publishNotification;
   const opts: PublishOpts = { projectId: input.projectId };
   try {
-    await publish(db, buildDocsNightlyAttentionEvent(input), opts);
+    // Un repository che non si legge non toglie l'avviso: si ripiega sulla Home.
+    const docsUrl = await repositoryDocsAppUrl(db, input.publicUrl, input.repositoryId).catch(() => appUrl(input.publicUrl, { to: "home" }));
+    await publish(db, buildDocsNightlyAttentionEvent(input, docsUrl), opts);
   } catch {
     // Best-effort.
   }

@@ -52,6 +52,7 @@ import { createUsersEndpoints } from "./endpoints/users.js";
 import { createDecisionsEndpoints } from "./endpoints/decisions.js";
 import { createProductDocsEndpoints } from "./endpoints/product-docs.js";
 import { createDepartmentsEndpoints } from "./endpoints/departments.js";
+import { createWorkspacesEndpoints } from "./endpoints/workspaces.js";
 import { createPeopleEndpoints } from "./endpoints/people.js";
 import { createProjectStatusesEndpoints } from "./endpoints/projectStatuses.js";
 import { createTasksEndpoints } from "./endpoints/tasks.js";
@@ -176,6 +177,7 @@ export function createEndpoints(request: ApiRequest) {
     // Area 11, F1: la documentazione di prodotto.
     productDocs: createProductDocsEndpoints(request),
     departments: createDepartmentsEndpoints(request),
+    workspaces: createWorkspacesEndpoints(request),
     people: createPeopleEndpoints(request),
     projectStatuses: createProjectStatusesEndpoints(request),
     // Fetta 3: filtri salvati.

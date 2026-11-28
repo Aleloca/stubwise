@@ -21,6 +21,8 @@ import {
   loadSettings,
   loadSlackBotToken,
   notificationVisibleToRecipient,
+  linkContextsFor,
+  type CardLinkContext,
   openUrl,
   cardPermissionsOf,
   PushRelayRejected,
@@ -477,12 +479,13 @@ function renderSlack(
   kind: NotificationKindColumn,
   lang: Language,
   publicUrl?: string,
+  linkContext: CardLinkContext = {},
 ): { text: string; url?: string } {
   try {
     const event = rawEvent as unknown as NotificationEvent;
     const body = formatNotification(event, "slack", lang).body as { text?: unknown };
     const text = typeof body.text === "string" && body.text.trim() !== "" ? body.text : kind;
-    const url: unknown = openUrl(event, publicUrl);
+    const url: unknown = openUrl(event, publicUrl, linkContext);
     return { text, ...(typeof url === "string" && url !== "" ? { url } : {}) };
   } catch {
     return { text: kind };
@@ -626,12 +629,15 @@ async function sendSlackDm(
     await finish(db, row.id, "skipped", "recipient_cannot_see");
     return;
   }
-  const { text, url } = renderSlack(
-    recipient.event,
-    recipient.kind,
-    recipient.language,
-    deps.publicUrl,
-  );
+  // Ritiro del web vecchio: il link della card nella nuova app, derivato dalla riga
+  // e dagli id dell'evento come nell'inbox (`linkContextsFor`).
+  const linkContext =
+    (
+      await linkContextsFor(db, [
+        { id: recipient.notificationId, kind: recipient.kind, projectId: recipient.projectId, ticketId: recipient.ticketId, event: recipient.event },
+      ])
+    ).get(recipient.notificationId) ?? {};
+  const { text, url } = renderSlack(recipient.event, recipient.kind, recipient.language, deps.publicUrl, linkContext);
   const jobStatus = recipient.ticketId ? await latestJobStatus(db, recipient.ticketId) : null;
   // I bottoni sono quelli che il destinatario può premere: i SUOI permessi nel
   // progetto della card, come nell'inbox.

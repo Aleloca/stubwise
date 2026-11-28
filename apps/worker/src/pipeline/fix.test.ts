@@ -266,6 +266,13 @@ function appOnlyChanges(fixture: Pick<Fixture, "repoUrl">): Record<string, strin
   return { [`${repoDir(fixture)}/app.js`]: "exports.sum = (a, b) => a + b;\n" };
 }
 
+
+/** La task nella nuova app (`app-links`): il codice del progetto e il numero. */
+async function taskLink(ticketId: string): Promise<string> {
+  const [row] = await testDb.db.select({ code: projects.code, number: tickets.number }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, ticketId));
+  return `https://stubwise.example.com/app/#/p/${row!.code}/tasks?task=${row!.code}-${row!.number}`;
+}
+
 describe("buildFixPrompt", () => {
   const baseTicket = {
     number: 42,
@@ -2446,7 +2453,7 @@ describe("runFix — notifiche", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.event.kind).toBe("job.pr_opened");
     expect(calls[0]!.event.prUrl).toBe("https://github.com/acme/repo/pull/77");
-    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.event.ticketUrl).toBe(await taskLink(ticket.id));
     // I RIFERIMENTI sono la metà che instrada la notifica: progetto del ticket,
     // ticket e job del run devono arrivare tutti e tre alla publish.
     expect(calls[0]!.opts).toEqual({
@@ -2481,7 +2488,7 @@ describe("runFix — notifiche", () => {
     expect(outcome).toBe("failed");
     expect(calls).toHaveLength(1);
     expect(calls[0]!.event.kind).toBe("job.failed");
-    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.event.ticketUrl).toBe(await taskLink(ticket.id));
     expect(typeof calls[0]!.event.error).toBe("string");
   });
 
@@ -2625,7 +2632,7 @@ describe("runFix — notifiche", () => {
     expect(outcome).toBe("awaiting_approval");
     expect(calls).toHaveLength(1);
     expect(calls[0]!.event.kind).toBe("job.plan_review");
-    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.event.ticketUrl).toBe(await taskLink(ticket.id));
   });
 });
 
@@ -2695,7 +2702,7 @@ describe("runFix — budget di costo (Task 6)", () => {
     expect(calls[0]!.event.scope).toBe("monthly");
     expect(calls[0]!.event.limitUsd).toBe(10);
     expect(calls[0]!.event.spentUsd).toBe(12);
-    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.event.ticketUrl).toBe(await taskLink(ticket.id));
   });
 
   it("budget sforato CON riassunti accesi: nessun run del riassunto (held ≠ failed, notifyFailed non è mai chiamato)", async () => {
@@ -3705,7 +3712,7 @@ describe("runFix — domanda dell'agente (ask_user)", () => {
     expect(calls[0]!.event.options).toEqual(QUESTION.options);
     expect(calls[0]!.event.recommendedIndex).toBe(1);
     expect(calls[0]!.event.allowFreeText).toBe(true);
-    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.event.ticketUrl).toBe(await taskLink(ticket.id));
     expect(calls[0]!.opts).toEqual({
       projectId: fixture.projectId,
       ticketId: ticket.id,

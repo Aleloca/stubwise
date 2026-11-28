@@ -320,7 +320,8 @@ describe("planPages", () => {
       counts: { commits: 1, candidates: 1, newAreas: 1 },
       runs: 3,
       threshold: 2,
-      docsUrl: `https://stubwise.test/docs/${repositoryId}`,
+      // Lo spazio Docs del repository nella nuova app: lo slug, nel suo progetto (`app-links`).
+      docsUrl: expect.stringMatching(/^https:\/\/stubwise\.test\/app\/#\/p\/[A-Z0-9]+\/docs\/[\w-]+$/),
     });
     expect(await items(db, "page_update")).toHaveLength(1);
     expect(await items(db, "page_create")).toHaveLength(1);

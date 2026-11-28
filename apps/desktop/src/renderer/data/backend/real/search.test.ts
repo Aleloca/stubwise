@@ -29,4 +29,36 @@ describe("⌘K nella build app", () => {
     expect(new URL(`http://x${call.path}`).searchParams.get("citable")).toBe("true");
     expect(rows.map((r) => r.kind)).toEqual(["project"]);
   });
+
+  it("revisione d'insieme, M6: le workspace dall'elenco del server, col numero dei progetti visibili", async () => {
+    const project = serverProject();
+    installFakeServer({
+      "GET /api/projects": { body: [project] },
+      "GET /api/search": { body: { tickets: empty, projects: empty, repositories: empty, docs: empty } },
+      "GET /api/workspaces": {
+        body: {
+          items: [
+            {
+              id: "44444444-4444-4444-8444-444444444444",
+              name: "Clienti storici",
+              colorToken: "--dept-1",
+              projectIds: [project.id, "55555555-5555-4555-8555-555555555555"],
+              people: [],
+              isMember: true,
+              canManage: false,
+              canManagePeople: false,
+            },
+          ],
+        },
+      },
+    });
+    const rows = await search("clienti");
+    const ws = rows.find((r) => r.kind === "workspace")!;
+    expect(ws).toMatchObject({
+      label: "Clienti storici",
+      route: "#/projects?workspace=44444444-4444-4444-8444-444444444444",
+      detail: "1",
+    });
+  });
 });
+

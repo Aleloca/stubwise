@@ -302,8 +302,8 @@ export const googleCallbackOutcomes = [
 ] as const;
 export type GoogleCallbackOutcome = (typeof googleCallbackOutcomes)[number];
 
-/** Il path della SPA su cui il callback rimanda, con `?google=<esito>`. */
-export const GOOGLE_ACCOUNT_SETTINGS_PATH = "/settings/account";
+// Il ritorno del callback (la pagina Account) sta in `app-links.ts`: la nuova
+// app (`appPath`), o il web vecchio finché esiste (`legacyWebPath`).
 
 // ---------------------------------------------------------------------------
 // Regole di routing della posta verso un progetto (Task 6)

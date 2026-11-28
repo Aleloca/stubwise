@@ -200,5 +200,6 @@ export interface AccessLogView {
   via: "mac" | "browser";
 }
 
-export type VaultFailure = { ok: false; code: string };
+/** `retryAfterSeconds`: solo col tetto delle letture (C2, 429 `vault_reveal_rate_limited`). */
+export type VaultFailure = { ok: false; code: string; retryAfterSeconds?: number };
 export type ReaderTarget = { personId: string } | { roleId: string };

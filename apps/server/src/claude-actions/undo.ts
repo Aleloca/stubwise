@@ -10,6 +10,7 @@ import {
   outgoingWebhooks,
   projectMembers,
   projects,
+  workspaces,
   attachments,
   backlogItems,
   claudeActionGroups,
@@ -112,7 +113,7 @@ async function laterChangeOf(
   // voce arrivata DOPO l'istante della scrittura di Claude (`stamp`, ai
   // microsecondi) vuol dire che qualcuno ci ha scritto.
   for (const o of objects) {
-    if ((o.kind !== "member" && o.kind !== "project" && o.kind !== "setting") || !o.stamp) continue;
+    if ((o.kind !== "member" && o.kind !== "project" && o.kind !== "setting" && o.kind !== "workspace") || !o.stamp) continue;
     const [later] = await db
       .select({ by: changeLog.actorUserId })
       .from(changeLog)
@@ -197,6 +198,9 @@ async function lockLoggedSubjects(tx: Db, objects: readonly ActionObject[]): Pro
       // (`setMemberRole`, `removeMember`…), poi la riga; al contrario le due si aspettano a vicenda (40P01).
       await tx.execute(membersLock(o.projectId));
       await lock(projectMembers, and(eq(projectMembers.projectId, o.projectId), eq(projectMembers.userId, o.id)));
+    } else if (o.kind === "workspace" && o.workspaceId) {
+      // Workspace (D14): la riga della workspace, come le sue scritture (`lockedWorkspace`).
+      await lock(workspaces, eq(workspaces.id, o.workspaceId));
     } else if (o.kind === "setting") {
       await lock(instanceSettings, eq(instanceSettings.id, 1));
       if (o.subjectKind === "ai_settings" && o.id && o.id !== "automation") await lock(aiModelSettings, sql`${aiModelSettings.operation} = ${o.id}`);

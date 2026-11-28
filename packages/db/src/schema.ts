@@ -63,6 +63,7 @@ import {
   numeric,
   pgEnum,
   pgTable,
+  pgView,
   primaryKey,
   real,
   text,
@@ -423,6 +424,9 @@ export const sessions = pgTable(
     // le azioni sensibili lo vogliono recente. Null = sessione di prima del
     // rilascio, o parziale.
     secondFactorAt: timestamp("second_factor_at", { withTimezone: true }),
+    // I6 (0238): l'ultimo sblocco della cassaforte con una passkey. NON è una
+    // riconferma: vale solo per le rotte che dichiarano `config.reauth: "vault"`.
+    vaultUnlockedAt: timestamp("vault_unlocked_at", { withTimezone: true }),
     // Challenge WebAuthn in corso (registrazione o uso di una passkey):
     // monouso, la verifica la cancella sempre.
     webauthnChallenge: text("webauthn_challenge"),
@@ -4755,6 +4759,107 @@ export const projectMemberPermissions = pgTable(
 );
 
 /**
+ * Workspace (0239, `docs/plans/2026-11-27-workspace-design.md`): raggruppamenti
+ * di PROGETTI per VISIBILITÀ (i reparti raggruppano PERSONE). Una persona di una
+ * workspace vede ogni suo progetto col suo ruolo di workspace; i permessi
+ * effettivi sono l'unione delle fonti (`projectAccessPermissionsSql`).
+ */
+export const workspaces = pgTable(
+  "workspaces",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    colorToken: text("color_token").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdByUserId: uuid("created_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  },
+  () => [
+    check("workspaces_name_chk", sql`length(btrim(name)) BETWEEN 1 AND 80`),
+    check(
+      "workspaces_color_token_chk",
+      sql`color_token IN ('--dept-1', '--dept-2', '--dept-3', '--dept-4', '--dept-5', '--dept-6', '--dept-7', '--dept-8')`,
+    ),
+  ],
+);
+
+/** D2: un progetto sta in AL PIÙ una workspace (`workspace_projects_project_uq`). */
+export const workspaceProjects = pgTable(
+  "workspace_projects",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "workspace_projects_pk", columns: [table.workspaceId, table.projectId] }),
+    uniqueIndex("workspace_projects_project_uq").on(table.projectId),
+  ],
+);
+
+/**
+ * Le persone di una workspace, col ruolo di workspace: un ruolo di PROGETTO (il
+ * trigger `workspace_members_role_scope` rifiuta un ruolo d'istanza), valido in
+ * ogni progetto della workspace. I full admin non servono qui (impliciti).
+ */
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    roleId: uuid("role_id")
+      .notNull()
+      .references(() => roles.id, { onDelete: "restrict" }),
+    addedByUserId: uuid("added_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "workspace_members_pk", columns: [table.workspaceId, table.userId] }),
+    index("workspace_members_user_idx").on(table.userId),
+  ],
+);
+
+/** D9: un invito di registrazione che promette una workspace (riverificato all'accettazione, R51). */
+export const inviteWorkspaces = pgTable(
+  "invite_workspaces",
+  {
+    inviteToken: text("invite_token")
+      .notNull()
+      .references(() => invites.token, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    roleId: uuid("role_id")
+      .notNull()
+      .references(() => roles.id, { onDelete: "cascade" }),
+  },
+  (table) => [primaryKey({ name: "invite_workspaces_pk", columns: [table.inviteToken, table.workspaceId] })],
+);
+
+/**
+ * Chi accede a un progetto, una riga per FONTE (0239): `member` (una riga
+ * `project_members`) o `workspace`. Una persona può averne due per lo stesso
+ * progetto. Visibilità e permessi la leggono SEMPRE da qui (il test di
+ * registro dei lettori), mai da `project_members` da sola; le scritture e la
+ * sezione Members restano su `project_members`. La crea la migrazione.
+ */
+export const projectAccess = pgView("project_access", {
+  projectId: uuid("project_id").notNull(),
+  userId: uuid("user_id").notNull(),
+  roleId: uuid("role_id").notNull(),
+  source: text("source").$type<"member" | "workspace">().notNull(),
+  workspaceId: uuid("workspace_id"),
+}).existing();
+
+/**
  * Area 9, F1 (0185, D-13): la foto del profilo, nel DB (lo storage può essere
  * spento). PNG, JPEG o WebP, al più 512 KB (CHECK); il tipo lo DEDUCE il
  * server dai magic bytes (docs/invariants/identity.md).
@@ -6817,6 +6922,8 @@ export const credentialAccessLog = pgTable(
     check("credential_access_log_action_chk", sql`${table.action} in ('show', 'copy')`),
     check("credential_access_log_via_chk", sql`${table.via} in ('browser', 'desktop')`),
     index("credential_access_log_project_id_created_at_idx").on(table.projectId, table.createdAt),
+    // 0238 (C2): le letture di una persona nella finestra della raffica.
+    index("credential_access_log_user_id_created_at_idx").on(table.userId, table.createdAt),
   ],
 );
 

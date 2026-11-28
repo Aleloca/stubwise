@@ -509,7 +509,7 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
         ticketNumber: ticket.number,
         ticketTitle: ticket.title,
         projectName: ticket.projectName,
-        ticketUrl: ticketUrl(input.publicUrl, ticket.id),
+        ticketUrl: await ticketUrl(db, input.publicUrl, ticket.id),
       },
       { projectId: ticket.projectId, ticketId: ticket.id, jobId: result.jobId },
     );

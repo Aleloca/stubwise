@@ -126,7 +126,8 @@ describe("i pezzi delle frasi (memberAdded), derivati a lettura", () => {
   it("un ingresso a mano: chi entra, il ruolo e chi ha agito, per chi entra e per l'altro gestore", async () => {
     const s = await scene();
     await putProjectMember(t.db, actorOf(s.g1), LEAD, s.projectId, s.p.id, s.developer);
-    const want = { addedUserId: s.p.id, addedName: await nameOf(s.p.id), roleName: "Developer", actorName: await nameOf(s.g1.id) };
+    // Una card di PROGETTO: i campi della workspace (lotto 3) restano vuoti.
+    const want = { addedUserId: s.p.id, addedName: await nameOf(s.p.id), roleName: "Developer", actorName: await nameOf(s.g1.id), workspaceId: null, workspaceName: null, projectIds: [] };
     expect((await cardOf(s.p, s.projectId))!.memberAdded).toEqual(want);
     expect((await cardOf(s.g2, s.projectId))!.memberAdded).toEqual(want);
   });

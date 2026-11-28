@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { auth as fakeAuth } from "../data/api";
+import { isIntegrated } from "../data/integration";
+import { PROJECT_SETTINGS_SECTIONS } from "../data/routes";
 import { renderRoute } from "../test/renderRoute";
 import { closeGoogleAccount } from "./drive/GoogleAccountCard";
 import { REPLY_UNDO_MS } from "./support/replyStore";
@@ -271,6 +273,11 @@ const INTEGRATED_CALLS = new Set([
   "projectSettings.deleteProject",
   // Registro, area 9 r.1121: Settings → Automations e le frasi «spento».
   "projectSettings.getProjectSettings",
+  // Ritiro del web vecchio (inventario 1.3): General, AI e Usage del progetto.
+  "projectSettings.updateProjectGeneral",
+  "projectSettings.setDocsModule",
+  "projectSettings.setProjectAi",
+  "projectSettings.getProjectUsage",
   "projectSettings.getProjectSwitches",
   "projectSettings.saveProjectAutomations",
   "instance.listAllRepositories",
@@ -369,6 +376,18 @@ const INTEGRATED_CALLS = new Set([
   "listProjectStatuses",
   "listMilestones",
   "getRequest",
+  // Ritiro del web vecchio (27 nov 2026): design e piano di task e richieste,
+  // le proposte del polso, lo zip dei Docs e il graph.json.
+  "getTaskDesignPlan",
+  "removeTaskDesign",
+  "removeTaskPlan",
+  "removeRequestDesign",
+  "removeRequestPlan",
+  "pulse.listPulseProposals",
+  "pulse.startPulseProposal",
+  "pulse.dismissPulseProposal",
+  "docs.exportCategory",
+  "docs.downloadGraphJson",
   // Fetta 2: settimana, Planning, La mia settimana, Timeline.
   "listDayArrangements",
   "planTask",
@@ -663,6 +682,21 @@ const INTEGRATED_CALLS = new Set([
   // Area 8, F1 (`releases-repo-settings`): la sezione «Repositories» ridotta.
   "releases.getRepositorySettings",
   "releases.setRepoPrMode",
+  // Ritiro del web vecchio (inventario §1.3): «Repositories» intera, l'adattatore
+  // `projectRepositories.ts` (elenco, pagina, webhook, file d'ambiente, creazione).
+  "projectSettings.listProjectRepositories",
+  "projectSettings.listRemoteRepositories",
+  "projectSettings.listRemoteBranches",
+  "projectSettings.checkRepositoryAccess",
+  "projectSettings.createRepository",
+  "projectSettings.updateRepository",
+  "projectSettings.configureRepositoryWebhook",
+  "projectSettings.listEnvFiles",
+  "projectSettings.createEnvFile",
+  "projectSettings.importEnvFile",
+  "projectSettings.setEnvVar",
+  "projectSettings.removeEnvVar",
+  "projectSettings.deleteEnvFile",
   // Area 8, F3: Support (letture e scritture sulle rotte di 72).
   "support.listSupportConversations",
   // La ricerca ⌘K di Support (rimandi, lotto 5).
@@ -956,13 +990,12 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("una pagina di progetto non integrata mostra «Coming soon»", async () => {
-    // Dall'area 8, F4a, ogni sezione di progetto è accesa: resta una voce delle impostazioni
-    // (Archive è accesa dall'area 9, F6; Usage no).
-    renderRoute("/p/AUD/settings/usage");
-    expect(await screen.findByText("Coming soon")).toBeInTheDocument();
-    await settle();
-    expect(outside()).toEqual([]);
+  it("ogni voce delle impostazioni di progetto è accesa (ritiro del web vecchio: General, AI e Usage le ultime)", () => {
+    // Dall'area 8, F4a, ogni sezione di progetto è accesa; dal ritiro del web
+    // vecchio (inventario 1.3) anche ogni voce delle impostazioni.
+    for (const { id } of PROJECT_SETTINGS_SECTIONS) {
+      expect(isIntegrated({ kind: "projectSettings", name: id }), id).toBe(true);
+    }
   });
 
   it("la palette a query vuota legge i recenti, e solo chiamate integrate", async () => {
@@ -996,14 +1029,46 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  // Area 8, F1 (46): «Repositories» ridotta, senza «nuovo repository» né l'editor dell'area 9.
-  it("aprire Repositories legge solo chiamate integrate, senza «Add repository»", async () => {
+  // Revisione di feat/impostazioni-progetto, M7: Usage e AI delle impostazioni.
+  it("aprire Settings → Usage e Settings → AI legge solo chiamate integrate", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/AUD/settings/usage");
+    await waitFor(() => expect(calls).toContain("projectSettings.getProjectUsage"));
+    await settle();
+    expect(outside()).toEqual([]);
+    cleanup();
+    renderRoute("/p/AUD/settings/ai");
+    expect(await screen.findByRole("heading", { level: 1, name: "AI" })).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Ritiro del web vecchio (inventario §1.3): «Repositories» intera, sulle
+  // rotte dei repository (prima, area 8 F1, era ridotta al blocco Releases).
+  it("aprire Repositories legge solo chiamate integrate", async () => {
     // Laura vede il codice di AUD (`repos.view`): la sezione è sua.
     signedInAs("p-laura");
     renderRoute("/p/AUD/settings/repositories");
-    await waitFor(() => expect(calls).toContain("releases.getRepositorySettings"));
+    await waitFor(() => expect(calls).toContain("projectSettings.listProjectRepositories"));
     await settle();
-    expect(screen.queryByRole("button", { name: /Add repository/ })).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("la creazione guidata (?new=1) nella build app: legge solo chiamate integrate, senza riquadri del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/p/AUD/settings/repositories?new=1");
+    const dialog = await screen.findByRole("dialog", { name: /Add a repository to AUD/ });
+    await settle();
+    expect(within(dialog).queryByRole("region", { name: "Prototype only" })).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("aprire un repository legge solo chiamate integrate, file d'ambiente compresi, senza riquadri del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/p/AUD/settings/repositories?repo=repo-aud");
+    await waitFor(() => expect(calls).toContain("projectSettings.listEnvFiles"));
+    await settle();
+    expect(screen.queryByRole("region", { name: "Prototype only" })).toBeNull();
     expect(outside()).toEqual([]);
   });
 

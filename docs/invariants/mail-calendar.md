@@ -915,6 +915,19 @@
   per non costare un blocco fisso in una colonna stretta. Chi tocca la
   pagina calendario non rimuova questa sidebar "per pulizia": è l'unico
   punto d'accesso per una serie fuori dalla finestra della griglia.
+- **«Membro ESPLICITO» vuol dire anche «persona di una workspace» (27 nov
+  2026, workspace, D17).** Dove questo file dice che contano i membri
+  ESPLICITI e non gli admin impliciti, le persone di una workspace che
+  contiene il progetto contano come membri: hanno una riga in
+  `project_access` (0239, `docs/invariants/permissions.md`). Vale per:
+  - i progetti candidati di una mail (`loadCandidateProjects`);
+  - i progetti dagli invitati di un appuntamento (`attendeeProjects`);
+  - i destinatari delle proposte condivise del calendario, anche della
+    «Quale progetto?» (`eventInviteeIds` / `inviteesOfAny`).
+
+  Un full admin in quanto tale resta FUORI come prima: l'esclusione riguarda
+  il fatto che vede tutto, non la workspace. Test:
+  `apps/worker/src/google/workspace-google.test.ts`.
 - **Una proposta che si decide dalla card è chiusa quando la card è chiusa,
   e lo si DERIVA a lettura (27 nov 2026).** Le proposte di prima
   (`mailbox_owner`) e quelle del calendario per casella si decidono dalla

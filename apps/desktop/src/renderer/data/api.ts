@@ -184,6 +184,9 @@ export * as access from "./access/whoCanApi";
 export * as auth from "./auth";
 /** L'Amministrazione (area 9a): `api.admin.listPeople(…)`, `api.admin.addMember(…)`… */
 export * as admin from "./admin";
+/** Le workspace (shape `workspaces.md`): `api.workspaces.listWorkspaces()`… */
+export * as workspaces from "./workspaces/index";
+import { workspacesForSearch } from "./workspaces/index";
 /** Le Preferenze personali (area 9a): `api.me.getMySecurity()`, `api.me.createToken(…)`… */
 export * as me from "./me";
 // Lotto 10: la Cassaforte delle credenziali e la chiave del Mac (shape `vault.md`).
@@ -196,6 +199,10 @@ export * as instance from "./instance";
 export * as projectSettings from "./projectSettings";
 // Il catalogo delle azioni di Claude (area 10a): solo tipi e dichiarazioni.
 export * as claude from "./claude";
+// Le proposte del polso (shape `pulse-proposals.md`).
+export * as pulse from "./pulse";
+// Design e piano salvati su una task (shape `design-plan-remove.md`).
+export { getTaskDesignPlan, removeTaskDesign, removeTaskPlan, type TaskDesignPlan } from "./taskDesign";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {
@@ -892,6 +899,9 @@ export async function listNotifications(): Promise<AppNotification[]> {
       // ([SC 16]).
       if (n.roleId !== undefined)
         out.roleName = accessState().roles.find((r) => r.id === n.roleId)?.name ?? null;
+      // D13: la card di chi è entrato in una workspace la nomina (derivata a lettura).
+      if (n.workspaceId !== undefined)
+        out.workspaceName = accessState().workspaces.find((w) => w.id === n.workspaceId)?.name ?? null;
       // `member.added` a chi gestisce i membri (19 nov 2026): chi è entrato,
       // per nome se chi guarda lo vede (R-G5); a chi è entrato niente.
       if (n.memberId !== undefined) {
@@ -1555,14 +1565,30 @@ export async function search(q: string): Promise<SearchResult[]> {
     fields.some((f) => f?.toLowerCase().includes(needle));
   const visible = visibleProjectIds(me);
   const results: SearchResult[] = [];
+  // Shape `workspaces.md`, ⌘K: la workspace come testo minore dei progetti, e
+  // il gruppo WORKSPACES che apre All projects filtrato.
+  const ws = workspacesForSearch(me);
   for (const p of state.projects) {
     if (visible.has(p.id) && has(p.code, p.name, p.clientName)) {
+      const workspaceName = ws.nameOfProject.get(p.id);
       results.push({
         kind: "project",
         id: p.id,
         code: p.code,
         label: p.name,
         route: `#/p/${p.code}`,
+        ...(workspaceName ? { detail: workspaceName } : {}),
+      });
+    }
+  }
+  for (const w of ws.workspaces) {
+    if (has(w.name)) {
+      results.push({
+        kind: "workspace",
+        id: w.id,
+        label: w.name,
+        route: `#/projects?workspace=${w.slug}`,
+        detail: String(w.projectCount),
       });
     }
   }
