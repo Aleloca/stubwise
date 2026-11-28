@@ -19,6 +19,7 @@ import {
   decryptPassword,
   encryptForInsert,
   generatePersonKeyPair,
+  generateRecoveryKit,
   keyFingerprint,
   openActorChallenge,
   openPrivateKey,
@@ -109,6 +110,16 @@ export type CoreRequest =
       sessionTag: string;
       recreate?: boolean;
     }
+  /**
+   * Fase 2: il kit di recupero nasce QUI. Alla pagina va il testo, una volta,
+   * perché la persona lo stampi o lo salvi; il worker tiene solo la pubblica,
+   * che è quella che `activate` (o la rotazione) manda al server: la pagina
+   * non ne sceglie un'altra. `forgetKit` lo butta.
+   */
+  | { t: "kit"; purpose: "activate" | "rotate" }
+  | { t: "forgetKit" }
+  /** Attiva la cassaforte dell'istanza con la pubblica del kit generato qui (full admin, riconferma). */
+  | { t: "activate" }
   | { t: "reveal"; id: string; action: "show" | "copy"; personId: string; sessionTag: string }
   /**
    * Una credenziale nuova: non vuole la cassaforte aperta (si cifra con le
@@ -211,6 +222,8 @@ export class VaultCore {
   } | null = null;
   private timer: unknown = null;
   private stashed: { prf: ArrayBuffer; at: number } | null = null;
+  /** Il kit generato qui: solo la pubblica (il testo è andato alla pagina). */
+  private kit: { publicKey: string; purpose: "activate" | "rotate" } | null = null;
 
   constructor(private readonly deps: CoreDeps) {}
 
@@ -733,6 +746,31 @@ export class VaultCore {
         await this.http("POST", `/api/vault/pending/${seg(req.keyId)}/reject`, {
           actorProof: await this.prove(k.privateKey, k.personKeyId),
         });
+        return { ok: true };
+      }
+      case "kit": {
+        const status = await this.http<VaultStatusResponse>("GET", "/api/vault/status");
+        if (req.purpose === "activate" && status.activated) return { ok: false, code: "vault_already_active" };
+        if (req.purpose === "rotate" && !status.activated) return { ok: false, code: "inactive" };
+        const { publicKey, kitText } = await generateRecoveryKit();
+        this.kit = { publicKey, purpose: req.purpose };
+        return { ok: true, kitText };
+      }
+      case "forgetKit":
+        this.kit = null;
+        return { ok: true };
+      case "activate": {
+        const kit = this.kit;
+        if (!kit || kit.purpose !== "activate") return { ok: false, code: "no_kit" };
+        try {
+          await this.http("POST", "/api/vault/activate", { recoveryPublicKey: kit.publicKey });
+        } catch (error) {
+          // Attivata da altri nel frattempo: questo kit non vale niente.
+          if (error instanceof HttpError && error.code === "vault_already_active") this.kit = null;
+          // Una riconferma chiesta lo lascia: dopo, si riprova con la stessa pubblica.
+          throw error;
+        }
+        this.kit = null;
         return { ok: true };
       }
       case "discard":

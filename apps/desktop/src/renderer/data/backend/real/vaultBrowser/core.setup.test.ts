@@ -161,3 +161,62 @@ describe("la propria chiave, creata nel worker (fase 2)", () => {
     expect(calls.some((c) => c.path === "/api/vault/keys")).toBe(false);
   });
 });
+
+describe("l'attivazione col kit di recupero, nel worker (fase 2)", () => {
+  let core: VaultCore;
+  beforeEach(() => {
+    core = setup();
+    activated = false;
+    routes["POST /api/vault/activate"] = () => ({ body: { activated: true } });
+  });
+
+  it("kit: nasce nel worker; alla pagina il testo una volta, al server solo la pubblica tenuta qui", async () => {
+    const kit = (await core.handle({ t: "kit", purpose: "activate" })) as { ok: true; kitText: string };
+    expect(kit.ok).toBe(true);
+    expect(kit.kitText).toMatch(/^[A-Z2-7]{5}(-[A-Z2-7]{1,5})+$/);
+    expect(await core.handle({ t: "activate" })).toEqual({ ok: true });
+    const body = calls.find((c) => c.path === "/api/vault/activate")!.body as { recoveryPublicKey: string };
+    expect(typeof body.recoveryPublicKey).toBe("string");
+    expect(JSON.stringify(calls)).not.toContain(kit.kitText.slice(0, 11));
+    // Usata: un'altra attivazione con lo stesso kit non parte.
+    expect(await core.handle({ t: "activate" })).toEqual({ ok: false, code: "no_kit" });
+  });
+
+  it("activate senza un kit generato qui non parte; `forgetKit` lo butta", async () => {
+    expect(await core.handle({ t: "activate" })).toEqual({ ok: false, code: "no_kit" });
+    await core.handle({ t: "kit", purpose: "activate" });
+    await core.handle({ t: "forgetKit" });
+    expect(await core.handle({ t: "activate" })).toEqual({ ok: false, code: "no_kit" });
+    expect(calls.some((c) => c.path === "/api/vault/activate")).toBe(false);
+  });
+
+  it("un kit per l'attivazione su una cassaforte già attiva non nasce", async () => {
+    activated = true;
+    expect(await core.handle({ t: "kit", purpose: "activate" })).toEqual({ ok: false, code: "vault_already_active" });
+  });
+
+  it("riconferma chiesta: il kit resta, e dopo la riconferma l'attivazione riparte con la stessa pubblica", async () => {
+    let first = true;
+    routes["POST /api/vault/activate"] = () => {
+      if (first) {
+        first = false;
+        return { status: 403, body: { code: "reauth_required" } };
+      }
+      return { body: { activated: true } };
+    };
+    await core.handle({ t: "kit", purpose: "activate" });
+    expect(await core.handle({ t: "activate" })).toEqual({ ok: false, code: "reauth_required" });
+    expect(await core.handle({ t: "activate" })).toEqual({ ok: true });
+    const bodies = calls.filter((c) => c.path === "/api/vault/activate").map((c) => c.body);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toEqual(bodies[1]);
+  });
+
+  it("attivata da altri nel frattempo: il kit non vale più e si butta", async () => {
+    routes["POST /api/vault/activate"] = () => ({ status: 409, body: { code: "vault_already_active" } });
+    await core.handle({ t: "kit", purpose: "activate" });
+    expect(await core.handle({ t: "activate" })).toEqual({ ok: false, code: "vault_already_active" });
+    routes["POST /api/vault/activate"] = () => ({ body: { activated: true } });
+    expect(await core.handle({ t: "activate" })).toEqual({ ok: false, code: "no_kit" });
+  });
+});
