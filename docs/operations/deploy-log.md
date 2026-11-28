@@ -7868,11 +7868,14 @@ deploy o di un rollback che la tocca.
   caddy prima i link restano `/app/#/…` e passano dal redirect; col server
   prima il caddy vecchio serve il web vecchio alla radice, e un link `/#/…`
   apre la sua Home per qualche minuto, mai un errore. Niente riavvii del
-  worker con lavoro dell'agente in corso. **Il Mac va ribuildato e
-  installato nello stesso rilascio** (`package:mac`): quello di prima legge
-  `webHref` come obbligatorio nel lavoro di Claude di una task, nelle
-  richieste e nelle decisioni, e col server nuovo quelle letture
-  fallirebbero (il suo login invece funziona, via `/app/#/desktop-login`).
+  worker con lavoro dell'agente in corso. **Il Mac installato smette di
+  funzionare dal deploy di R1 fino all'installazione nuova, ed è accettato**
+  (decisione del maintainer, 28 nov 2026): quello di prima legge `webHref`
+  come obbligatorio nel lavoro di Claude di una task, nelle richieste e nelle
+  decisioni, e col server nuovo quelle letture falliscono (il suo login invece
+  funziona, via `/app/#/desktop-login`). Il pacchetto nuovo, FIRMATO, lo
+  costruisce il maintainer UNA volta, dallo stato finale dopo R3 (non dopo
+  R1): fino ad allora si usa l'app nel browser.
   **Controllo dopo il deploy**:
   ```sh
   curl -sI https://<istanza>/ | grep -iE 'content-security-policy|cross-origin-opener|cache-control'
@@ -7904,5 +7907,5 @@ deploy o di un rollback che la tocca.
   prima, finché non si risale. **Durante il rollback non funziona nemmeno
   l'associazione di un Mac nuovo alla cassaforte**: apre `/vault/#/pair`,
   che il caddy di prima non serve (la pagina a sé lì è su `/app/vault/`).
-  Il pacchetto per Mac di R1 va quindi distribuito solo con R1 stabile. R2 (la pulizia del server) parte solo
+  Il pacchetto per Mac nuovo arriva comunque solo dopo R3 (vedi sopra). R2 (la pulizia del server) parte solo
   quando R1 è stabile, perché le rotte del web servono a un rollback.
