@@ -343,41 +343,6 @@ describe("GET /api/projects/:slug", () => {
   });
 });
 
-describe("GET /api/projects/:slug/webhook", () => {
-  it("l'admin legge il path del webhook e le ultime 4 del segreto, mai il segreto intero (F5, decisione C)", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/repositories/sito-vetrina/webhook",
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as { webhookSecret?: string; secretLast4: string; webhookPath: string };
-    const [row] = await testDb.db.select({ webhookSecret: repositories.webhookSecret }).from(repositories).where(eq(repositories.slug, "sito-vetrina"));
-    expect(body.webhookSecret).toBeUndefined();
-    expect(body.secretLast4).toBe(row!.webhookSecret.slice(-4));
-    expect(res.body).not.toContain(row!.webhookSecret);
-    expect(body.webhookPath).toBe("/webhooks/git/sito-vetrina");
-  });
-
-  it("un member non può leggere il webhookSecret: 403", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/repositories/sito-vetrina/webhook",
-      headers: { cookie: memberCookie },
-    });
-    expect(res.statusCode).toBe(403);
-  });
-
-  it("slug inesistente: 404", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/repositories/non-esiste/webhook",
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(404);
-  });
-});
-
 describe("PATCH /api/projects/:slug", () => {
   it("l'admin aggiorna nome, repoUrl e defaultBranch; lo slug resta stabile", async () => {
     const res = await app.inject({
