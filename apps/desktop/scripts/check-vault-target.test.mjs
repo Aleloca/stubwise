@@ -40,4 +40,19 @@ describe("check-vault-target", () => {
     // M-6: i moduli della cassaforte del desktop DEVONO esserci.
     expect(violations(bundle("x"), "electron").map((v) => v.why)).toContain("manca i moduli della cassaforte del desktop");
   });
+
+  it("m-5: electron, i marcatori della fase 2 (recupero, associazione, sigilli) fanno fallire", () => {
+    const forbidden = (text) => violations(bundle(text), "electron").filter((v) => !v.why.startsWith("manca"));
+    for (const text of [
+      'fetch("/api/vault/recovery/challenge")',
+      'fetch("/api/vault/device-pairings/lookup")',
+      'fetch("/api/vault/recovery-key/preview")',
+      '{t:"recoveryLoad",kitText:k}',
+      '{t:"sealBegin"}',
+      '{t:"pairSeal"}',
+    ])
+      expect(forbidden(text), text).not.toEqual([]);
+    // Il main chiede l'associazione (`device-pairings`, senza `lookup`): resta lecito.
+    expect(forbidden('fetch("/api/vault/device-pairings")')).toEqual([]);
+  });
 });

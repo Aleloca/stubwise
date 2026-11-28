@@ -16,6 +16,10 @@ export const FORBIDDEN = {
     { re: /prf["']?\s*:\s*\{\s*["']?eval/, why: "l'estensione PRF della passkey (sblocco nella scheda)" },
     { re: /["']stubwise-vault["']/, why: "il canale fra le schede di vaultBrowser/" },
     { re: /stubwise-vault-worker/, why: "il worker della cassaforte nel browser" },
+    // m-5 (revisione della fase 2): la fase 2 sta solo nella build web.
+    { re: /recovery\/challenge|recovery-key\/preview/, why: "il recupero e la rotazione del kit (fase 2)" },
+    { re: /device-pairings\/lookup/, why: "la pagina che sigilla un Mac (fase 2)" },
+    { re: /["'](?:recoveryLoad|recoveryConfirm|sealBegin|sealFinish|pairSeal|pairLookup)["']/, why: "le richieste della fase 2 al worker" },
   ],
   web: [
     { re: /stubwise\??\.vault\b/, why: "il ponte del desktop (window.stubwise.vault)" },

@@ -91,6 +91,8 @@ const assertion = { id: CRED, rawId: CRED, type: "public-key", response: {}, cli
 
 async function create(core: VaultCore, extra: { recreate?: boolean; credentialId?: string } = {}) {
   const buffer = prf.slice().buffer;
+  // m-3: la PRF porta lo scopo dell'ultimo `prepare` del worker.
+  await core.handle({ t: "prepare", purpose: activated ? "create" : "activate", ...(extra.recreate ? { recreate: true } : {}) });
   await core.handle({ t: "stash", prf: buffer });
   const out = await core.handle({
     t: "createKey",
@@ -149,15 +151,30 @@ describe("la propria chiave, creata nel worker (fase 2)", () => {
 
   it("createKey: una chiave viva non si sostituisce senza `recreate`, e la PRF si azzera senza chiamate di scrittura", async () => {
     myKey = { id: "11111111-1111-4111-8111-111111111111", status: "confirmed", createdAt: "2026-11-01T00:00:00.000Z" };
-    const { buffer, out } = await create(core);
-    expect(out).toEqual({ ok: false, code: "has_key" });
+    // La cerimonia l'ha preparata un `recreate`; la richiesta che arriva non lo dice.
+    await core.handle({ t: "prepare", purpose: "create", recreate: true });
+    const buffer = prf.slice().buffer;
+    await core.handle({ t: "stash", prf: buffer });
+    expect(await core.handle({ t: "createKey", assertion, credentialId: CRED, personId: ME, sessionTag: TAG })).toEqual({
+      ok: false,
+      code: "has_key",
+    });
     expect(new Uint8Array(buffer).every((b) => b === 0)).toBe(true);
     expect(calls.some((c) => c.path === "/api/vault/keys")).toBe(false);
     expect((await create(core, { recreate: true })).out).toEqual({ ok: true, status: "pending" });
   });
 
   it("createKey: una passkey che non è della persona non sigilla niente", async () => {
-    const { out } = await create(core, { credentialId: "c2Nvbm9zY2l1dGE" });
+    const stranger = "c2Nvbm9zY2l1dGE";
+    await core.handle({ t: "prepare", purpose: "create" });
+    await core.handle({ t: "stash", prf: prf.slice().buffer });
+    const out = await core.handle({
+      t: "createKey",
+      assertion: { ...assertion, id: stranger, rawId: stranger },
+      credentialId: stranger,
+      personId: ME,
+      sessionTag: TAG,
+    });
     expect(out).toEqual({ ok: false, code: "passkey_unknown" });
     expect(calls.some((c) => c.path === "/api/vault/keys")).toBe(false);
   });
@@ -169,6 +186,42 @@ describe("la propria chiave, creata nel worker (fase 2)", () => {
     });
     routes["GET /api/auth/me"] = () => ({ body: { user: { id: "p-bea" }, sessionTag: "srv-tag" } });
     expect((await create(core)).out).toEqual({ ok: false, code: "session" });
+    expect(calls.some((c) => c.path === "/api/vault/keys")).toBe(false);
+  });
+
+  it("m-2: un'asserzione di un'altra passkey da quella dichiarata non crea niente (nessuna verifica)", async () => {
+    const { out } = await create(core, { credentialId: OTHER_CRED });
+    expect(out).toEqual({ ok: false, code: "credential_mismatch" });
+    expect(calls.some((c) => c.path.endsWith("/passkey/verify") || c.path === "/api/vault/keys")).toBe(false);
+  });
+
+  it("m-3: una PRF ricevuta per un altro scopo non crea la chiave", async () => {
+    await core.handle({ t: "prepare", purpose: "open" });
+    const buffer = prf.slice().buffer;
+    await core.handle({ t: "stash", prf: buffer });
+    expect(await core.handle({ t: "createKey", assertion, credentialId: CRED, personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "no_prf" });
+    expect(new Uint8Array(buffer).every((b) => b === 0)).toBe(true);
+  });
+
+  it("m-4: `recreate` solo se nessuna passkey apre la chiave viva", async () => {
+    myKey = { id: "11111111-1111-4111-8111-111111111111", status: "confirmed", createdAt: "2026-11-01T00:00:00.000Z" };
+    const base = routes["GET /api/vault/status"]!;
+    let sealed = false;
+    routes["GET /api/vault/status"] = () => {
+      const out = base() as { body: Record<string, unknown> };
+      return { body: { ...out.body, seals: sealed ? [{ passkeyId: PASSKEY_ID, credentialIdB64url: CRED }] : [] } };
+    };
+    sealed = true;
+    expect(await core.handle({ t: "prepare", purpose: "create", recreate: true })).toEqual({ ok: false, code: "has_key" });
+    // Anche col `prepare` riuscito: un sigillo comparso dopo ferma il worker.
+    sealed = false;
+    await core.handle({ t: "prepare", purpose: "create", recreate: true });
+    sealed = true;
+    await core.handle({ t: "stash", prf: prf.slice().buffer });
+    expect(await core.handle({ t: "createKey", assertion, credentialId: CRED, personId: ME, sessionTag: TAG, recreate: true })).toEqual({
+      ok: false,
+      code: "has_key",
+    });
     expect(calls.some((c) => c.path === "/api/vault/keys")).toBe(false);
   });
 
@@ -235,6 +288,18 @@ describe("l'attivazione col kit di recupero, nel worker (fase 2)", () => {
     expect(bodies[0]).toEqual(bodies[1]);
   });
 
+  it("m-1: la fine della sessione butta il kit; una chiusura per inattività no", async () => {
+    await core.handle({ t: "kit", purpose: "activate" });
+    await core.handle({ t: "lock", reason: "idle" });
+    expect(await core.handle({ t: "activate" })).toEqual({ ok: true });
+    activated = false;
+    for (const reason of ["session", "logout", "remote", "pagehide"] as const) {
+      await core.handle({ t: "kit", purpose: "activate" });
+      await core.handle({ t: "lock", reason });
+      expect(await core.handle({ t: "activate" }), reason).toEqual({ ok: false, code: "no_kit" });
+    }
+  });
+
   it("attivata da altri nel frattempo: il kit non vale più e si butta", async () => {
     routes["POST /api/vault/activate"] = () => ({ status: 409, body: { code: "vault_already_active" } });
     await core.handle({ t: "kit", purpose: "activate" });
@@ -283,6 +348,7 @@ describe("una passkey in più apre la cassaforte (fase 2)", () => {
 
   async function finish(credentialId = OTHER_CRED) {
     const b = prfNew.slice().buffer;
+    await core.handle({ t: "prepare", purpose: "seal", passkeyId: OTHER_PASSKEY_ID });
     await core.handle({ t: "stash", prf: b });
     const out = await core.handle({ t: "sealFinish", assertion: otherAssertion, credentialId });
     return { b, out };
@@ -332,6 +398,29 @@ describe("una passkey in più apre la cassaforte (fase 2)", () => {
     await begin();
     clock += 2 * 60_000 + 1;
     expect((await finish()).out).toEqual({ ok: false, code: "no_seal_pending" });
+    expect(calls.some((c) => c.path.endsWith("/seals"))).toBe(false);
+  });
+
+  it("m-2: in tutt'e due le cerimonie l'asserzione dev'essere della passkey dichiarata", async () => {
+    const a = prf.slice().buffer;
+    await core.handle({ t: "stash", prf: a });
+    expect(
+      await core.handle({ t: "sealBegin", assertion: otherAssertion, credentialId: CRED, personId: ME, passkeyId: OTHER_PASSKEY_ID }),
+    ).toEqual({ ok: false, code: "credential_mismatch" });
+    await begin();
+    const b = prfNew.slice().buffer;
+    await core.handle({ t: "prepare", purpose: "seal", passkeyId: OTHER_PASSKEY_ID });
+    await core.handle({ t: "stash", prf: b });
+    expect(await core.handle({ t: "sealFinish", assertion, credentialId: OTHER_CRED })).toEqual({ ok: false, code: "credential_mismatch" });
+    expect(calls.some((c) => c.path.endsWith("/seals"))).toBe(false);
+  });
+
+  it("m-3: la seconda PRF dev'essere della cerimonia `seal`", async () => {
+    await begin();
+    const b = prfNew.slice().buffer;
+    await core.handle({ t: "prepare", purpose: "open" });
+    await core.handle({ t: "stash", prf: b });
+    expect(await core.handle({ t: "sealFinish", assertion: otherAssertion, credentialId: OTHER_CRED })).toEqual({ ok: false, code: "no_prf" });
     expect(calls.some((c) => c.path.endsWith("/seals"))).toBe(false);
   });
 
@@ -742,6 +831,22 @@ describe("l'associazione del Mac, nel worker (fase 2)", () => {
     prf = crypto.getRandomValues(new Uint8Array(32));
     expect((await seal(last4)).out).toEqual({ ok: false, code: "open_failed" });
     expect(calls.some((c) => c.path === "/api/vault/device-seals")).toBe(false);
+  });
+
+  it("m-2: l'asserzione dev'essere della passkey dichiarata", async () => {
+    await core.handle({ t: "pairLookup", state: STATE });
+    await core.handle({ t: "stash", prf: prf.slice().buffer });
+    const other = { ...assertion, id: "b3RoZXI", rawId: "b3RoZXI" };
+    expect(await core.handle({ t: "pairSeal", state: STATE, typed: last4, assertion: other, credentialId: CRED, personId: ME })).toEqual({
+      ok: false,
+      code: "credential_mismatch",
+    });
+  });
+
+  it("m-1: la fine della sessione butta l'associazione letta", async () => {
+    await core.handle({ t: "pairLookup", state: STATE });
+    await core.handle({ t: "lock", reason: "session" });
+    expect((await seal(last4)).out).toEqual({ ok: false, code: "no_pairing" });
   });
 
   it("un'associazione scaduta o d'altri: il codice del server", async () => {

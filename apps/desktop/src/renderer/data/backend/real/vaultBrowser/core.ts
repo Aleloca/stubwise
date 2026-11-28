@@ -212,6 +212,19 @@ export type CoreRequest =
  */
 export type Presence = { assertion: unknown; credentialId: string };
 
+/** Lo scopo di una cerimonia, come `prepare` l'ha preparata (m-3). */
+type PreparePurpose = "open" | "create" | "seal" | "activate";
+
+/**
+ * m-2: l'asserzione è davvero della passkey dichiarata (id e rawId), prima
+ * di ogni verifica: il sigillo, la chiave e la PRF scelti dal `credentialId`
+ * non possono essere di un'altra passkey da quella che ha firmato.
+ */
+function sameCredential(assertion: unknown, credentialId: string): boolean {
+  const a = assertion as { id?: unknown; rawId?: unknown } | null;
+  return typeof a === "object" && a !== null && a.id === credentialId && a.rawId === credentialId;
+}
+
 /** Una presenza fresca per il recupero (I-1): un'asserzione di passkey, o il codice dell'app. */
 export type FreshPresence = { kind: "passkey"; assertion: unknown } | { kind: "code"; code: string };
 
@@ -310,7 +323,9 @@ export class VaultCore {
     passwordChanges: number;
   } | null = null;
   private timer: unknown = null;
-  private stashed: { prf: ArrayBuffer; at: number } | null = null;
+  private stashed: { prf: ArrayBuffer; at: number; purpose: PreparePurpose } | null = null;
+  /** m-3: lo scopo dell'ultimo `prepare` riuscito; la PRF che arriva dopo lo porta con sé. */
+  private prepared: PreparePurpose = "open";
   /** Il kit generato qui: solo la pubblica (il testo è andato alla pagina). */
   private kit: { publicKey: string; purpose: "activate" | "rotate" } | null = null;
   /** Il kit del recupero, letto: la privata, chi aspetta (con le copie), e una prova non ancora consumata. */
@@ -401,6 +416,7 @@ export class VaultCore {
 
   /** Fase 2, prima cerimonia: verifica, e la PRF che apre la chiave resta per la seconda. */
   private async sealBegin(req: Extract<CoreRequest, { t: "sealBegin" }>, prf: ArrayBuffer) {
+    if (!sameCredential(req.assertion, req.credentialId)) return { ok: false as const, code: "credential_mismatch" };
     const status = await this.http<VaultStatusResponse>("GET", "/api/vault/status");
     if (!hasLiveKey(status)) return { ok: false as const, code: "no_key" };
     const target = (status.passkeys ?? []).find((p) => p.passkeyId === req.passkeyId);
@@ -438,6 +454,7 @@ export class VaultCore {
     try {
       if (this.deps.now() - s.at > STASH_MS) return { ok: false as const, code: "no_seal_pending" };
       if (req.credentialId !== s.credentialId) return { ok: false as const, code: "passkey_unknown" };
+      if (!sameCredential(req.assertion, s.credentialId)) return { ok: false as const, code: "credential_mismatch" };
       await this.http("POST", "/api/me/security/reauth/passkey/verify", { response: req.assertion });
       let sealedPrivateKey: string;
       try {
@@ -452,12 +469,12 @@ export class VaultCore {
     }
   }
 
-  /** La PRF ricevuta, consumata; `null` se manca o è scaduta (e si azzera). */
-  private takeStash(): ArrayBuffer | null {
+  /** La PRF ricevuta, consumata; `null` se manca, è scaduta o è di un'altra cerimonia (m-3; e si azzera). */
+  private takeStash(...purposes: PreparePurpose[]): ArrayBuffer | null {
     const s = this.stashed;
     this.stashed = null;
     if (!s) return null;
-    if (this.deps.now() - s.at > STASH_MS) {
+    if (this.deps.now() - s.at > STASH_MS || !purposes.includes(s.purpose)) {
       wipe(s.prf);
       return null;
     }
@@ -469,6 +486,11 @@ export class VaultCore {
     this.dropSealing();
     // I-1: il kit del recupero lo butta OGNI chiusura, per qualunque motivo.
     this.recovery = null;
+    // m-1: la fine della sessione butta anche un kit generato e un'associazione letta.
+    if (reason === "session" || reason === "logout" || reason === "remote" || reason === "pagehide") {
+      this.kit = null;
+      this.pairing = null;
+    }
     const was = this.key;
     this.key = null;
     if (this.timer !== null) this.deps.clearTimer(this.timer);
@@ -514,9 +536,11 @@ export class VaultCore {
    * azzera appena sigillata; resta la `CryptoKey` non estraibile.
    */
   private async createKey(req: Extract<CoreRequest, { t: "createKey" }>, prf: ArrayBuffer) {
+    if (!sameCredential(req.assertion, req.credentialId)) return { ok: false as const, code: "credential_mismatch" };
     const status = await this.http<VaultStatusResponse>("GET", "/api/vault/status");
     if (!status.activated) return { ok: false as const, code: "inactive" };
-    if (hasLiveKey(status) && !req.recreate) return { ok: false as const, code: "has_key" };
+    // m-4: una chiave viva si ricrea SOLO se nessuna passkey la apre più.
+    if (hasLiveKey(status) && (!req.recreate || status.seals.length > 0)) return { ok: false as const, code: "has_key" };
     const passkey = (status.passkeys ?? []).find((p) => p.credentialIdB64url === req.credentialId);
     if (!passkey) return { ok: false as const, code: "passkey_unknown" };
     await this.http("POST", "/api/me/security/reauth/passkey/verify", { response: req.assertion });
@@ -630,9 +654,10 @@ export class VaultCore {
 
   /** La presenza fresca: `null` se regge, altrimenti l'esito da restituire. La PRF si consuma sempre. */
   private async present(presence: Presence): Promise<{ ok: false; code: string } | null> {
-    const prf = this.takeStash();
+    const prf = this.takeStash("open");
     if (!prf) return { ok: false, code: "no_prf" };
     try {
+      if (!sameCredential(presence.assertion, presence.credentialId)) return { ok: false, code: "credential_mismatch" };
       await this.http("POST", "/api/me/security/reauth/passkey/verify", { response: presence.assertion });
       const mine = await this.http<VaultMyKeyResponse>("GET", "/api/vault/keys/mine");
       if (!this.key || mine.id !== this.key.personKeyId) return { ok: false, code: "stale_key" };
@@ -706,6 +731,7 @@ export class VaultCore {
 
   /** Fase 2: la propria chiave sigillata per il Mac dell'associazione letta. */
   private async pairSeal(req: Extract<CoreRequest, { t: "pairSeal" }>, prf: ArrayBuffer) {
+    if (!sameCredential(req.assertion, req.credentialId)) return { ok: false as const, code: "credential_mismatch" };
     const p = this.pairing;
     if (!p || p.state !== req.state) return { ok: false as const, code: "no_pairing" };
     if (String(req.typed).replace(/\s/g, "").toLowerCase() !== p.last4) return { ok: false as const, code: "fingerprint_mismatch" };
@@ -956,7 +982,7 @@ export class VaultCore {
         if (req.purpose === "activate" && status.activated) return { ok: false, code: "vault_already_active" };
         if (req.purpose !== "activate" && !status.activated) return { ok: false, code: "inactive" };
         const creating = req.purpose === "create" || req.purpose === "activate";
-        if (creating && hasLiveKey(status) && !req.recreate) return { ok: false, code: "has_key" };
+        if (creating && hasLiveKey(status) && (!req.recreate || status.seals.length > 0)) return { ok: false, code: "has_key" };
         if (!creating && !hasLiveKey(status)) return { ok: false, code: "no_key" };
         let offered = creating ? (status.passkeys ?? []) : status.seals;
         if (req.purpose === "seal") {
@@ -976,15 +1002,21 @@ export class VaultCore {
         if (options.extensions?.prf?.eval?.first !== toBase64Url(PRF_INPUT)) return { ok: false, code: "prf_mismatch" };
         const allow = (options.allowCredentials ?? []).filter((c) => sealed.includes(c.id));
         if (allow.length === 0) return { ok: false, code: "no_seal" };
+        this.prepared = req.purpose ?? "open";
         return { ok: true, options: { ...options, allowCredentials: allow }, onlyCredentialIds: allow.map((c) => c.id) };
       }
       case "stash":
         this.dropStash();
-        this.stashed = { prf: req.prf, at: this.deps.now() };
+        this.stashed = { prf: req.prf, at: this.deps.now(), purpose: this.prepared };
+        this.prepared = "open";
         return { ok: true };
       case "unlock": {
-        const prf = this.takeStash();
+        const prf = this.takeStash("open");
         if (!prf) return { ok: false, code: "no_prf" };
+        if (!sameCredential(req.assertion, req.credentialId)) {
+          wipe(prf);
+          return { ok: false, code: "credential_mismatch" };
+        }
         try {
           await this.http("POST", "/api/me/security/reauth/passkey/verify", { response: req.assertion });
           const server = await this.whoOnServer();
@@ -1006,7 +1038,7 @@ export class VaultCore {
       }
       case "sealBegin":
       case "sealFinish": {
-        const prf = this.takeStash();
+        const prf = req.t === "sealBegin" ? this.takeStash("open") : this.takeStash("seal");
         if (!prf) {
           if (req.t === "sealFinish") this.dropSealing();
           return { ok: false, code: "no_prf" };
@@ -1022,7 +1054,7 @@ export class VaultCore {
         }
       }
       case "createKey": {
-        const prf = this.takeStash();
+        const prf = this.takeStash("create", "activate");
         if (!prf) return { ok: false, code: "no_prf" };
         try {
           return await this.createKey(req, prf);
@@ -1136,7 +1168,7 @@ export class VaultCore {
         };
       }
       case "pairSeal": {
-        const prf = this.takeStash();
+        const prf = this.takeStash("open");
         if (!prf) return { ok: false, code: "no_prf" };
         try {
           return await this.pairSeal(req, prf);

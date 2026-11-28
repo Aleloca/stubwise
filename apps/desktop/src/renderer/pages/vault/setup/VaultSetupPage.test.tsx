@@ -63,6 +63,9 @@ describe("la pagina della cassaforte (fase 2)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Generate the recovery kit" }));
     expect(await screen.findByText(KIT)).toBeInTheDocument();
     expect(m.generateKit).toHaveBeenCalledWith("activate");
+    // m-6: né la traduzione del browser né un correttore leggono il kit.
+    expect(screen.getByText(KIT)).toHaveAttribute("translate", "no");
+    expect(screen.getByText(KIT)).toHaveAttribute("data-gramm", "false");
     const activate = screen.getByRole("button", { name: "Activate the vault" });
     expect(activate).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", { name: "I printed/saved the kit" }));
@@ -151,6 +154,8 @@ describe("la pagina della cassaforte (fase 2)", () => {
     renderWithData(<VaultSetupPage />, { personId: "p-roberta" });
     fireEvent.click(await screen.findByRole("button", { name: "Use the recovery kit" }));
     const box = screen.getByLabelText("Recovery kit");
+    expect(box).toHaveAttribute("translate", "no");
+    expect(box).toHaveAttribute("data-gramm", "false");
     fireEvent.change(box, { target: { value: KIT } });
     fireEvent.click(screen.getByRole("button", { name: "Use the kit" }));
     expect(await screen.findByText("bea@example.com")).toBeInTheDocument();

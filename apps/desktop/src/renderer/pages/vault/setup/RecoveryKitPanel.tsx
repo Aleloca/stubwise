@@ -51,6 +51,8 @@ export function RecoveryKitPanel({
       <pre
         aria-labelledby={labelId}
         data-recovery-kit
+        translate="no"
+        data-gramm="false"
         className="num rounded-md border border-rule bg-ink/3 px-4 py-3 font-mono text-md break-all whitespace-pre-wrap text-ink"
       >
         {kitText}

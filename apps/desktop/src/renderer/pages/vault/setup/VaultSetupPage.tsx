@@ -462,6 +462,8 @@ function Recovery() {
             aria-describedby="vault-recovery-kit-hint"
             autoComplete="off"
             spellCheck={false}
+            translate="no"
+            data-gramm="false"
             rows={5}
             className="num rounded-md border border-rule-strong bg-ground px-3 py-2 font-mono text-md text-ink"
           />
