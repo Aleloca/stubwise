@@ -139,7 +139,7 @@ const connectGoogle: Drive["connectGoogle"] = async (options = {}) => {
     returnState = prepared?.ok ? prepared.state : null;
     // Lotto 4, §6 (72, c75ad9138): `returnTo` è `web` da un server di prima.
     // Link della nuova app (54): dal browser `client: "web"`, così il ritorno va
-    // su /app/#/preferences/account e non sul web vecchio. Il desktop senza
+    // su /#/preferences/account e non sul web vecchio. Il desktop senza
     // `state` (preparazione non riuscita) resta com'era.
     const res = await appClient().google.connect(
       workspaceId,

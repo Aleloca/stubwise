@@ -31,7 +31,7 @@ export function VaultAdminPart({ personId, name }: { personId: string; name: str
   // Nell'app desktop la lista è del browser [VA 9]: qui non si chiede niente.
   const macs = useMacsOf(personId, !desktop).data;
   const [removing, setRemoving] = useState<MacView | null>(null);
-  const inBrowser = () => openInWeb(`/app/#/admin/people/${encodeURIComponent(personId)}`);
+  const inBrowser = () => openInWeb(`/#/admin/people/${encodeURIComponent(personId)}`);
   if (desktop) {
     if (!viewer.instancePermissions.includes("instance.full_admin")) return null;
     return (

@@ -9,7 +9,7 @@ import { setSessionPersonId } from "../../data/session";
 import { renderRoute } from "../../test/renderRoute";
 
 // La pagina del link del cambio d'email (area 9, R2; il server la serve a
-// `<PUBLIC_URL>/app/#/email-change/<token>`): pubblica, senza sessione. NON
+// `<PUBLIC_URL>/#/email-change/<token>`): pubblica, senza sessione. NON
 // si conferma all'apertura (gli scanner della posta aprono i link ed
 // eseguono il JS): mostra la nuova email e conferma solo al clic. Un link sbagliato,
 // scaduto, usato o annullato dà UNA frase sola, come il server.

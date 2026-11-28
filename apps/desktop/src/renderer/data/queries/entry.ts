@@ -53,7 +53,7 @@ function useEnterAs() {
 }
 
 /**
- * La conferma del login del desktop dal browser (`/app/#/desktop-login`): il
+ * La conferma del login del desktop dal browser (`/#/desktop-login`): il
  * codice monouso, chiesto SOLO al clic su «Allow». Un `reauth_required` lo
  * gestisce `useReauth()` di chi chiama.
  */

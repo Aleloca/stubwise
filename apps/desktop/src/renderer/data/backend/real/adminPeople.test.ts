@@ -201,7 +201,7 @@ describe("People, inviti e Roles dal server (area 9, R7)", () => {
     const people = createRealAdminPeople(fakeApi().api);
     expect(await people.createPasswordResetLink(MARCO)).toEqual({
       ok: true,
-      link: "https://stubwise.acme.test/app/#/reset-password/rst456",
+      link: "https://stubwise.acme.test/#/reset-password/rst456",
       expiresAt: "2026-11-17T09:00:00.000Z",
     });
     const r = await people.createInvite({
@@ -210,7 +210,7 @@ describe("People, inviti e Roles dal server (area 9, R7)", () => {
       projects: [],
     });
     if (!r.ok) throw new Error(r.error);
-    expect(r.link).toBe("https://stubwise.acme.test/app/#/register/tok123");
+    expect(r.link).toBe("https://stubwise.acme.test/#/register/tok123");
     // Review F1, I2: l'id è quello del server, non una formula del client.
     expect(r.inviteId).toBe("i_0123456789abcdef0123456789abcdef");
   });

@@ -6,7 +6,7 @@ import { createHash, randomBytes } from "node:crypto";
 //
 // 1. `start()` genera `state` e `code_verifier`, tiene in memoria UNA sola
 //    richiesta pendente (5 minuti) e apre nel browser
-//    `<istanza>/app/#/desktop-login?challenge=<S256(verifier)>&state=<s>&device=<nome>`.
+//    `<istanza>/#/desktop-login?challenge=<S256(verifier)>&state=<s>&device=<nome>`.
 // 2. Il browser, dopo il login completo e «Allow», riapre l'app con
 //    `stubwise://auth?code=…&state=…`.
 // 3. `handleAuthUrl()` accetta SOLO quell'URL con lo state pendente, scambia
@@ -84,7 +84,7 @@ export function createBrowserLogin(deps: BrowserLoginDeps) {
     retire(pending);
     pending = { state, verifier, deviceName, expiresAt: now() + PENDING_TTL_MS, instance };
     const query = new URLSearchParams({ challenge, state, device: deviceName });
-    await deps.openExternal(`${instance}/app/#/desktop-login?${query.toString()}`);
+    await deps.openExternal(`${instance}/#/desktop-login?${query.toString()}`);
     return { ok: true, state };
   }
 

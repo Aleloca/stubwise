@@ -285,7 +285,7 @@ describe("Preferenze → Notifiche nella build app (area 8, F2, R3)", () => {
     projectId: PROJECT_ID,
     ticketId: null,
     jobId: null,
-    url: "/app/#/p/AUD/releases/AUD-V3",
+    url: "/#/p/AUD/releases/AUD-V3",
     createdAt: "2026-11-14T10:00:00.000Z",
     readAt: null,
     snoozedUntil: null,

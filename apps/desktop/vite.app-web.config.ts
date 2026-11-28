@@ -6,13 +6,13 @@ import { PRODUCTION_CSP } from "./src/main/security";
 import { backendAliases, backendDefine } from "./vite.backend";
 
 // La build «app» nel browser (integrazione area 2, fetta 1): lo stesso
-// renderer del desktop, sul server vero, servito da caddy su `/app/` con la
+// renderer del desktop, sul server vero, servito da caddy alla radice (R1) con la
 // sessione a cookie del web (stessa origine). Sempre in modo `app`: il
 // prototipo nel browser è `vite.web.config.ts`. Lo controlla
 // `scripts/check-no-seed.mjs`: nessun dato del seed nel bundle.
 export default defineConfig({
   root: resolve(import.meta.dirname, "src/renderer"),
-  base: "/app/",
+  base: "/",
   resolve: { alias: backendAliases("app") },
   define: backendDefine("app"),
   plugins: [

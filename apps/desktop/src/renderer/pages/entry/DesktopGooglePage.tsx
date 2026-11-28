@@ -5,7 +5,7 @@ import { secondaryButton } from "../tasks/controls";
 import { EntryColumn, EntryHeading } from "./parts";
 
 /**
- * `/app/#/desktop-google?outcome&state` (lotto 4, §6): il browser torna qui
+ * `/#/desktop-google?outcome&state` (lotto 4, §6): il browser torna qui
  * dal consenso di Google quando il collegamento di una casella è partito dal
  * desktop. Dice l'esito con i testi del dialogo e riapre l'app con
  * `stubwise://google?outcome=…&state=…`: SOLO quei due parametri, e solo se

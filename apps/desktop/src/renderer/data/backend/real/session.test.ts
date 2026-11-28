@@ -170,19 +170,19 @@ describe("le card dell'inbox", () => {
   );
 
   it.each([
-    ["project.brief", "/app/#/p/AUD/overview?brief=66666666-6666-4666-8666-666666666666"],
-    ["docs.nightly_attention", "/app/#/p/AUD/docs/audin-app"],
-    ["docs.limit_paused", "/app/#/p/AUD/docs/audin-app"],
-    ["security.alert", "/app/#/preferences/security"],
+    ["project.brief", "/#/p/AUD/overview?brief=66666666-6666-4666-8666-666666666666"],
+    ["docs.nightly_attention", "/#/p/AUD/docs/audin-app"],
+    ["docs.limit_paused", "/#/p/AUD/docs/audin-app"],
+    ["security.alert", "/#/preferences/security"],
   ] as const)("%s col link della nuova app (%s) apre lì", (kind, url) => {
     const n = presentInboxItem(inboxItemSchema.parse({ ...base, kind, ticketId: null, url }), ctx);
-    expect(n.link).toBe(url.slice("/app/".length));
+    expect(n.link).toBe(url.slice("/".length));
     expect(n.webHref).toBeUndefined();
   });
 
   it("un link della nuova app con una forma che l'app non apre resta fuori", () => {
     const n = presentInboxItem(
-      inboxItemSchema.parse({ ...base, kind: "project.brief", ticketId: null, url: "/app/#/p/AUD/overview?brief=<x>" }),
+      inboxItemSchema.parse({ ...base, kind: "project.brief", ticketId: null, url: "/#/p/AUD/overview?brief=<x>" }),
       ctx,
     );
     expect(n.link).not.toBe("#/p/AUD/overview?brief=<x>");
@@ -213,7 +213,7 @@ describe("le card dell'inbox", () => {
   });
 
   // Area 8, F2 (R4): le card dei tipi del catalogo arrivano senza ticket, col
-  // link all'app nel campo `url` (`/app/#/…`, S1): aprono la pagina nell'app
+  // link all'app nel campo `url` (`/#/…`, S1): aprono la pagina nell'app
   // se quella pagina è accesa, altrimenti restano «Open in web».
   describe("tipi del catalogo, nella build app", () => {
     beforeEach(() => vi.stubEnv("VITE_STUBWISE_BUILD", "app"));
@@ -225,21 +225,21 @@ describe("le card dell'inbox", () => {
     const origin = { ...ctx, instanceOrigin: "https://stubwise.example.com" };
 
     it("release.merged apre il dettaglio del rilascio nell'app", () => {
-      const n = presentInboxItem(catalogCard("release.merged", "/app/#/p/AUD/releases/AUD-V3"), origin);
+      const n = presentInboxItem(catalogCard("release.merged", "/#/p/AUD/releases/AUD-V3"), origin);
       expect(n.link).toBe("#/p/AUD/releases/AUD-V3");
       expect(n.webHref).toBeUndefined();
       expect(n.objectCode).toBe("AUD");
     });
 
     it("pr.opened apre il pannello della PR (id = repository#numero)", () => {
-      const n = presentInboxItem(catalogCard("pr.opened", `/app/#/p/AUD/releases?pr=${REPO}%237`), origin);
+      const n = presentInboxItem(catalogCard("pr.opened", `/#/p/AUD/releases?pr=${REPO}%237`), origin);
       expect(n.link).toBe(`#/p/AUD/releases?pr=${REPO}%237`);
       expect(n.webHref).toBeUndefined();
     });
 
     it("docs.release_note apre i Docs del progetto, anche da un URL assoluto dell'istanza", () => {
       const n = presentInboxItem(
-        catalogCard("docs.release_note", "https://stubwise.example.com/app/#/p/AUD/docs"),
+        catalogCard("docs.release_note", "https://stubwise.example.com/#/p/AUD/docs"),
         origin,
       );
       expect(n.link).toBe("#/p/AUD/docs");
@@ -247,19 +247,19 @@ describe("le card dell'inbox", () => {
 
     it("support.request apre la richiesta nel pannello delle richieste (area 8, F3)", () => {
       const item = "88888888-8888-4888-8888-888888888888";
-      const n = presentInboxItem(catalogCard("support.request", `/app/#/p/AUD/requests?request=${item}`), origin);
+      const n = presentInboxItem(catalogCard("support.request", `/#/p/AUD/requests?request=${item}`), origin);
       expect(n.link).toBe(`#/p/AUD/requests?request=${item}`);
     });
 
     it("un link a Support (nessuna card ci porta più, area 8 F3), o una query sconosciuta sulle richieste, resta «Open in web»", () => {
-      expect(presentInboxItem(catalogCard("support.request", "/app/#/p/AUD/support/AUD-S3"), origin).link).toBe("");
-      expect(presentInboxItem(catalogCard("support.request", "/app/#/p/AUD/requests?x=1"), origin).link).toBe("");
+      expect(presentInboxItem(catalogCard("support.request", "/#/p/AUD/support/AUD-S3"), origin).link).toBe("");
+      expect(presentInboxItem(catalogCard("support.request", "/#/p/AUD/requests?x=1"), origin).link).toBe("");
     });
 
     it("una card monitor.* senza codice del server (rimosso, o un server di prima) resta «Open in web»", () => {
-      const n = presentInboxItem(catalogCard("monitor.alert", "/app/#/p/AUD/servers/SRV-1"), origin);
+      const n = presentInboxItem(catalogCard("monitor.alert", "/#/p/AUD/servers/SRV-1"), origin);
       expect(n.link).toBe("");
-      expect(n.webHref).toBe("/app/#/p/AUD/servers/SRV-1");
+      expect(n.webHref).toBe("/#/p/AUD/servers/SRV-1");
     });
 
     it("monitor.alert e monitor.recovered col codice del server (S12): la pagina del server nell'app", () => {
@@ -284,7 +284,7 @@ describe("le card dell'inbox", () => {
       const withTask = inboxItemSchema.parse({
         ...base,
         kind: "server.diagnosis_ready",
-        url: "/app/#/p/AUD/servers/SRV-4",
+        url: "/#/p/AUD/servers/SRV-4",
         serverCode: "SRV-4",
       });
       expect(presentInboxItem(withTask, origin).link).toBe("#/p/AUD/tasks?task=AUD-12");
@@ -292,7 +292,7 @@ describe("le card dell'inbox", () => {
         ...base,
         kind: "server.diagnosis_ready",
         ticketId: null,
-        url: "/app/#/p/AUD/servers/SRV-4",
+        url: "/#/p/AUD/servers/SRV-4",
         serverCode: "SRV-4",
       });
       expect(presentInboxItem(noTask, origin).link).toBe("#/p/AUD/servers/SRV-4");
@@ -311,10 +311,19 @@ describe("le card dell'inbox", () => {
       ]);
     });
 
-    it("un /app/# di un'altra origine non apre mai una pagina dell'app", () => {
-      const n = presentInboxItem(catalogCard("release.merged", "https://evil.example.com/app/#/p/AUD/docs"), origin);
+    it("una card scritta prima di R1 (/app/#/…, nel jsonb) apre ancora la pagina nell'app", () => {
+      expect(presentInboxItem(catalogCard("release.merged", "/app/#/p/AUD/releases/AUD-V3"), origin).link).toBe(
+        "#/p/AUD/releases/AUD-V3",
+      );
+      expect(
+        presentInboxItem(catalogCard("docs.release_note", "https://stubwise.example.com/app/#/p/AUD/docs"), origin).link,
+      ).toBe("#/p/AUD/docs");
+    });
+
+    it("un /# di un'altra origine non apre mai una pagina dell'app", () => {
+      const n = presentInboxItem(catalogCard("release.merged", "https://evil.example.com/#/p/AUD/docs"), origin);
       expect(n.link).toBe("");
-      expect(n.webHref).toBe("https://evil.example.com/app/#/p/AUD/docs");
+      expect(n.webHref).toBe("https://evil.example.com/#/p/AUD/docs");
     });
 
     it("una card arrivata da obbligatorio porta il suo motivo (alertMandatory), per chi legge", () => {
@@ -322,7 +331,7 @@ describe("le card dell'inbox", () => {
         ...base,
         kind: "release.failed",
         ticketId: null,
-        url: "/app/#/p/AUD/releases/AUD-V3",
+        url: "/#/p/AUD/releases/AUD-V3",
         alertMandatory: "merged",
       });
       const n = presentInboxItem(item, { ...origin, viewerId: ME_ID });
@@ -330,7 +339,7 @@ describe("le card dell'inbox", () => {
     });
 
     it("senza alertMandatory (o con un motivo che l'app non conosce) nessun obbligo", () => {
-      const plain = catalogCard("release.failed", "/app/#/p/AUD/releases/AUD-V3");
+      const plain = catalogCard("release.failed", "/#/p/AUD/releases/AUD-V3");
       expect(presentInboxItem(plain, { ...origin, viewerId: ME_ID }).mandatory).toBeUndefined();
       const future = inboxItemSchema.parse({
         ...base,

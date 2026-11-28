@@ -46,13 +46,13 @@ function openedParams(url: string): URLSearchParams {
 }
 
 describe("startBrowserLogin", () => {
-  it("apre /app/#/desktop-login con challenge, state e nome del dispositivo; mai il verifier", async () => {
+  it("apre /#/desktop-login con challenge, state e nome del dispositivo; mai il verifier", async () => {
     const { login, opened } = setup();
     const started = await login.start();
     expect(started.ok).toBe(true);
     expect(opened).toHaveLength(1);
     const url = opened[0]!;
-    expect(url.startsWith("https://stubwise.example/app/#/desktop-login?")).toBe(true);
+    expect(url.startsWith("https://stubwise.example/#/desktop-login?")).toBe(true);
     const params = openedParams(url);
     expect(params.get("state")).toBe(started.ok ? started.state : "");
     expect(params.get("challenge")).toMatch(/^[A-Za-z0-9_-]{43}$/);

@@ -213,7 +213,7 @@ describe("«Link a person» nella build app", () => {
       });
       fireEvent.click(within(row).getByRole("button", { name: /Link a person/ }));
       expect(screen.queryByRole("menu", { name: "Link “bot@ci.example” to" })).toBeNull();
-      expect(openWeb).toHaveBeenCalledWith(expect.stringMatching(/^\/app\/#\/projects\?.*view=person/));
+      expect(openWeb).toHaveBeenCalledWith(expect.stringMatching(/^\/#\/projects\?.*view=person/));
       expect(posts(seen)).toEqual([]);
     } finally {
       delete (window as { stubwise?: unknown }).stubwise;

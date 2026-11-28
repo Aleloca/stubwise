@@ -9,7 +9,7 @@ import { LoginSteps } from "./LoginPage";
 import { BusyLabel, EntryColumn, EntryHeading, ErrorLine } from "./parts";
 
 /**
- * `/app/#/desktop-login?challenge&state&device` (integrazione area 2,
+ * `/#/desktop-login?challenge&state&device` (integrazione area 2,
  * «Aggiunta del 9 nov 2026: il login»): il browser conferma il login
  * dell'app desktop. Senza una sessione completa prima il login web; poi la
  * domanda «Allow Stubwise on "<device>" to sign in as <name>?». Il codice

@@ -33,7 +33,7 @@ const item = (over: Record<string, unknown> = {}) =>
     ticketId: null,
     createdAt: "2026-11-20T10:00:00.000Z",
     readAt: null,
-    url: "/app/#/projects/22222222-2222-4222-8222-222222222222/members",
+    url: "/#/projects/22222222-2222-4222-8222-222222222222/members",
     memberAdded: {
       addedUserId: LUCA,
       addedName: "Luca Bianchi",

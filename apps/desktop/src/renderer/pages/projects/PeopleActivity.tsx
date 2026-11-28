@@ -1174,7 +1174,7 @@ function UnlinkedGroup({
                       type="button"
                       className={ghostButton}
                       title={t("projects.people.linkOnWeb")}
-                      onClick={() => openInWeb(`/app/#${location.href}`)}
+                      onClick={() => openInWeb(`/#${location.href}`)}
                     >
                       {t("projects.people.link")}
                     </button>

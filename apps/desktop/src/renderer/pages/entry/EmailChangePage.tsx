@@ -6,7 +6,7 @@ import { BusyLabel, EntryColumn, EntryHeading, ErrorLine, textButton } from "./p
 
 /**
  * `/email-change/$token` (area 9, R2; il server manda il link a
- * `<PUBLIC_URL>/app/#/email-change/<token>`): pubblica, senza sessione.
+ * `<PUBLIC_URL>/#/email-change/<token>`): pubblica, senza sessione.
  * Aprirla NON conferma: gli scanner della posta («safe links») aprono i link
  * ed eseguono il JS, e il cambio avverrebbe senza che una persona abbia
  * cliccato. Si legge il link, si mostra la nuova email, e si conferma SOLO
