@@ -739,7 +739,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:projectId/briefs",
     {
-      config: { access: onProject("tickets.view_all"), mcp: { action: "projects.briefs", summary: "I brief settimanali di un progetto, dal più recente (narrativa generata).", effect: "read" } },
+      config: { access: onProject("tickets.view_all"), mcp: { action: "projects.briefs", owner: "mcp", summary: "I brief settimanali di un progetto, dal più recente (narrativa generata).", effect: "read" } },
       schema: {
         params: idParamsSchema,
         querystring: z.object({
