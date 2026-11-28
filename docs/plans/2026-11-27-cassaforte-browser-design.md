@@ -417,6 +417,14 @@ build e non serve sbloccare: sono metadati.
   dopo può trovare una porta che non conosciamo. Vale ciò che dice il §1:
   un XSS sull'origine più un tocco della passkey bastano, e le difese
   contro l'iniezione (CSP, Trusted Types) vengono prima di questo argine.
+- **La pagina a sé della cassaforte condivide l'origine con l'app** (seconda
+  revisione della fase 2, I-1). COOP `noopener-allow-popups` impedisce in
+  Chromium che uno script dell'app apra la pagina, o ne segua la scheda, e
+  la governi prima del boot (`pnpm --filter @stubwise/desktop
+  verify:vault-isolation`). Firefox e Safari, se non supportano il valore,
+  lo trattano come `unsafe-none` e restano come prima. La difesa vera, a
+  lungo termine, è un'origine separata per la pagina (registro dei rimandi,
+  «Trasversali»).
 
 ## 13. Dove sta ogni punto della revisione
 
