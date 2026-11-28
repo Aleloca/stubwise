@@ -160,17 +160,18 @@ describe("le card `automation.*` dell'inbox", () => {
       body: "Il passo 1 non è riuscito",
       link: "#/automations/AUD-A1/runs/3",
     });
-    expect(failed!.webHref).toBeUndefined();
+    expect(failed!).not.toHaveProperty("webHref");
     expect(other).toMatchObject({ objectCode: "AUD-A1", link: "#/automations/AUD-A1" });
   });
 
-  it("a destinazione spenta niente link; un'automazione sparita è `objectGone`", async () => {
+  it("a destinazione spenta la pagina più vicina (il progetto), mai il web vecchio; un'automazione sparita è `objectGone`", async () => {
     inbox([
       card(),
       card({ id: "33333333-3333-4333-8333-333333333336", automation: null, objectGone: true }),
     ]);
     const [a, gone] = await listNotifications();
-    expect(a!.link).toBe("");
+    expect(a!.link).toBe("#/p/AUD");
+    expect(a!).not.toHaveProperty("webHref");
     expect(gone).toMatchObject({ objectGone: true, link: "" });
   });
 });

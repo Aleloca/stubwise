@@ -119,7 +119,7 @@ describe("le card dell'inbox", () => {
     const item = inboxItemSchema.parse({ ...base, kind: "decision.requested" });
     const n = presentInboxItem(item, ctx);
     expect(n.link).toBe("#/p/AUD/tasks?task=AUD-12");
-    expect(n.webHref).toBeUndefined();
+    expect(n).not.toHaveProperty("webHref");
     expect(n.objectCode).toBe("AUD-12");
   });
 
@@ -133,20 +133,21 @@ describe("le card dell'inbox", () => {
     });
     const n = presentInboxItem(item, ctx);
     expect(n).toMatchObject({ link: "", objectGone: true, objectCode: "AUD-12" });
-    expect(n.webHref).toBeUndefined();
+    expect(n).not.toHaveProperty("webHref");
   });
 
   it("senza objectGone (server più vecchio) il campo vale false", () => {
     expect(inboxItemSchema.parse({ ...base, kind: "decision.requested" }).objectGone).toBe(false);
   });
 
-  it("una card di un kind sconosciuto ha Apri nel web e non rompe", () => {
+  it("una card di un kind sconosciuto va alla pagina più vicina e non rompe", () => {
     const raw = { ...base, kind: "something.from.the.future", url: "https://stubwise.example.com/tickets/44444444-4444-4444-8444-444444444444" };
     // Come la parsa il client condiviso: il kind ignoto diventa `__unknown__`.
     const item = { ...raw, kind: "__unknown__" } as unknown as Parameters<typeof presentInboxItem>[0];
     const n = presentInboxItem(item, { ...ctx, instanceOrigin: "https://stubwise.example.com" });
-    expect(n.link).toBe("");
-    expect(n.webHref).toBe("/tickets/44444444-4444-4444-8444-444444444444");
+    // Il percorso del web vecchio non è una pagina dell'app: la task.
+    expect(n.link).toBe("#/p/AUD/tasks?task=AUD-12");
+    expect(n).not.toHaveProperty("webHref");
     expect(n.title).toBe(base.text);
   });
 
@@ -156,7 +157,7 @@ describe("le card dell'inbox", () => {
     (kind) => {
       const n = presentInboxItem(inboxItemSchema.parse({ ...base, kind }), ctx);
       expect(n.link).toBe("#/p/AUD/tasks?task=AUD-12");
-      expect(n.webHref).toBeUndefined();
+      expect(n).not.toHaveProperty("webHref");
     },
   );
 
@@ -165,7 +166,7 @@ describe("le card dell'inbox", () => {
     (kind) => {
       const n = presentInboxItem(inboxItemSchema.parse({ ...base, kind, jobId: "55555555-5555-4555-8555-555555555555" }), ctx);
       expect(n.link).toBe("#/home");
-      expect(n.webHref).toBeUndefined();
+      expect(n).not.toHaveProperty("webHref");
     },
   );
 
@@ -177,7 +178,7 @@ describe("le card dell'inbox", () => {
   ] as const)("%s col link della nuova app (%s) apre lì", (kind, url) => {
     const n = presentInboxItem(inboxItemSchema.parse({ ...base, kind, ticketId: null, url }), ctx);
     expect(n.link).toBe(url.slice("/".length));
-    expect(n.webHref).toBeUndefined();
+    expect(n).not.toHaveProperty("webHref");
   });
 
   it("un link della nuova app con una forma che l'app non apre resta fuori", () => {
@@ -188,27 +189,26 @@ describe("le card dell'inbox", () => {
     expect(n.link).not.toBe("#/p/AUD/overview?brief=<x>");
   });
 
-  it("una card job.pr_opened apre l'URL della PR", () => {
+  it("una card job.pr_opened apre la task, dove si legge la PR", () => {
     const item = inboxItemSchema.parse({
       ...base,
       kind: "job.pr_opened",
       url: "https://github.com/acme/app/pull/7",
     });
-    // Un'origine diversa dall'istanza: l'URL resta assoluto (si apre nel browser).
-    expect(presentInboxItem(item, { ...ctx, instanceOrigin: "https://stubwise.example.com" }).webHref).toBe(
-      "https://github.com/acme/app/pull/7",
-    );
+    const n = presentInboxItem(item, { ...ctx, instanceOrigin: "https://stubwise.example.com" });
+    expect(n.link).toBe("#/p/AUD/tasks?task=AUD-12");
+    expect(n).not.toHaveProperty("webHref");
   });
 
-  it("un URL dell'istanza diventa il suo percorso", () => {
+  it("un percorso del web vecchio dell'istanza (card di prima) va alla pagina più vicina", () => {
     // Un kind che l'app non apre da sé (le decisioni aprono la Home).
     const item = inboxItemSchema.parse({
       ...base,
       kind: "job.pr_opened",
       url: "https://stubwise.example.com/tickets/44444444-4444-4444-8444-444444444444?tab=plan",
     });
-    expect(presentInboxItem(item, { ...ctx, instanceOrigin: "https://stubwise.example.com" }).webHref).toBe(
-      "/tickets/44444444-4444-4444-8444-444444444444?tab=plan",
+    expect(presentInboxItem(item, { ...ctx, instanceOrigin: "https://stubwise.example.com" }).link).toBe(
+      "#/p/AUD/tasks?task=AUD-12",
     );
   });
 
@@ -227,14 +227,14 @@ describe("le card dell'inbox", () => {
     it("release.merged apre il dettaglio del rilascio nell'app", () => {
       const n = presentInboxItem(catalogCard("release.merged", "/#/p/AUD/releases/AUD-V3"), origin);
       expect(n.link).toBe("#/p/AUD/releases/AUD-V3");
-      expect(n.webHref).toBeUndefined();
+      expect(n).not.toHaveProperty("webHref");
       expect(n.objectCode).toBe("AUD");
     });
 
     it("pr.opened apre il pannello della PR (id = repository#numero)", () => {
       const n = presentInboxItem(catalogCard("pr.opened", `/#/p/AUD/releases?pr=${REPO}%237`), origin);
       expect(n.link).toBe(`#/p/AUD/releases?pr=${REPO}%237`);
-      expect(n.webHref).toBeUndefined();
+      expect(n).not.toHaveProperty("webHref");
     });
 
     it("docs.release_note apre i Docs del progetto, anche da un URL assoluto dell'istanza", () => {
@@ -251,15 +251,18 @@ describe("le card dell'inbox", () => {
       expect(n.link).toBe(`#/p/AUD/requests?request=${item}`);
     });
 
-    it("un link a Support (nessuna card ci porta più, area 8 F3), o una query sconosciuta sulle richieste, resta «Open in web»", () => {
-      expect(presentInboxItem(catalogCard("support.request", "/#/p/AUD/support/AUD-S3"), origin).link).toBe("");
-      expect(presentInboxItem(catalogCard("support.request", "/#/p/AUD/requests?x=1"), origin).link).toBe("");
+    it("un link a Support (pagina accesa) si apre lì; una query sconosciuta sulle richieste va al progetto", () => {
+      expect(presentInboxItem(catalogCard("support.request", "/#/p/AUD/support/AUD-S3"), origin).link).toBe(
+        "#/p/AUD/support/AUD-S3",
+      );
+      expect(presentInboxItem(catalogCard("support.request", "/#/p/AUD/requests?x=1"), origin).link).toBe("#/p/AUD");
     });
 
-    it("una card monitor.* senza codice del server (rimosso, o un server di prima) resta «Open in web»", () => {
+    it("una card monitor.* senza codice del server (rimosso, o un server di prima) apre il link dell'app che ha", () => {
+      // La pagina di un server rimosso la gestisce l'app (il suo «non trovato»).
       const n = presentInboxItem(catalogCard("monitor.alert", "/#/p/AUD/servers/SRV-1"), origin);
-      expect(n.link).toBe("");
-      expect(n.webHref).toBe("/#/p/AUD/servers/SRV-1");
+      expect(n.link).toBe("#/p/AUD/servers/SRV-1");
+      expect(n).not.toHaveProperty("webHref");
     });
 
     it("monitor.alert e monitor.recovered col codice del server (S12): la pagina del server nell'app", () => {
@@ -322,8 +325,9 @@ describe("le card dell'inbox", () => {
 
     it("un /# di un'altra origine non apre mai una pagina dell'app", () => {
       const n = presentInboxItem(catalogCard("release.merged", "https://evil.example.com/#/p/AUD/docs"), origin);
-      expect(n.link).toBe("");
-      expect(n.webHref).toBe("https://evil.example.com/#/p/AUD/docs");
+      // La pagina più vicina dell'istanza, mai l'indirizzo dell'altra origine.
+      expect(n.link).toBe("#/p/AUD");
+      expect(n).not.toHaveProperty("webHref");
     });
 
     it("una card arrivata da obbligatorio porta il suo motivo (alertMandatory), per chi legge", () => {
@@ -352,7 +356,8 @@ describe("le card dell'inbox", () => {
 
     it("una card del catalogo senza url (server più vecchio) non rompe", () => {
       const n = presentInboxItem(catalogCard("release.succeeded"), origin);
-      expect(n.link).toBe("");
+      // Senza link: la pagina più vicina, il progetto.
+      expect(n.link).toBe("#/p/AUD");
       expect(n.title).toBe(base.text);
     });
   });
@@ -364,7 +369,7 @@ describe("le card dell'inbox", () => {
       jobId: "55555555-5555-4555-8555-555555555555",
     });
     const n = presentInboxItem(item, ctx);
-    expect(n.webHref).toBeUndefined();
+    expect(n).not.toHaveProperty("webHref");
     expect(n.link).toBe("#/home");
     expect(n.objectCode).toBe("AUD-12");
   });
