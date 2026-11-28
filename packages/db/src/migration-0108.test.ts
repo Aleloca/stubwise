@@ -12,7 +12,8 @@ import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Db } from "./client.js";
 import { projectStatuses, projects, tickets } from "./schema.js";
-import { expectSqlState, firstStatusOf, seedRepository, seedTicket, legacyTicketStatus } from "./testing.js";
+import { pgEnum, pgTable, uuid } from "drizzle-orm/pg-core";
+import { expectSqlState, firstStatusOf, seedRepository, seedTicket } from "./testing.js";
 
 /**
  * Migrazione 0108 (9 nov 2026, integrazione area 2): stati per progetto con
@@ -23,6 +24,16 @@ import { expectSqlState, firstStatusOf, seedRepository, seedTicket, legacyTicket
 
 const DRIZZLE_DIR = path.join(fileURLToPath(new URL("..", import.meta.url)), "drizzle");
 const LEGACY = ["open", "triaged", "in_progress", "in_review", "done", "closed"] as const;
+
+/**
+ * La colonna enum di prima di R3 (0245): questo test prova il trigger di quel
+ * tempo, quindi la catena si ferma PRIMA della 0245, e la colonna si scrive
+ * con una vista locale della tabella (lo schema non la ha più).
+ */
+const legacyTicketStatus = pgTable("tickets", {
+  id: uuid("id").primaryKey(),
+  status: pgEnum("ticket_status", LEGACY)("status").notNull(),
+});
 
 async function migrationsFolderUpTo(stopBeforeIdx: number): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), "sw-mig108-"));
@@ -80,7 +91,10 @@ describe("migrazione 0108: stati per progetto", () => {
         values (${oldProjectId}, ${n}, ${status}, 'bug', 'medium', 'manual', ${status})
       `);
     }
-    await migrate(db, { migrationsFolder: DRIZZLE_DIR });
+    // Il resto della catena sullo stesso DB, fino a R3 ESCLUSO: la 0245 toglie
+    // la colonna e il trigger che questo test prova (lì il suo test,
+    // `migration-0245.test.ts`).
+    await migrate(db, { migrationsFolder: await migrationsFolderUpTo(245) });
   }, 180_000);
 
   afterAll(async () => {

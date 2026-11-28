@@ -3,7 +3,7 @@ import { tickets } from "./schema.js";
 
 // Gli stati senza l'enum (blocco T del ritiro del web vecchio, R0;
 // `docs/invariants/tasks.md`, `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md`
-// §1.2). La colonna `tickets.status` non è più nello schema: chi cambia
+// §1.2). La colonna `tickets.status` non c'è più (0245, R3): chi cambia
 // stato scrive `statusId`, chi lo legge lo deriva. La regola resta in SQL, in
 // UN posto (`stubwise_status_for_legacy`, `stubwise_ticket_status`): qui
 // stanno solo i frammenti che la richiamano.
@@ -18,11 +18,23 @@ export type TicketRole = "open" | "triaged" | "in_progress" | "in_review" | "don
  * `in_review`, …). Si usa nell'`UPDATE`: `.set({ statusId: statusIdForRole("done") })`.
  *
  * `triaged` è un ruolo `open` più `triagedAt` (0240): chi lo scrive imposta
- * anche `triagedAt: sql\`now()\``, e il trigger `tickets_triaged_reset` lo
- * azzera quando il ticket esce da todo.
+ * anche `triagedAt: sql\`now()\``, e il trigger `tickets_state` lo azzera
+ * quando il ticket esce da todo.
  */
 export function statusIdForRole(role: TicketRole): SQL<string> {
-  return sql<string>`stubwise_status_for_legacy(${tickets.projectId}, ${role}::"ticket_status", ${tickets.statusId})`;
+  return sql<string>`stubwise_status_for_legacy(${tickets.projectId}, ${roleLiteral(role)}, ${tickets.statusId})`;
+}
+
+/**
+ * Il ruolo come LETTERALE SQL senza tipo (`'done'`): Postgres lo risolve sul
+ * tipo del parametro della funzione, che è l'enum `ticket_status` prima della
+ * 0245 (R3) e `text` dopo. Un cast esplicito legherebbe il codice a uno dei
+ * due schemi, e dopo R3 si deve poter scendere a R2 (deploy-log, «R3»). Il
+ * valore viene da un elenco chiuso, e si controlla.
+ */
+export function roleLiteral(role: TicketRole): SQL {
+  if (!ALL_ROLES.includes(role)) throw new Error(`ruolo sconosciuto: ${String(role)}`);
+  return sql.raw(`'${role}'`);
 }
 
 /**
@@ -59,13 +71,14 @@ export function ticketRoleIn(roles: readonly TicketRole[]): SQL {
   const wanted = new Set(roles);
   const legacy = [...new Set([...wanted].map((r) => (r === "triaged" ? "open" : r)))];
   if (legacy.length === 0) return sql`false`;
-  const inStates = sql`${tickets.statusId} in (select "id" from "project_statuses" where "legacy_status" = any(array[${sql.join(
+  // `legacy_status::text`: regge l'enum di prima della 0245 e il text di dopo.
+  const inStates = sql`${tickets.statusId} in (select "id" from "project_statuses" where "legacy_status"::text = any(array[${sql.join(
     legacy.map((r) => sql`${r}`),
     sql`, `,
-  )}]::"ticket_status"[]))`;
+  )}]::text[]))`;
   if (wanted.has("open") && !wanted.has("triaged")) return sql`(${inStates} and ${tickets.triagedAt} is null)`;
   if (wanted.has("triaged") && !wanted.has("open"))
-    return sql`(${inStates} and (${tickets.triagedAt} is not null or ${tickets.statusId} not in (select "id" from "project_statuses" where "legacy_status" = 'open')))`;
+    return sql`(${inStates} and (${tickets.triagedAt} is not null or ${tickets.statusId} not in (select "id" from "project_statuses" where "legacy_status"::text = 'open')))`;
   return inStates;
 }
 

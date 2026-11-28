@@ -1674,6 +1674,13 @@
       "when": 1805155200000,
       "tag": "0240_tickets_triaged_at",
       "breakpoints": true
+    },
+    {
+      "idx": 245,
+      "version": "7",
+      "when": 1805587200000,
+      "tag": "0245_tickets_senza_enum",
+      "breakpoints": true
     }
   ]
 }

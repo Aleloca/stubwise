@@ -145,7 +145,6 @@ export const language = pgEnum("language", enumValues(languageSchema));
 export const gitProviderKind = pgEnum("git_provider_kind", enumValues(gitProviderKindSchema));
 export const ticketType = pgEnum("ticket_type", enumValues(ticketTypeSchema));
 export const ticketPriority = pgEnum("ticket_priority", enumValues(ticketPrioritySchema));
-export const ticketStatus = pgEnum("ticket_status", enumValues(ticketStatusSchema));
 export const ticketSource = pgEnum("ticket_source", enumValues(ticketSourceSchema));
 export const backlogItemStatus = pgEnum("backlog_item_status", enumValues(backlogItemStatusSchema));
 export const backlogRisk = pgEnum("backlog_risk", enumValues(backlogRiskSchema));
@@ -1081,12 +1080,9 @@ export const tickets = pgTable(
     originContent: text("origin_content"),
     type: ticketType("type").notNull(),
     priority: ticketPriority("priority").notNull(),
-    // ⚠️ La colonna `status` (l'enum) c'è ancora nel DB, tenuta dal trigger
-    // `tickets_status_sync`, ma NON è più nello schema (blocco T, R0): il
-    // codice non la legge né la scrive, e il compilatore lo garantisce. Lo
+    // La colonna `status` (l'enum) non c'è più (0245, R3 del blocco T): lo
     // `status` delle risposte si deriva con `ticketStatusSql`; per cambiare
-    // stato si scrive `statusId` con `statusIdForRole` (`ticket-status.ts`).
-    // La colonna si toglie con le migrazioni del ritiro (R3).
+    // stato si scrive `statusId` con `roleUpdate` (`ticket-status.ts`).
     /** Quando un todo è stato smistato (0240): `status` derivato = `triaged`. Lo azzera il trigger fuori da todo. */
     triagedAt: timestamp("triaged_at", { withTimezone: true }),
     // Lo stato VERO (0108), uno degli stati del progetto. NOT NULL nel DB ma
@@ -1277,12 +1273,18 @@ export const projectStatuses = pgTable(
     name: text("name").notNull(),
     family: text("family", { enum: ["todo", "active", "closed"] }).notNull(),
     position: integer("position").notNull(),
-    legacyStatus: ticketStatus("legacy_status").notNull(),
+    // Il RUOLO dello stato (i valori dell'enum di prima): text con un CHECK
+    // dalla 0245 (R3), quando il tipo `ticket_status` se n'è andato.
+    legacyStatus: text("legacy_status", { enum: enumValues(ticketStatusSchema) }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   () => [
     check("project_statuses_family_chk", sql`family IN ('todo', 'active', 'closed')`),
     check("project_statuses_name_chk", sql`length(btrim(name)) BETWEEN 1 AND 60`),
+    check(
+      "project_statuses_legacy_status_chk",
+      sql`legacy_status IN ('open', 'triaged', 'in_progress', 'in_review', 'done', 'closed')`,
+    ),
   ],
 );
 

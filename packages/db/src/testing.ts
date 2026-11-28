@@ -6,7 +6,7 @@ import type { BacklogItemStatus, GitProviderKind } from "@stubwise/shared";
 import type postgres from "postgres";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql, type SQL } from "drizzle-orm";
-import type { TicketRole } from "./ticket-status.js";
+import { roleLiteral, type TicketRole } from "./ticket-status.js";
 import { createDb, runMigrations, type Db } from "./client.js";
 import {
   backlogItems,
@@ -25,10 +25,8 @@ import {
   repositories,
   ticketRepositories,
   tickets,
-  ticketStatus,
   users,
 } from "./schema.js";
-import { pgTable, uuid } from "drizzle-orm/pg-core";
 
 export interface TestDb {
   db: Db;
@@ -220,25 +218,13 @@ export async function seedTicket(
 }
 
 /**
- * SOLO TEST: la colonna enum `tickets.status`, che nel DB c'è ancora (tenuta
- * dal trigger `tickets_status_sync`) ma non è più nello schema (blocco T, R0).
- * Serve ai test che preparano un ticket «come lo lasciava uno scrittore
- * vecchio» o che verificano che la colonna resti quella di prima. Il codice
- * vero non la usa: lo `status` si deriva con `ticketStatusSql`.
- */
-export const legacyTicketStatus = pgTable("tickets", {
-  id: uuid("id").primaryKey(),
-  status: ticketStatus("status").notNull(),
-});
-
-/**
  * SOLO TEST: i valori di un INSERT di ticket con un ruolo (blocco T, R0), al
  * posto del vecchio `status: ruolo`. Stessa regola di 0108 che il trigger
  * applicava all'enum scritto: `stubwise_status_for_legacy(progetto, ruolo, NULL)`.
  * `.values({ projectId, ...roleInsert(projectId, "done"), ... })`.
  */
 export function roleInsert(projectId: string | SQL, role: TicketRole): { statusId: SQL<string>; triagedAt?: SQL<Date> } {
-  const statusId = sql<string>`stubwise_status_for_legacy(${projectId}::uuid, ${role}::"ticket_status", NULL)`;
+  const statusId = sql<string>`stubwise_status_for_legacy(${projectId}::uuid, ${roleLiteral(role)}, NULL)`;
   return role === "triaged" ? { statusId, triagedAt: sql<Date>`now()` } : { statusId };
 }
 
