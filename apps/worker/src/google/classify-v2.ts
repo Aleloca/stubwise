@@ -6,7 +6,8 @@ import {
   emailMessages,
   emailProposals,
   googleAccounts,
-  projectMembers,
+  projectAccess,
+  projectAccessRowCounts,
   projects,
   tickets,
   users,
@@ -53,7 +54,7 @@ import { monthlyCostUsd } from "@stubwise/db";
  * data) e, per i progetti CANDIDATI, le proposte (di solito una task,
  * altrimenti una richiesta). I candidati non li sceglie il modello: un progetto
  * è candidato se almeno un destinatario in Stubwise (mittente, to, cc, la
- * casella) ne è membro ESPLICITO (`project_members`; i full admin, membri
+ * casella) ne è membro ESPLICITO (`project_access`, anche di workspace, D17; i full admin, membri
  * impliciti di tutto, renderebbero candidato ogni progetto) *(O)*. Il modello
  * sceglie fra loro, o li dichiara incerti («Quale progetto?»).
  *
@@ -254,9 +255,10 @@ export async function loadCandidateProjects(db: Db, recipientUserIds: readonly s
   const rows = await db
     .selectDistinct({ id: projects.id, code: projects.code, name: projects.name, description: projects.description })
     .from(projects)
-    .innerJoin(projectMembers, eq(projectMembers.projectId, projects.id))
+    // Membri espliciti e persone di workspace (0239, D17); mai gli admin impliciti.
+    .innerJoin(projectAccess, eq(projectAccess.projectId, projects.id))
     // Area 9, F6: una mail non si attribuisce a un progetto archiviato.
-    .where(and(inArray(projectMembers.userId, [...recipientUserIds]), projectNotArchived(sql`${projects.id}`)))
+    .where(and(inArray(projectAccess.userId, [...recipientUserIds]), projectAccessRowCounts, projectNotArchived(sql`${projects.id}`)))
     .orderBy(asc(projects.name))
     .limit(CLASSIFY_V2_MAX_CANDIDATES);
   const out: CandidateProject[] = [];
@@ -268,13 +270,14 @@ export async function loadCandidateProjects(db: Db, recipientUserIds: readonly s
       .orderBy(desc(tickets.number))
       .limit(CLASSIFY_V2_OPEN_TICKETS);
     const members = await db
-      .select({ id: users.id, name: sql<string>`coalesce(${users.displayName}, ${users.email})` })
-      .from(projectMembers)
-      .innerJoin(users, eq(users.id, projectMembers.userId))
-      .where(and(eq(projectMembers.projectId, row.id), eq(users.isAgent, false)))
+      .selectDistinct({ id: users.id, name: sql<string>`coalesce(${users.displayName}, ${users.email})`, email: users.email })
+      .from(projectAccess)
+      .innerJoin(users, eq(users.id, projectAccess.userId))
+      .where(and(eq(projectAccess.projectId, row.id), eq(users.isAgent, false)))
       .orderBy(asc(users.email))
       .limit(CLASSIFY_V2_MAX_MEMBERS);
-    out.push({ ...row, openTickets, members });
+    // L'email serve solo all'ordine della DISTINCT: nel prompt restano id e nome, come prima.
+    out.push({ ...row, openTickets, members: members.map(({ id, name }) => ({ id, name })) });
   }
   return out;
 }

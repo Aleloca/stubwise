@@ -34,7 +34,7 @@ describe("il catalogo del registro delle modifiche", () => {
     const expected = entries.filter((e) => !notF5.has(e.kind)).sort((a, b) => a.kind.localeCompare(b.kind));
     expect(expected.length).toBeGreaterThan(20);
     const instanceKinds = new Set(expected.filter((e) => e.scope === "instance").map((e) => e.kind));
-    const ours = CHANGE_LOG_TYPES.filter((t) => (t.scope === "project" && !t.kind.startsWith("member.") && !t.kind.startsWith("queue.") && t.kind !== "job.retried") || instanceKinds.has(t.kind))
+    const ours = CHANGE_LOG_TYPES.filter((t) => (t.scope === "project" && !t.kind.startsWith("member.") && !t.kind.startsWith("workspace.") && !t.kind.startsWith("queue.") && t.kind !== "job.retried") || instanceKinds.has(t.kind))
       .map((t) => ({ kind: t.kind, scope: t.scope }))
       .sort((a, b) => a.kind.localeCompare(b.kind));
     expect(ours).toEqual(expected);

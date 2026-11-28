@@ -1,4 +1,5 @@
 import { isFullAdminIn, type PermissionSource } from "../../data/access/effectiveCore";
+import { seatsIn } from "../../data/access/seats";
 import type { AccessState } from "../../data/access/state";
 
 // La parte pura di «Chi può farlo?» (area 9a): chi si vede e in che ordine.
@@ -23,7 +24,9 @@ export function peopleVisibleTo(input: {
   const active = state.people.filter((p) => p.status === "active").map((p) => p.personId);
   if (viewerIsFullAdmin) return new Set(active);
   const sharing = new Set(
-    state.memberships.filter((m) => visibleProjectIds.has(m.projectId)).map((m) => m.personId),
+    seatsIn(state)
+      .filter((m) => visibleProjectIds.has(m.projectId))
+      .map((m) => m.personId),
   );
   return new Set(active.filter((id) => id === viewerId || isFullAdmin(id) || sharing.has(id)));
 }
@@ -44,7 +47,7 @@ export function peopleKnownTo(input: {
   const all = state.people.map((p) => p.personId);
   if (isFullAdminIn(state, viewerId)) return new Set(all);
   const sharing = new Set(
-    [...state.memberships, ...(state.formerMemberships ?? [])]
+    [...seatsIn(state), ...(state.formerMemberships ?? [])]
       .filter((m) => visibleProjectIds.has(m.projectId))
       .map((m) => m.personId),
   );
@@ -53,16 +56,19 @@ export function peopleKnownTo(input: {
   );
 }
 
+// Shape `workspaces.md` [WS 3]: il ruolo nel progetto, poi la workspace, poi
+// dato a mano, poi il reparto, poi full admin.
 const SOURCE_RANK: Record<PermissionSource["kind"], number> = {
   role: 0,
-  grant: 1,
-  department: 2,
-  full_admin: 3,
+  workspace: 1,
+  grant: 2,
+  department: 3,
+  full_admin: 4,
 };
 
 /** Il rango di una persona: la sua fonte migliore (ruolo, poi concessione, reparto, full admin). */
 const rankOf = (sources: readonly PermissionSource[]): number =>
-  Math.min(4, ...sources.map((s) => SOURCE_RANK[s.kind]));
+  Math.min(5, ...sources.map((s) => SOURCE_RANK[s.kind]));
 
 /**
  * L'ordine della risposta (shape admin-audit.md): chi ce l'ha da un ruolo,

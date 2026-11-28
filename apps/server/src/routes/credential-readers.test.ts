@@ -1143,3 +1143,40 @@ describe("recupero", () => {
     expect((await keyRow(ownKey)).status).toBe("confirmed");
   });
 });
+
+/**
+ * Workspace, lotto 2, gruppo 4 (D16): il ruolo di workspace vale come ruolo di
+ * progetto per i lettori «per ruolo», e l'anteprima dice quanti ne raggiunge
+ * per via di workspace.
+ */
+describe("workspace (D16): i lettori per ruolo contano il ruolo di workspace", () => {
+  async function wsDeveloper() {
+    const { workspaces, workspaceProjects, workspaceMembers } = await import("@stubwise/db");
+    const p = await person("ws-dev");
+    const [w] = await testDb.db.insert(workspaces).values({ name: `Clienti ${++counter}`, colorToken: "--dept-1" }).returning();
+    await testDb.db.insert(workspaceProjects).values({ workspaceId: w!.id, projectId }).onConflictDoNothing();
+    const [already] = await testDb.db.select().from(workspaceProjects).where(eq(workspaceProjects.projectId, projectId));
+    await testDb.db.insert(workspaceMembers).values({ workspaceId: already!.workspaceId, userId: p.id, roleId: developerRoleId });
+    return p;
+  }
+
+  it("una credenziale condivisa al ruolo Developer la legge anche il Developer di workspace", async () => {
+    const { effectiveReaderUserIds } = await import("../vault/readers.js");
+    const p = await wsDeveloper();
+    const id = await seedCredential({ roleReaders: [developerRoleId], copiesFor: [] });
+    expect(await effectiveReaderUserIds(testDb.db, id)).toContain(p.id);
+    const readers = (await req("GET", `/api/credentials/${id}/readers`, admin.session)).json() as { people: { userId: string; roleName: string | null }[] };
+    expect(readers.people.find((x) => x.userId === p.id)?.roleName).toBe("Developer");
+  });
+
+  it("l'anteprima della condivisione a un ruolo lo comprende, e dice quanti per via di workspace", async () => {
+    const p = await wsDeveloper();
+    const id = await seedCredential({ readers: [lead.id], copiesFor: [await confirmedKeyOf(lead)] });
+    const preview = (await req("GET", `/api/credentials/${id}/readers/preview?roleId=${developerRoleId}`, lead.session)).json() as {
+      waiting: { userId: string }[];
+      viaWorkspace: number;
+    };
+    expect(preview.waiting.map((x) => x.userId)).toContain(p.id);
+    expect(preview.viaWorkspace).toBeGreaterThanOrEqual(1);
+  });
+});

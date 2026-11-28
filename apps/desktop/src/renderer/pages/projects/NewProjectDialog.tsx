@@ -1,6 +1,13 @@
 import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useCreateProject, useProjects } from "../../data/queries";
+import {
+  useCreateProject,
+  useProjects,
+  useSetProjectWorkspace,
+  useWorkspaces,
+  workspacesAvailable,
+} from "../../data/queries";
+import { useReauth } from "../../layout/useReauth";
 import type { CreatedProject } from "../../data/api-mutations";
 import type { ProjectTemplate } from "../../data/types";
 import { proposeProjectCode, validateProjectCode } from "../../domain/projectCode";
@@ -29,14 +36,25 @@ const choiceClass =
 export function NewProjectDialog({
   onClose,
   onCreated,
+  workspaceId,
 }: {
   onClose: () => void;
   onCreated: (code: string) => void;
+  /** Shape `workspaces.md`: la workspace già scelta (si crea dalla pagina filtrata su una workspace). */
+  workspaceId?: string;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
   const projects = useProjects().data;
   const create = useCreateProject();
+  const reauth = useReauth();
+  const putIn = useSetProjectWorkspace();
+  const workspaceList = useWorkspaces().data;
+  // Il campo c'è solo per chi gestisce le workspace (D4), e solo dove ci sono.
+  const canPickWorkspace =
+    workspacesAvailable() && !!workspaceList?.canManage && workspaceList.workspaces.length > 0;
+  const [workspace, setWorkspace] = useState<string>(workspaceId ?? "");
+  const workspaceFieldId = useId();
   const nameId = useId();
   const codeId = useId();
   const clientId = useId();
@@ -75,8 +93,16 @@ export function NewProjectDialog({
         clientName: kind === "client" ? clientName.trim() : undefined,
       },
       {
-        onSuccess: (project) => {
+        onSuccess: async (project) => {
           toast.show(t("projects.newDialog.created", { code: project.code, name: project.name }));
+          // Il progetto nasce in «No workspace»; metterlo nella workspace è un
+          // cambio d'accesso, con la sua riconferma (D11). Annullata, resta fuori.
+          if (canPickWorkspace && workspace) {
+            const ws = workspaceList?.workspaces.find((w) => w.id === workspace);
+            await reauth(() => putIn.mutateAsync([project.id, workspace]), {
+              action: t("projects.newDialog.workspaceReauth", { code: project.code, name: ws?.name ?? "" }),
+            });
+          }
           if (project.ingestion) setCreated(project);
           else onCreated(project.code);
         },
@@ -241,6 +267,31 @@ export function NewProjectDialog({
             />
             {tried && clientMissing && (
               <span className="text-xs text-critical">{t("projects.newDialog.clientMissing")}</span>
+            )}
+          </DialogField>
+        )}
+
+        {canPickWorkspace && (
+          <DialogField label={t("projects.newDialog.workspace")} htmlFor={workspaceFieldId}>
+            <select
+              id={workspaceFieldId}
+              value={workspace}
+              onChange={(e) => setWorkspace(e.target.value)}
+              className={inputClass}
+            >
+              <option value="">{t("workspaces.none")}</option>
+              {workspaceList.workspaces.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+            {workspace && (
+              <span className="text-xs text-ink-muted" data-new-project-workspace>
+                {t("projects.newDialog.workspaceHint", {
+                  name: workspaceList.workspaces.find((w) => w.id === workspace)?.name ?? "",
+                })}
+              </span>
             )}
           </DialogField>
         )}

@@ -92,6 +92,7 @@ type GroupId =
   | "files"
   | "mail"
   | "people"
+  | "workspaces"
   | "automations"
   | "releases"
   | "support"
@@ -162,6 +163,7 @@ const KIND_GROUP: Record<SearchResult["kind"], GroupId> = {
   task: "tasks",
   request: "requests",
   person: "people",
+  workspace: "workspaces",
 };
 
 const EnterIcon = () => (
@@ -435,6 +437,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       files: [],
       mail: [],
       people: [],
+      workspaces: [],
       automations: [],
       releases: [],
       support: [],
@@ -649,6 +652,14 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           code: r.code,
           label: r.label,
           departmentId: r.departmentId,
+          ...(r.detail
+            ? {
+                detail:
+                  r.kind === "workspace"
+                    ? t("palette.workspaceProjects", { count: Number(r.detail) })
+                    : r.detail,
+              }
+            : {}),
           fromSearch: true,
           select: () => {
             router.history.push(r.route.replace(/^#/, ""));
@@ -843,6 +854,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         "files",
         "mail",
         "people",
+        "workspaces",
         "automations",
         "releases",
         "support",

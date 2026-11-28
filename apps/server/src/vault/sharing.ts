@@ -23,7 +23,8 @@ import {
   credentialKeyCopies,
   credentialReaders,
   credentials,
-  projectMembers,
+  projectAccess,
+  projectAccessRowCounts,
   roles,
   users,
   vaultPersonKeys,
@@ -83,10 +84,13 @@ export async function readersView(db: DbOrTx, credentialId: string): Promise<Cre
             roleName: sql<string | null>`(
               select rv_role.name from ${credentialReaders} rv_r
               inner join ${credentials} rv_cr on rv_cr.id = rv_r.credential_id
-              inner join project_members rv_pm
+              -- Anche il ruolo di workspace (0239, D16).
+              inner join project_access rv_pm
                 on rv_pm.project_id = rv_cr.project_id and rv_pm.user_id = ${users.id} and rv_pm.role_id = rv_r.role_id
               inner join ${roles} rv_role on rv_role.id = rv_r.role_id
               where rv_r.credential_id = ${credentialId}::uuid
+              -- Con due ruoli invitati (esplicito e di workspace), quello esplicito.
+              order by (rv_pm.source = 'member') desc, rv_role.name
               limit 1
             )`,
             hasCopy: sql<boolean>`exists (
@@ -127,7 +131,7 @@ async function targetPeople(
   db: DbOrTx,
   projectId: string,
   target: ReaderTarget,
-): Promise<{ ok: true; people: { userId: string; email: string }[] } | { ok: false; error: TargetError }> {
+): Promise<{ ok: true; people: { userId: string; email: string }[]; viaWorkspace: number } | { ok: false; error: TargetError }> {
   if (target.roleId !== undefined) {
     const [role] = await db
       .select({ id: roles.id })
@@ -135,21 +139,27 @@ async function targetPeople(
       .where(and(eq(roles.id, target.roleId), eq(roles.scope, "project")));
     if (!role) return { ok: false, error: "invalid_role" };
   }
-  const people = await db
-    .select({ userId: users.id, email: users.email })
-    .from(projectMembers)
-    .innerJoin(users, eq(users.id, projectMembers.userId))
+  // Membri espliciti e persone di workspace (0239, D16): una riga per fonte.
+  const rows = await db
+    .select({ userId: users.id, email: users.email, source: projectAccess.source })
+    .from(projectAccess)
+    .innerJoin(users, eq(users.id, projectAccess.userId))
     .where(
       and(
-        eq(projectMembers.projectId, projectId),
+        eq(projectAccess.projectId, projectId),
+        projectAccessRowCounts,
         target.userId !== undefined
-          ? eq(projectMembers.userId, target.userId)
-          : eq(projectMembers.roleId, target.roleId),
+          ? eq(projectAccess.userId, target.userId)
+          : eq(projectAccess.roleId, target.roleId),
       ),
     )
     .orderBy(asc(users.email));
+  const people = [...new Map(rows.map((r) => [r.userId, { userId: r.userId, email: r.email }])).values()];
   if (target.userId !== undefined && people.length === 0) return { ok: false, error: "not_a_member" };
-  return { ok: true, people };
+  // Chi la riceve SOLO per via di workspace (nessuna riga esplicita con quel ruolo).
+  const explicit = new Set(rows.filter((r) => r.source === "member").map((r) => r.userId));
+  const viaWorkspace = people.filter((p) => !explicit.has(p.userId)).length;
+  return { ok: true, people, viaWorkspace };
 }
 
 /**
@@ -196,6 +206,7 @@ async function preview(
         .filter((k) => !k.hasCopy)
         .map(({ userId, email, personKeyId, publicKey }) => ({ userId, email, personKeyId, publicKey })),
       waiting: resolved.people.filter((p) => !confirmed.has(p.userId)),
+      viaWorkspace: resolved.viaWorkspace,
       wrappedKey: own.wrappedKey,
       keyVersion: own.keyVersion,
     },

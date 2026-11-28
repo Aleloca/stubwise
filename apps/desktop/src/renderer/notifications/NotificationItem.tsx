@@ -416,10 +416,12 @@ function composedOf(
   // Area 10b (D4): `member.added`, col nome di adesso del ruolo ([SC 15]:
   // eliminato, la frase lo dice) e «ad» davanti a una vocale in italiano.
   if (n.kind === "member.added" && n.roleName !== undefined && (n.viaClaude || byHand)) {
+    // D13: entrando in una workspace, la card nomina la workspace.
+    const where = n.workspaceName ?? n.objectCode;
     const params = {
-      code: n.objectCode,
+      code: where,
       role: n.roleName ?? t("notifications.memberAdded.noRole"),
-      ...vowelContext(n.objectCode),
+      ...vowelContext(where),
     };
     // Per chi gestisce i membri (19 nov 2026): chi è entrato, per nome se lo
     // vede (R-G5), altrimenti «Someone».

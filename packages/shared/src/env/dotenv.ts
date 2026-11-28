@@ -106,9 +106,14 @@ function parseUnquotedValue(rest: string): string {
  * Parsa un testo dotenv in coppie chiave/valore.
  *
  * Best-effort: righe non valide (chiave non conforme, manca `=`, ecc.) sono
- * scartate senza lanciare.
+ * scartate senza lanciare. `onSkip` (facoltativo) riceve il NUMERO di ogni
+ * riga scartata (da 1) e il motivo, mai il contenuto: lo usa l'import dei file
+ * d'ambiente per dire quali righe ha saltato.
  */
-export function parseDotenv(text: string): EnvVar[] {
+export function parseDotenv(
+  text: string,
+  onSkip?: (line: number, reason: "syntax" | "key") => void,
+): EnvVar[] {
   const out: EnvVar[] = [];
   // Normalizza i CRLF per non lasciare `\r` di coda; i newline interni ai
   // valori multiline restano comunque `\n`.
@@ -127,10 +132,17 @@ export function parseDotenv(text: string): EnvVar[] {
       : ltrimmed;
 
     const eq = withoutExport.indexOf("=");
-    if (eq === -1) continue; // riga senza `=` → scartata
+    if (eq === -1) {
+      onSkip?.(i + 1, "syntax"); // riga senza `=` → scartata
+      continue;
+    }
 
     const key = withoutExport.slice(0, eq).trim();
-    if (!isValidEnvKey(key)) continue; // chiave non valida → scartata
+    if (!isValidEnvKey(key)) {
+      // Chiave non valida → scartata; una chiave con spazi è una riga malformata.
+      onSkip?.(i + 1, key === "" || /\s/.test(key) ? "syntax" : "key");
+      continue;
+    }
 
     // `rest` = tutto dopo il primo `=`, con eventuali spazi iniziali rimossi
     // (gli spazi attorno al `=` non fanno parte del valore).
@@ -176,12 +188,16 @@ export function parseDotenv(text: string): EnvVar[] {
         out.push({ key, value: decodeDoubleQuoted(body) });
       } else {
         // Apice di apertura senza chiusura: best-effort, scarta la riga.
+        onSkip?.(i + 1, "syntax");
         continue;
       }
     } else if (first === "'") {
       // Valore tra apici SINGOLI: letterale, nessuna espansione di escape.
       const end = rest.indexOf("'", 1);
-      if (end === -1) continue; // non chiuso → scarta (best-effort)
+      if (end === -1) {
+        onSkip?.(i + 1, "syntax"); // non chiuso → scarta (best-effort)
+        continue;
+      }
       out.push({ key, value: rest.slice(1, end) });
     } else {
       // Valore non quotato: gestisci commento inline e trim.

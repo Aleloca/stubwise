@@ -31,7 +31,11 @@ const KIND_ORDER: readonly ProjectEnvironment["kind"][] = ["test", "staging", "p
 export interface EnvFileView {
   id: string;
   path: string;
-  keys: { key: string; setAt: string }[];
+  /**
+   * `setAt` null: la data non si sa (un server di prima non la manda; revisione
+   * I1). La riga allora non la mostra, invece di inventarla.
+   */
+  keys: { key: string; setAt: string | null }[];
 }
 
 const fileObject = (f: EnvFile) => ({ type: "env_file", id: f.id, label: f.path });
@@ -50,7 +54,7 @@ const fileParams = (f: EnvFile): { environment: string; repository: string } => 
 const fileView = (f: EnvFile): EnvFileView => ({
   id: f.id,
   path: f.path,
-  keys: f.vars.map((v) => ({ key: v.key, setAt: v.setAt })),
+  keys: f.vars.map((v) => ({ key: v.key, setAt: v.setAt ?? null })),
 });
 
 /**

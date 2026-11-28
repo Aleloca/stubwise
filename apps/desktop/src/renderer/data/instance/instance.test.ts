@@ -179,6 +179,8 @@ describe("il registro delle modifiche del 9b", () => {
       "roles",
       "members",
       "departments",
+      // Le workspace (27 nov 2026), accanto ai reparti.
+      "workspaces",
       "security",
       "ai",
       "integrations",

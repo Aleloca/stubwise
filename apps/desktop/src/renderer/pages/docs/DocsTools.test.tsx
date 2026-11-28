@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { failNext, resetApi, setLatency, setStreamLatency } from "../../data/api";
 import { state } from "../../data/store";
 import type { DocGeneration } from "../../data/types";
@@ -192,6 +192,47 @@ describe("Docs — note di rilascio", () => {
 });
 
 describe("Docs — grafo", () => {
+  it("nella build web: l'HTML di graphify in un iframe sandbox (solo script) al posto del grafo delle comunità; Espandi e Chiudi", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    vi.stubEnv("VITE_STUBWISE_TARGET", "web");
+    // happy-dom caricherebbe davvero l'URL dell'iframe (nessun server: un
+    // ECONNREFUSED nel log). Qui conta l'elemento, non la pagina.
+    const settings = (window as unknown as { happyDOM?: { settings: { disableIframePageLoading: boolean } } }).happyDOM?.settings;
+    const loading = settings?.disableIframePageLoading;
+    if (settings) settings.disableIframePageLoading = true;
+    try {
+      renderRoute("/p/STW/docs/stubwise/graph", "p-laura");
+      const frame = await screen.findByTitle("Interactive graph of stubwise");
+      expect(frame.tagName).toBe("IFRAME");
+      expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+      expect(frame.getAttribute("src")).toBe("/api/repositories/repo-stw/graph/html");
+      expect(screen.queryByRole("group", { name: /Code graph of stubwise/ })).toBeNull();
+      // L'elenco delle comunità resta.
+      expect(screen.getByRole("list", { name: "Communities" })).toBeInTheDocument();
+      const region = screen.getByRole("region", { name: "Interactive graph" });
+      const expand = within(region).getByRole("button", { name: "Expand" });
+      await userEvent.click(expand);
+      expect(region).toHaveAttribute("data-expanded", "true");
+      const close = within(region).getByRole("button", { name: "Close" });
+      expect(close).toHaveFocus();
+      // Lo stesso iframe, spostato di classe: espandere non lo rimonta.
+      expect(screen.getByTitle("Interactive graph of stubwise")).toBe(frame);
+      await userEvent.keyboard("{Escape}");
+      expect(region).toHaveAttribute("data-expanded", "false");
+      expect(within(region).getByRole("button", { name: "Expand" })).toHaveFocus();
+      expect(screen.getByTitle("Interactive graph of stubwise")).toBe(frame);
+    } finally {
+      vi.unstubAllEnvs();
+      if (settings) settings.disableIframePageLoading = loading ?? false;
+    }
+  });
+
+  it("nel prototipo nessun iframe: il grafo delle comunità", async () => {
+    renderRoute("/p/STW/docs/stubwise/graph", "p-laura");
+    expect(await screen.findByRole("group", { name: /Code graph of stubwise/ })).toBeInTheDocument();
+    expect(screen.queryByTitle("Interactive graph of stubwise")).toBeNull();
+  });
+
   it("pronto: conteggi, comunità coi nomi dell'AI, graph.json, comando copiabile, azioni", async () => {
     const created = URL.createObjectURL;
     const revoked = URL.revokeObjectURL;

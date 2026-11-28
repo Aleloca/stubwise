@@ -233,6 +233,13 @@ export interface AppNotification {
    */
   roleName?: string | null;
   /**
+   * D13 delle workspace: `member.added` di chi entra in una workspace (stesso
+   * kind, apposta per il rollback). Salvato l'id; il nome si deriva a lettura.
+   */
+  workspaceId?: string;
+  /** Solo a lettura: il nome di adesso della workspace di `workspaceId`. */
+  workspaceName?: string | null;
+  /**
    * Area 10b, solo a lettura: chi guarda non vede più il progetto della
    * notifica (un `member.added` annullato, [SC 16]). La notifica resta, ma
    * non apre niente. Mai salvato.

@@ -203,7 +203,15 @@ function memberAddedOf(item: InboxItem, ctx: PresentContext, projectCode: string
     read: item.readAt !== null,
     archived: item.status === "handled",
     snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
-    link: projectCode && !notOpenable ? `#/p/${projectCode}/overview` : "",
+    // D13: entrando in una workspace, il link apre la pagina filtrata su di lei.
+    link: notOpenable
+      ? ""
+      : m.workspaceId
+        ? `#/projects?workspace=${m.workspaceId}`
+        : projectCode
+          ? `#/p/${projectCode}/overview`
+          : "",
+    ...(m.workspaceId ? { workspaceName: m.workspaceName ?? null } : {}),
     roleName: m.roleName,
     actorName: m.actorName,
     ...(isMe ? {} : { memberName: m.addedName }),

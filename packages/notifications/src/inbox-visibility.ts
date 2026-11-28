@@ -30,7 +30,7 @@
  * il `badge` delle push del worker — la campanella e il telefono devono dire
  * lo stesso numero (vedi `unread.ts`).
  */
-import { memberPermissionsSql, notifications, projectMembers, projects, roles, tickets } from "@stubwise/db";
+import { notifications, projectAccessPermissionsSql, projectAccessSql, projects, tickets } from "@stubwise/db";
 import { ALERT_TYPES, isLiveAlertType, type AlertType } from "@stubwise/shared";
 import { sql, type SQL } from "drizzle-orm";
 import { userIsFullAdmin } from "./project-access.js";
@@ -48,11 +48,8 @@ export function notificationVisibleToRecipient(): SQL {
     (
       ${cardProjectId()} is null
       or ${notifications.kind}::text = 'google.proposal'
-      or exists (
-        select 1 from ${projectMembers} vm
-        where vm.project_id = ${cardProjectId()}
-          and vm.user_id = ${notifications.userId}
-      )
+      -- Membro esplicito o di una workspace del progetto (0239): \`project_access\`.
+      or ${projectAccessSql(cardProjectId(), notifications.userId)}
       or ${userIsFullAdmin(notifications.userId)}
     )
     and ${catalogPermissionVisible(ALERT_TYPES.filter((t) => isLiveAlertType(t.type)))}
@@ -80,19 +77,21 @@ export function notificationVisibleToRecipient(): SQL {
 export function catalogPermissionVisible(types: readonly AlertType[]): SQL {
   const gated = types.filter((t) => t.subscribe.perm !== "member");
   if (gated.length === 0) return sql`true`;
-  const clauses = gated.map(
-    (t) => sql`(
-      ${notifications.kind}::text <> ${t.type}
-      or ${notifications.event}->>'alertMandatory' is not null
-      or ${userIsFullAdmin(notifications.userId)}
-      or exists (
-        select 1 from ${projectMembers} cm
-        inner join ${roles} cr on cr.id = cm.role_id
-        where cm.project_id = ${cardProjectId()}
-          and cm.user_id = ${notifications.userId}
-          and ${memberPermissionsSql(sql`cr.permissions`, sql`cm.project_id`, sql`cm.user_id`)} @> array[${t.subscribe.perm}]::text[]
-      )
-    )`,
-  );
-  return sql.join(clauses, sql` and `);
+  // I1 (revisione d'insieme della workspace): il permesso che il TIPO della
+  // card chiede, in un `case`, così i permessi del destinatario nel progetto
+  // (una sottoquery sulla vista `project_access`, con le sue) si calcolano UNA
+  // volta per riga, non una per tipo del catalogo. Con un predicato per tipo la
+  // WHERE aveva ~90 subplan: un costo stimato che accendeva il JIT di Postgres
+  // (2,3 s per l'inbox). `null` = tipo senza permesso: passa.
+  const needed = sql`(case ${notifications.kind}::text ${sql.join(
+    gated.map((t) => sql`when ${t.type} then ${t.subscribe.perm}`),
+    sql` `,
+  )} end)`;
+  return sql`(
+    ${needed} is null
+    or ${notifications.event}->>'alertMandatory' is not null
+    or ${userIsFullAdmin(notifications.userId)}
+    -- L'unione delle fonti (workspace compresa, 0239); null per un non membro.
+    or coalesce(${projectAccessPermissionsSql(cardProjectId(), notifications.userId)} @> array[${needed}]::text[], false)
+  )`;
 }

@@ -11,7 +11,7 @@
  * modifica. Il server ri-usa queste funzioni (`projectPermissionsOfUser` in
  * `access.ts` le delega).
  */
-import { memberPermissionsSql, projectMembers, projects, roles, tickets, users } from "@stubwise/db";
+import { projectAccess, projectAccessPermissionsSql, projectAccessRowCounts, projects, roles, tickets, users } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   effectiveProjectPermissions,
@@ -21,11 +21,7 @@ import {
   type ProjectPermission,
 } from "@stubwise/shared";
 import { and, eq, inArray, isNull, sql, type AnyColumn, type SQL } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 import type { DbOrTx } from "./dispatch.js";
-
-/** Il ruolo di progetto dell'appartenenza, accanto a quello d'istanza. */
-const memberRoles = alias(roles, "member_roles");
 
 /**
  * Condizione SQL: l'utente `userId` (una colonna o un'espressione) ha
@@ -99,24 +95,20 @@ export async function projectPermissionsByProject(
   const result = new Map<string, ReadonlySet<ProjectPermission> | null>();
   const unique = [...new Set(projectIds)];
   if (unique.length === 0) return result;
-  // Ruolo d'istanza + le appartenenze ai progetti chiesti, in una riga per
-  // appartenenza (una sola, con l'appartenenza nulla, se non ce ne sono).
+  // Ruolo d'istanza + i progetti chiesti, una riga per progetto chiesto (una
+  // sola, col progetto nullo, se nessuno esiste). I permessi di progetto sono
+  // l'unione delle fonti di `project_access` (workspace, 0239): null = non membro.
   const rows = await db
     .select({
       instancePermissions: roles.permissions,
-      projectId: projectMembers.projectId,
-      // Ruolo ∪ permessi personali (area 9, F1): la regola di `memberPermissionsSql`.
-      memberPermissions: memberPermissionsSql(memberRoles.permissions, projectMembers.projectId, projectMembers.userId),
+      projectId: projects.id,
+      memberPermissions: projectAccessPermissionsSql(projects.id, users.id),
       // Area 9, F6: gli archiviati fra quelli chiesti, nella STESSA query (una pagina d'inbox ne fa una).
       archived: sql<string[]>`array(select ${projects.id}::text from ${projects} where ${inArray(projects.id, unique)} and ${projects.archivedAt} is not null)`,
     })
     .from(users)
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-    .leftJoin(
-      projectMembers,
-      and(eq(projectMembers.userId, users.id), inArray(projectMembers.projectId, unique)),
-    )
-    .leftJoin(memberRoles, eq(memberRoles.id, projectMembers.roleId))
+    .leftJoin(projects, inArray(projects.id, unique))
     // Una persona disattivata non ha permessi (area 9, F1): chi agisce per
     // conto di un id (Slack, inbox, automazioni) la trova come inesistente.
     .where(and(eq(users.id, userId), isNull(users.deactivatedAt)));
@@ -225,10 +217,12 @@ async function fullAdminIds(db: DbOrTx): Promise<string[]> {
  * ogni progetto). È il filtro dei destinatari di ogni evento di progetto.
  */
 export async function projectViewerIds(db: DbOrTx, projectId: string): Promise<string[]> {
+  // Membri espliciti e persone di una sua workspace (0239), in ordine stabile.
   const members = await db
-    .select({ id: projectMembers.userId })
-    .from(projectMembers)
-    .where(eq(projectMembers.projectId, projectId));
+    .selectDistinct({ id: projectAccess.userId })
+    .from(projectAccess)
+    .where(and(eq(projectAccess.projectId, projectId), projectAccessRowCounts))
+    .orderBy(projectAccess.userId);
   return [...new Set([...members.map((row) => row.id), ...(await fullAdminIds(db))])];
 }
 
@@ -243,9 +237,10 @@ export async function projectViewerIdsByProject(db: DbOrTx, projectIds: readonly
   if (ids.length === 0) return out;
   const admins = await fullAdminIds(db);
   const members = await db
-    .select({ projectId: projectMembers.projectId, id: projectMembers.userId })
-    .from(projectMembers)
-    .where(inArray(projectMembers.projectId, ids));
+    .selectDistinct({ projectId: projectAccess.projectId, id: projectAccess.userId })
+    .from(projectAccess)
+    .where(and(inArray(projectAccess.projectId, ids), projectAccessRowCounts))
+    .orderBy(projectAccess.userId);
   // Lo stesso ordine di `projectViewerIds`: i membri, poi i full admin.
   for (const projectId of ids) {
     const own = members.filter((m) => m.projectId === projectId).map((m) => m.id);
@@ -296,14 +291,16 @@ export async function userIdsWithPermission(
     return [...new Set([...ids, ...rows.map((row) => row.id)])];
   }
   if (projectId === null) return ids;
+  // Chi accede al progetto (membro esplicito o per workspace, 0239) con il
+  // permesso nell'unione delle fonti.
   const rows = await db
-    .select({ id: projectMembers.userId })
-    .from(projectMembers)
-    .innerJoin(roles, eq(roles.id, projectMembers.roleId))
+    .selectDistinct({ id: projectAccess.userId })
+    .from(projectAccess)
     .where(
       and(
-        eq(projectMembers.projectId, projectId),
-        sql`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)} @> array[${permission}]::text[]`,
+        eq(projectAccess.projectId, projectId),
+        projectAccessRowCounts,
+        sql`${projectAccessPermissionsSql(projectAccess.projectId, projectAccess.userId)} @> array[${permission}]::text[]`,
       ),
     );
   return [...new Set([...ids, ...rows.map((row) => row.id)])];
