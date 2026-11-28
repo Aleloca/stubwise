@@ -14,7 +14,7 @@ import {
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb, roleInsert } from "@stubwise/db/testing";
 import { GitHubProvider, type PullRequestInfo } from "@stubwise/git";
 import { addMember, seedUsers, type SeededUsers } from "../test/fixtures.js";
 import { enqueueCorrection } from "@stubwise/notifications";
@@ -94,7 +94,7 @@ async function seedReviewTicket(
       body: "Review automatica",
       type: opts.type ?? "review",
       priority: "medium",
-      status: opts.status ?? "open",
+      ...roleInsert(projectId, opts.status ?? "open"),
       source: "webhook",
     })
     .returning({ id: tickets.id });

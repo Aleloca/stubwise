@@ -13,8 +13,9 @@ import { backendAliases, backendDefine } from "./vite.backend";
 export default defineConfig({
   root: resolve(import.meta.dirname, "src/renderer"),
   base: "/",
-  resolve: { alias: backendAliases("app") },
-  define: backendDefine("app"),
+  // Il target `web` (design della cassaforte nel browser §4): `@backend/vault` sulla scheda.
+  resolve: { alias: backendAliases("app", "web") },
+  define: backendDefine("app", "web"),
   plugins: [
     react(),
     tailwindcss(),
@@ -26,12 +27,19 @@ export default defineConfig({
       transformIndexHtml: () => [
         {
           tag: "meta",
-          attrs: { "http-equiv": "Content-Security-Policy", content: PRODUCTION_CSP },
+          // Revisione I-4 (§2.3): Trusted Types, e il worker della cassaforte dal bundle.
+          attrs: {
+            "http-equiv": "Content-Security-Policy",
+            content: `${PRODUCTION_CSP}; require-trusted-types-for 'script'; trusted-types stubwise-vault-worker stubwise-html; worker-src 'self'`,
+          },
           injectTo: "head-prepend",
         },
       ],
     },
   ],
+  // Il worker della cassaforte nel browser (revisione I-1) come modulo ES, con
+  // le sue dipendenze nel suo file.
+  worker: { format: "es" },
   build: {
     outDir: resolve(import.meta.dirname, "dist-web"),
     emptyOutDir: true,

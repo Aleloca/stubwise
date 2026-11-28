@@ -12,11 +12,10 @@ import {
   tickets,
   users,
   type Db,
-  projectNotArchived,
-} from "@stubwise/db";
+  projectNotArchived, ticketRoleNotIn } from "@stubwise/db";
 import { resolveRecipientUserIds } from "@stubwise/notifications";
 import type { Language } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, isNull, lt, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { parseAgentJson, textFromRun } from "../agent/text.js";
 import { NATIVE_TOOLS } from "../agent/native-tools.js";
@@ -266,7 +265,7 @@ export async function loadCandidateProjects(db: Db, recipientUserIds: readonly s
     const openTickets = await db
       .select({ id: tickets.id, number: tickets.number, title: tickets.title })
       .from(tickets)
-      .where(and(eq(tickets.projectId, row.id), notInArray(tickets.status, ["done", "closed"])))
+      .where(and(eq(tickets.projectId, row.id), ticketRoleNotIn(["done", "closed"])))
       .orderBy(desc(tickets.number))
       .limit(CLASSIFY_V2_OPEN_TICKETS);
     const members = await db

@@ -11,8 +11,7 @@ import {
   projects,
   ticketEvents,
   tickets,
-  type Db,
-} from "@stubwise/db";
+  type Db, ticketColumns, type TicketRole } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { PublishOpts } from "@stubwise/notifications";
 import { eq } from "drizzle-orm";
@@ -71,7 +70,7 @@ afterAll(async () => {
   await rm(workDir, { recursive: true, force: true });
 });
 
-type Ticket = typeof tickets.$inferSelect;
+type Ticket = typeof tickets.$inferSelect & { status: TicketRole };
 
 interface TicketOverrides {
   title?: string;
@@ -95,7 +94,7 @@ async function createTicket(db: Db, overrides: TicketOverrides = {}): Promise<Ti
       source: "sdk_error",
       ...overrides,
     })
-    .returning();
+    .returning(ticketColumns);
   if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
   return ticket;
 }
@@ -117,7 +116,7 @@ async function getJob(db: Db, id: string): Promise<AiJob> {
 }
 
 async function getTicket(db: Db, id: string): Promise<Ticket> {
-  const [ticket] = await db.select().from(tickets).where(eq(tickets.id, id));
+  const [ticket] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, id));
   if (!ticket) throw new Error(`ticket ${id} non trovato`);
   return ticket;
 }

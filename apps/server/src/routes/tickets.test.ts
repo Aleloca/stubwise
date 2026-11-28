@@ -18,8 +18,7 @@ import {
   ticketEvents,
   ticketLinks,
   ticketRepositories,
-  tickets,
-} from "@stubwise/db";
+  tickets, roleUpdate, ticketColumns } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicketRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -476,7 +475,7 @@ describe("GET /api/tickets — filtri", () => {
     // dipendere dalla PATCH, testata a parte.
     await testDb.db
       .update(tickets)
-      .set({ status: "triaged" })
+      .set({ ...roleUpdate("triaged") })
       .where(eq(tickets.id, (feature.json() as TicketBody).id));
   });
 
@@ -581,11 +580,11 @@ describe("GET /api/tickets — filtri", () => {
     const closed = await postTicket({ projectId: pid, title: "Chiuso", type: "task" });
     await testDb.db
       .update(tickets)
-      .set({ status: "triaged" })
+      .set({ ...roleUpdate("triaged") })
       .where(eq(tickets.id, (triaged.json() as TicketBody).id));
     await testDb.db
       .update(tickets)
-      .set({ status: "closed" })
+      .set({ ...roleUpdate("closed") })
       .where(eq(tickets.id, (closed.json() as TicketBody).id));
 
     const res = await listTickets({ projectId: pid, statuses: "open,triaged" });
@@ -602,7 +601,7 @@ describe("GET /api/tickets — filtri", () => {
     const closed = await postTicket({ projectId: pid, title: "Chiuso", type: "task" });
     await testDb.db
       .update(tickets)
-      .set({ status: "closed" })
+      .set({ ...roleUpdate("closed") })
       .where(eq(tickets.id, (closed.json() as TicketBody).id));
 
     const res = await listTickets({ projectId: pid, status: "closed", statuses: "open" });
@@ -1375,7 +1374,7 @@ describe("PATCH /api/tickets/:id — milestone", () => {
     expect(res.statusCode).toBe(400);
     expect((res.json() as { code: string }).code).toBe("milestone_cross_project");
 
-    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, id));
+    const [row] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, id));
     expect(row?.milestoneId).toBeNull();
   });
 
@@ -2142,7 +2141,7 @@ describe("relazioni tra ticket — /api/tickets/:id/links", () => {
       const a = await freshTicket();
       const b = await freshTicket();
       // Stato del target impostato direttamente: il GET deve risolverlo.
-      await testDb.db.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, b.id));
+      await testDb.db.update(tickets).set({ ...roleUpdate("triaged") }).where(eq(tickets.id, b.id));
 
       const created = await createLink(a.id, { targetTicketId: b.id, kind: "blocks" });
       const linkId = (created.json() as { id: string }).id;
@@ -2687,7 +2686,7 @@ describe("POST/DELETE /api/tickets/:id/pre-approve-plan", () => {
       });
       expect(res.statusCode).toBe(403);
 
-      const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, ticketId));
+      const [row] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
       expect(row?.planApprovedAt).toBeNull();
       expect(row?.planApprovedDigest).toBeNull();
     }
@@ -2735,7 +2734,7 @@ describe("POST/DELETE /api/tickets/:id/pre-approve-plan", () => {
     expect(body.planApprovedBy?.id).toBe(users.adminId);
     expect(body.planApprovalStale).toBe(false);
 
-    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, ticketId));
+    const [row] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
     expect(row?.planApprovedDigest).toBe(planDigest(plan));
     expect(row?.planApprovedByUserId).toBe(users.adminId);
 
@@ -2793,7 +2792,7 @@ describe("POST/DELETE /api/tickets/:id/pre-approve-plan", () => {
     expect(body.planApprovedAt).toBeNull();
     expect(body.planApprovedBy).toBeNull();
 
-    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, ticketId));
+    const [row] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
     expect(row?.planApprovedAt).toBeNull();
     expect(row?.planApprovedByUserId).toBeNull();
     expect(row?.planApprovedDigest).toBeNull();
@@ -2824,7 +2823,7 @@ describe("POST/DELETE /api/tickets/:id/pre-approve-plan", () => {
       });
       expect(res.statusCode).toBe(403);
 
-      const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, ticketId));
+      const [row] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
       expect(row?.planApprovedByUserId).toBe(users.adminId);
       expect(row?.planApprovedAt).not.toBeNull();
     }
@@ -2896,12 +2895,12 @@ describe("PUT/DELETE /api/tickets/:id/design", () => {
       payload: { body: "Corpo corretto" },
     });
     expect(patched.statusCode).toBe(200);
-    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, id));
+    const [row] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, id));
     expect(row!.body).toBe("## Design");
     expect(row!.originContent).toBe("Corpo corretto");
     expect((await eventsOf(id)).filter((e) => e.kind === "body_changed").length).toBeGreaterThanOrEqual(2);
     expect((await deleteDesign(id)).statusCode).toBe(200);
-    const [after] = await testDb.db.select().from(tickets).where(eq(tickets.id, id));
+    const [after] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, id));
     expect(after!.body).toBe("Corpo corretto");
     expect(after!.originContent).toBeNull();
   });
@@ -2916,7 +2915,7 @@ describe("PUT/DELETE /api/tickets/:id/design", () => {
       payload: { description: "Descrizione corretta" },
     });
     expect(patched.statusCode).toBe(200);
-    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, id));
+    const [row] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, id));
     expect(row!.body).toBe("## Design");
     expect(row!.originContent).toBe("Descrizione corretta");
   });
@@ -2929,7 +2928,7 @@ describe("PUT/DELETE /api/tickets/:id/design", () => {
       headers: { cookie: users.memberCookie },
       payload: { body: "Nuovo corpo" },
     });
-    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, id));
+    const [row] = await testDb.db.select(ticketColumns).from(tickets).where(eq(tickets.id, id));
     expect(row!.body).toBe("Nuovo corpo");
     expect(row!.originContent).toBeNull();
   });

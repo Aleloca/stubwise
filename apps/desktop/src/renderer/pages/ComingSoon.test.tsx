@@ -40,6 +40,7 @@ const { FUTURE_NAMESPACES, calls, truncated, intake, refusal } = vi.hoisted(() =
     "access",
     "claude",
     "instance",
+    "searchHistory",
   ] as const,
 }));
 
@@ -457,6 +458,13 @@ const INTEGRATED_CALLS = new Set([
   "recordDecision",
   "setDecisionSuperseded",
   "getLatestBrief",
+  // Ritiro del web vecchio: un brief per id, anche non l'ultimo (`GET /api/briefs/:id`).
+  "getBrief",
+  // Ritiro del web vecchio: i risultati recenti della ⌘K (`/api/search/history`).
+  "searchHistory.listRecentResults",
+  "searchHistory.rememberResult",
+  "searchHistory.forgetResult",
+  "searchHistory.clearRecentResults",
   "listTimelinePage",
   "listPortfolioActivityPage",
   "projectPulse",
@@ -559,6 +567,8 @@ const INTEGRATED_CALLS = new Set([
   // Area 8: «Clienti in attesa» della Home, dalla posta delle mie caselle.
   "mail.listWaitingCustomers",
   "mail.getMailThread",
+  // Le immagini delle email dal proxy del server, per posizione.
+  "mail.getMessageImage",
   "mail.searchMail",
   "mail.reproposeMessage",
   "mail.markRead",
@@ -990,6 +1000,17 @@ describe("aree non integrate nella build app", () => {
     }
   });
 
+  it("la palette a query vuota legge i recenti, e solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home");
+    await screen.findByRole("region", { name: /^My tasks/ });
+    await user.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog");
+    await waitFor(() => expect(calls).toContain("searchHistory.listRecentResults"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
   // Review area 8 F1, m5: le ricerche della palette delle aree non integrate non partono.
   it("cercare nella palette legge solo chiamate integrate (rilasci, Support e Servers accese)", async () => {
     const user = userEvent.setup();
@@ -1056,6 +1077,13 @@ describe("aree non integrate nella build app", () => {
   // Area 8, F1 (`releases-prs` e `releases`): PR, coda e rilasci dal server; ambienti «in arrivo».
   // Area 8, F2 (R6): Preferenze → Notifiche è accesa (`alerts`); legge le
   // iscrizioni dal server e nient'altro di non integrato.
+  it("il pannello di un brief (?brief=) legge solo chiamate integrate", async () => {
+    renderRoute("/p/AUD/overview?brief=brief-aud-2026-10-12");
+    await waitFor(() => expect(calls).toContain("getBrief"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
   it("aprire Preferenze → Notifiche legge solo chiamate integrate", async () => {
     renderRoute("/preferences/notifications");
     expect(

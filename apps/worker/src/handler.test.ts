@@ -10,8 +10,7 @@ import {
   repositories,
   ticketRepositories,
   tickets,
-  type Db,
-} from "@stubwise/db";
+  type Db, ticketColumns } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
@@ -198,7 +197,7 @@ async function createQueuedJob(
       priority: "high",
       source: "sdk_error",
     })
-    .returning();
+    .returning(ticketColumns);
   if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
   const [job] = await db.insert(aiJobs).values({ ticketId: ticket.id, ...jobValues }).returning();
   if (!job) throw new Error("insert del job non ha restituito la riga");
@@ -296,7 +295,7 @@ describe("createHandler", () => {
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("pr_opened");
     expect(jobAfter?.prUrl).toBe("https://github.com/acme/repo/pull/5");
-    const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    const [ticketAfter] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
     expect(ticketAfter?.status).toBe("in_review");
     // Il branch è davvero arrivato sull'origin di test.
     expect(await git(["branch", "--list", "stubwise/ticket-3"], upstream.dir)).toContain("stubwise/ticket-3");
@@ -408,7 +407,7 @@ describe("createHandler", () => {
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("pr_opened");
     expect(jobAfter?.prUrl).toBe("https://github.com/acme/repo/pull/9");
-    const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    const [ticketAfter] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
     expect(ticketAfter?.status).toBe("in_review");
     expect(openPullRequest).toHaveBeenCalledTimes(1);
   });
@@ -469,7 +468,7 @@ describe("createHandler", () => {
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("pr_opened");
     expect(jobAfter?.prUrl).toBe("https://github.com/acme/repo/pull/21");
-    const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    const [ticketAfter] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
     expect(ticketAfter?.status).toBe("in_review");
     expect(openPullRequest).toHaveBeenCalledTimes(1);
   });
@@ -795,7 +794,7 @@ describe("createHandler", () => {
     const limits = await limitedUntilById(db);
     expect(limits.get(provA)!.getTime()).toBeGreaterThan(Date.now());
     expect(limits.get(provB)).toBeNull();
-    const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    const [ticketAfter] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
     expect(ticketAfter?.status).toBe("in_review");
     expect(openPullRequest).toHaveBeenCalledTimes(1);
   });
@@ -1048,7 +1047,7 @@ describe("createHandler", () => {
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("pr_opened");
     expect(jobAfter?.providerId).toBe(assigned);
-    const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    const [ticketAfter] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
     expect(ticketAfter?.status).toBe("in_review");
   });
 

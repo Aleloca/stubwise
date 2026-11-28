@@ -1,4 +1,4 @@
-import { aiJobs, ticketEvents, tickets } from "@stubwise/db";
+import { aiJobs, roleUpdate, ticketEvents, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedTicket, startTestDb } from "@stubwise/db/testing";
 import { and, eq } from "drizzle-orm";
@@ -26,7 +26,7 @@ async function seedDoneTicket(opts: { updatedAt: Date; number?: number }): Promi
   const { ticketId } = await seedTicket(testDb.db, { number: opts.number ?? 1 });
   await testDb.db
     .update(tickets)
-    .set({ status: "done", updatedAt: opts.updatedAt })
+    .set({ ...roleUpdate("done"), updatedAt: opts.updatedAt })
     .where(eq(tickets.id, ticketId));
   return ticketId;
 }

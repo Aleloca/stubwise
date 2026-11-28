@@ -3,6 +3,7 @@
 // scritture: solo i destinatari, admin compresi. Le proposte condivise
 // (`proposals.ts`) seguono `canSeeMailProposal`, nello stesso file.
 export { listWaitingCustomers, type WaitingCustomer } from "./waiting";
+export { getMessageImage } from "./images";
 export {
   getMailThread,
   listImportantMail,

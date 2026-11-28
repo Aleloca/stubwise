@@ -1,4 +1,4 @@
-import { createDb, gitAccounts, prCorrections, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
+import { createDb, gitAccounts, prCorrections, repositories, ticketRepositories, ticketRoleIn, tickets, type Db } from "@stubwise/db";
 import { getProvider, GitProviderError, type FetchLike, type GitProvider } from "@stubwise/git";
 import { cancelOpenCorrections, decryptGitCredentials, markPrRowsClosed } from "@stubwise/notifications";
 import { prNumberFromUrl, type GitProviderKind } from "@stubwise/shared";
@@ -292,7 +292,7 @@ async function ticketsStuckInReview(
     })
     .from(tickets)
     .innerJoin(ticketRepositories, eq(ticketRepositories.ticketId, tickets.id))
-    .where(eq(tickets.status, "in_review"))
+    .where(ticketRoleIn(["in_review"]))
     .orderBy(asc(tickets.number), asc(tickets.id));
   const byTicket = new Map<string, { id: string; number: number; allClosed: boolean }>();
   for (const r of rows) {

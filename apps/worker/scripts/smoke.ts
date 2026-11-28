@@ -50,6 +50,7 @@ import {
   projects,
   repositories,
   runMigrations,
+  ticketColumns,
   tickets,
   type Db,
   type DbHandle,
@@ -174,7 +175,7 @@ async function git(args: string[], cwd: string): Promise<string> {
 /** Stampa lo stato finale di job e ticket leggendolo dal DB. */
 async function reportOutcome(db: Db, jobId: string, ticketId: string): Promise<void> {
   const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
-  const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+  const [ticket] = await db.select(ticketColumns).from(tickets).where(eq(tickets.id, ticketId));
   const aiComments = await db
     .select({ body: comments.body })
     .from(comments)

@@ -368,6 +368,17 @@ export function createMailEndpoints(request: ApiRequest) {
     },
 
     /**
+     * L'immagine remota n-esima di un'email, dal proxy del server (design
+     * `docs/plans/2026-11-28-proxy-immagini-posta-design.md`): per POSIZIONE
+     * (il `data-image` dell'HTML di `original`), mai per URL. La rotta
+     * risponde coi byte; 404 e 422 `image_unavailable` vogliono dire «non
+     * c'è», senza dettaglio.
+     */
+    imagePath(source: MailDetailSource, id: string, n: number): string {
+      return `/api/me/mail/${seg(source)}/${seg(id)}/images/${n}`;
+    },
+
+    /**
      * Riproponi una riga `failed`/`ignored`: NON pubblica una proposta nuova
      * da qui, resetta solo lo stato perché il prossimo tick del poller la
      * riprenda. 409 `not_reproposable` se lo stato non lo permette.

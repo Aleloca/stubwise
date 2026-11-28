@@ -102,6 +102,9 @@ jobs:
       #   vedesse). Due varianti, come i due pacchetti del Mac: quella di
       #   default e quella firmata con la cassaforte (`STUBWISE_VAULT_DESKTOP=on`,
       #   che `build:app` eredita dall'ambiente).
+      # Tutti e due i comandi lanciano anche `check-vault-target.mjs`
+      # (cassaforte nel browser, design §4): la build web non porta il ponte
+      # del desktop, quella Electron non porta lo sblocco con la passkey.
       - name: Build web della nuova app, senza seed
         run: pnpm --filter @stubwise/desktop check:seed:web
 

@@ -314,10 +314,77 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
     (o `Origin` con lo stesso host), altrimenti 403 `cross_origin_request`;
     copre l'altro sottodominio dello stesso sito, che `SameSite=Lax` non
     ferma. Il PAT non è toccato.
-  Rimandati, e perché: **Trusted Types** sull'app. Il renderer usa
-  `dangerouslySetInnerHTML` in cinque punti (riconferma, configurazione
-  del secondo fattore, sicurezza, blocchi wireframe, stampa), e accenderli
-  vuole prima una policy per ognuno.
+  - **Trusted Types sull'app** (alla radice da R1, prima su `/app`) (I-4, 27 nov 2026): `require-trusted-types-for
+    'script'; trusted-types stubwise-vault-worker stubwise-html; worker-src
+    'self'`, nell'header di Caddy e nel meta della build web. L'HTML si
+    scrive o si interpreta in UN modulo, `platform/trustedHtml.tsx`, con la
+    politica `stubwise-html` privata del modulo: accetta solo ciò che il
+    modulo ha appena preparato (uno schizzo già ripulito, l'HTML per un
+    documento inerte, la cornice della posta composta da lui). Il QR del
+    TOTP è un `<img>` con un `data:`. Le guardie sul sorgente
+    (`platform/trustedHtml.guard.test.ts`) vietano le scritture di HTML fuori
+    dal modulo, dicono chi importa quale funzione, che i nodi del documento
+    inerte non escono (m-6) e che `createPolicy` sta solo lì e nel boot della
+    cassaforte. Zod gira senza eval (`csp-init.ts`, il primo import del
+    boot e del worker): la sua sonda `new Function` sarebbe una violazione.
+  - **Nessun Service Worker sull'origine** (m-7): Caddy risponde 403 a ogni
+    richiesta con `Service-Worker: script`, nel primo `handle` del sito.
+- **La cassaforte nella nuova app nel browser (alla radice da R1, prima su `/app`; 28 nov 2026).** Design
+  in `docs/plans/2026-11-27-cassaforte-browser-design.md` (§5 e §12), tre
+  revisioni di sicurezza. Le regole:
+  - **Chiave, rete e crittografia stanno in un Dedicated Worker**
+    (`vaultBrowser/worker.ts` su `core.ts`), un reame che gli script della
+    pagina non raggiungono. Alla pagina arrivano solo esiti, e per Show e
+    Copy la sola password. Nella pagina resta la sola cerimonia della
+    passkey; `key.ts` è uno specchio dello stato, senza chiave. Una guardia
+    sul sorgente (`vaultBrowser/architecture.test.ts`) vieta la
+    crittografia fuori dal worker e ogni API che persista.
+  - **L'argine della cerimonia** (I-1, I-A, I-B): le primitive si catturano
+    al PRIMO import (`vaultBrowser/primitives.ts`, importato per primo da
+    `main.tsx` col boot): metodi uncurried, i getter della credenziale, il
+    `then` di Promise, il `byteLength` di `ArrayBuffer.prototype`. `harden()`
+    congela Promise, ArrayBuffer e i prototipi della credenziale, e prima mette
+    su `Credential.prototype` un `then` non scrivibile (una credenziale non è
+    un thenable). La PRF si legge per prima e parte subito per transfer;
+    nessun [[Set]] dove passa (`vaultBrowser/ceremony.guard.test.ts`); le
+    opzioni di `credentials.get` hanno prototipo null. La prova in Chromium
+    è `pnpm --filter @stubwise/desktop verify:prf` (undici varianti, con una
+    passkey PRF vera): **va rilanciata quando si tocca la cerimonia o il
+    boot**. È un argine contro le varianti note, non contro un XSS in
+    generale (vedi sopra): chi gira prima del boot vince comunque.
+  - **La PRF ricevuta** (`stash`): il worker ne tiene UNA, per 2 minuti. Lo
+    sblocco la consuma (senza, `no_prf` e nessuna verifica); `discard`, la
+    chiusura e una PRF nuova la azzerano.
+  - **Persona e sessione**: ogni azione con la chiave rilegge `/api/auth/me`
+    dal worker e confronta utente e `sessionTag` del server con quelli
+    dell'apertura (I-3); un cambio chiude. Il `sessionTag` è un HMAC con una
+    sottochiave HKDF della chiave di cifratura (m-5).
+  - **I tetti per sblocco**, che nessun messaggio sposta (m-1, m-B3): 15
+    minuti d'inattività, 60 minuti dallo sblocco, 30 reveal, 10
+    condivisioni, 10 cambi password. Oltre, la chiave si richiude e serve la
+    passkey. Una pagina ostile può parlare al worker da sé: i tetti ne
+    limitano durata e numero, non la possibilità.
+  - **Conferma, rifiuto e rimozione di un lettore vogliono un tocco NUOVO
+    della passkey** (revisione finale, punto 3, come il Touch ID di M5 sul
+    desktop): la pagina rifà la cerimonia (`freshPresence` in
+    `vaultBrowser/unlock.ts`), e il worker accetta l'operazione solo con
+    quell'asserzione, che fa verificare al server, e con la PRF appena
+    ricevuta, che deve aprire un sigillo della propria chiave. La PRF si
+    azzera subito: vale per quell'operazione sola. Senza, `presence_required`
+    e nessuna chiamata. Chi aggiunge un'azione che dà accesso a un'altra
+    persona la metta qui, non fra quelle coperte dalla sola cassaforte aperta.
+  - **La chiusura arriva al server**: il worker chiama `POST
+    /api/vault/lock` (m-3, best-effort), che azzera `vaultUnlockedAt` della
+    sola sessione che chiama. Vale per TUTTA la sessione del cookie, che le
+    schede della stessa persona condividono: chiudere in una scheda toglie lo
+    sblocco anche alle rotte della cassaforte delle altre (che lo
+    richiedono; Show e Copy delle altre schede non ne dipendono). Le rotte `config.reauth: "vault"` vogliono uno
+    sblocco recente, non un login (I-3); togliere un Mac vuole la
+    riconferma normale (m-2), perché è un passo della procedura qui sotto.
+  - **Lo stato nella barra non è un segnale fidato** (m-B4): lo specchio
+    della pagina si aggiorna dagli eventi del worker, e il canale di ritorno
+    lo può falsificare uno script nella pagina. Decide il worker, mai lo
+    specchio: nessuna regola si appoggia a ciò che la barra mostra.
 - **Procedura d'incidente: «la chiave di una persona potrebbe essere uscita».**
   Si parte da un avviso `vault_reveal_burst` o `vault_seal_added` che la
   persona non riconosce, o da un XSS sospetto. In quest'ordine:
@@ -348,8 +415,43 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
      aperto la cassaforte in quella pagina: i passi 2–5 vanno ripetuti per
      ciascuna.
 
+- **La pagina a sé della cassaforte (fase 2, `/vault/` da R1, prima `/app/vault/`; 28 nov 2026).**
+  Revisioni di sicurezza della fase 2 (I-1, I-2, poi la seconda). Le regole:
+  - **Attivare, la propria chiave, il kit, il recupero, l'associazione di un
+    Mac e «Use for the vault» stanno in un documento suo** (`vault.html`,
+    `apps/desktop/src/renderer/vaultPage/`), buildato a sé: dentro solo il
+    worker della cassaforte, e nessun codice dell'app. Lo tengono vero un
+    elenco chiuso degli import (`vaultPage/architecture.test.ts`, anche
+    `export … from` e `import(`) e `check-vault-target.mjs … vault` (né il
+    ponte del desktop né il livello dati dell'app, e le rotte `/api/` in un
+    elenco chiuso, uno per la pagina e uno per il worker).
+  - **La sua CSP è sua** (`VAULT_PAGE_CSP` di `scripts/caddy-csp.mjs`,
+    `default-src 'none'`… e i Trusted Types del solo worker), con COOP
+    **`noopener-allow-popups`** (`VAULT_PAGE_COOP`): con `same-origin` uno
+    script dell'app, che è la STESSA origine, aprirebbe la pagina o ne
+    seguirebbe la scheda e la governerebbe prima del boot (la prova in
+    Chromium è `pnpm --filter @stubwise/desktop verify:vault-isolation`,
+    con un controllo `same-origin` che deve restare vulnerabile). Ci si
+    entra SEMPRE con una navigazione completa.
+  - **Il kit di recupero letto** sta nel worker al più 10 minuti, legato a
+    persona e sessione, e ogni chiusura lo butta; ogni conferma col kit
+    vuole una presenza fresca verificata dal worker (una passkey senza PRF,
+    o il codice dell'app, che il worker inoltra e non tiene). Un codice o
+    una passkey sbagliati non buttano il kit (non sono la fine della
+    sessione).
+  - **Senza sessione** la pagina manda al login dell'app con `next` in un
+    elenco chiuso (`vaultReturn`): mai un URL.
+
 ## Limiti accettati
 
+- **La pagina a sé della cassaforte condivide l'origine con l'app**
+  (seconda revisione della fase 2): COOP `noopener-allow-popups` separa le
+  due pagine in Chromium, ma Firefox e Safari, se non supportano il valore,
+  lo trattano come `unsafe-none` e restano come oggi: uno script iniettato
+  nell'app che apre la pagina della cassaforte, o ne segue la scheda, può
+  governarla prima del boot e leggere il kit. La difesa vera, a lungo
+  termine, è un'**origine separata** per la pagina (registro dei rimandi,
+  «Trasversali»).
 - **Server compromesso mentre lo si usa**: chi lo controlla in quel momento può
   servire una web modificata che ruba ciò che si sblocca, dare allo script una
   chiave pubblica falsa o aggiungere un lettore finto che il browser

@@ -49,8 +49,7 @@ import {
   ticketRepositories,
   repositories,
   tickets,
-  users,
-} from "@stubwise/db";
+  users, ticketStatusSql, ticketRoleIn, ticketColumns } from "@stubwise/db";
 import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
 import { publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
@@ -592,8 +591,8 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           values.push(parsed.data);
         }
         // Dedup: evita bind param ripetuti con ?statuses=open,open,...
-        conditions.push(inArray(tickets.status, [...new Set(values)]));
-      } else if (status) conditions.push(eq(tickets.status, status));
+        conditions.push(ticketRoleIn([...new Set(values)]));
+      } else if (status) conditions.push(ticketRoleIn([status]));
       if (type) conditions.push(eq(tickets.type, type));
       if (priority) conditions.push(eq(tickets.priority, priority));
       if (assigneeId) conditions.push(eq(tickets.assigneeId, assigneeId));
@@ -655,7 +654,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       // tronca ai millisecondi e il cursore salterebbe o duplicherebbe righe
       // create nello stesso millisecondo.
       const rows = await app.db
-        .select({ ticket: tickets, cursorTimestamp: sql<string>`${tickets.createdAt}::text` })
+        .select({ ticket: ticketColumns, cursorTimestamp: sql<string>`${tickets.createdAt}::text` })
         .from(tickets)
         .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(tickets.createdAt), desc(tickets.id))
@@ -730,7 +729,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const [row] = await app.db
-        .select()
+        .select(ticketColumns)
         .from(tickets)
         .where(eq(tickets.id, request.params.id));
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
@@ -845,7 +844,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             otherTicketId: tickets.id,
             otherNumber: tickets.number,
             otherTitle: tickets.title,
-            otherStatus: tickets.status,
+            otherStatus: ticketStatusSql,
           })
           .from(ticketLinks)
           .innerJoin(tickets, eq(tickets.id, ticketLinks.targetTicketId))
@@ -858,7 +857,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             otherTicketId: tickets.id,
             otherNumber: tickets.number,
             otherTitle: tickets.title,
-            otherStatus: tickets.status,
+            otherStatus: ticketStatusSql,
           })
           .from(ticketLinks)
           .innerJoin(tickets, eq(tickets.id, ticketLinks.sourceTicketId))
@@ -1179,7 +1178,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
 
       const result = await app.db.transaction(async (tx) => {
         const [current] = await tx
-          .select()
+          .select(ticketColumns)
           .from(tickets)
           .where(eq(tickets.id, id))
           .for("update");
@@ -1190,7 +1189,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           .update(tickets)
           .set({ body: content, originContent: origin })
           .where(eq(tickets.id, id))
-          .returning();
+          .returning(ticketColumns);
         // AUDIT: il set del design cambia il `body` → evento body_changed (stesso
         // diff della PATCH). Se il contenuto coincide col corpo attuale, 0 eventi.
         const events = diffTicketEvents(current, { body: content });
@@ -1227,7 +1226,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
 
       const result = await app.db.transaction(async (tx) => {
         const [current] = await tx
-          .select()
+          .select(ticketColumns)
           .from(tickets)
           .where(eq(tickets.id, id))
           .for("update");
@@ -1238,7 +1237,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           .update(tickets)
           .set({ body: current.originContent, originContent: null })
           .where(eq(tickets.id, id))
-          .returning();
+          .returning(ticketColumns);
         const events = diffTicketEvents(current, { body: current.originContent });
         if (events.length > 0) {
           await tx
@@ -1284,7 +1283,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .update(tickets)
         .set({ implementationPlan: content })
         .where(eq(tickets.id, id))
-        .returning();
+        .returning(ticketColumns);
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
       return ticketDetailResponse(app.db, row, routePermissions(request));
     },
@@ -1310,7 +1309,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .update(tickets)
         .set({ implementationPlan: null })
         .where(eq(tickets.id, id))
-        .returning();
+        .returning(ticketColumns);
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
       return ticketDetailResponse(app.db, row, routePermissions(request));
     },
@@ -1506,7 +1505,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             return apiError(reply, 403, "forbidden", "Missing permission");
         }
       }
-      const [row] = await app.db.select().from(tickets).where(eq(tickets.id, request.params.id));
+      const [row] = await app.db.select(ticketColumns).from(tickets).where(eq(tickets.id, request.params.id));
       return ticketDetailResponse(app.db, row!, routePermissions(request));
     },
   );
@@ -1536,7 +1535,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             return apiError(reply, 403, "forbidden", "Missing permission");
         }
       }
-      const [row] = await app.db.select().from(tickets).where(eq(tickets.id, request.params.id));
+      const [row] = await app.db.select(ticketColumns).from(tickets).where(eq(tickets.id, request.params.id));
       return ticketDetailResponse(app.db, row!, routePermissions(request));
     },
   );

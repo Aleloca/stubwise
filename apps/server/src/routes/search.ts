@@ -22,8 +22,7 @@ import {
   projects,
   repositories,
   searchHistory,
-  tickets,
-} from "@stubwise/db";
+  tickets, ticketStatusSql } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { exactDocCode, resolveDocCode, withDocCodes } from "../services/doc-codes.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -196,7 +195,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
             id: tickets.id,
             number: tickets.number,
             title: tickets.title,
-            status: tickets.status,
+            status: ticketStatusSql,
             projectId: tickets.projectId,
             projectName: projects.name,
             snippet: sql<string>`ts_headline('english', coalesce(${tickets.title}, '') || ' — ' || coalesce(${tickets.body}, ''), ${tsq}, 'MaxFragments=1,MaxWords=40,MinWords=15')`,

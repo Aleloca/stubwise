@@ -1,3 +1,4 @@
+import { appPath, vaultPagePath } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PairingDialog } from "./PairingDialog";
@@ -29,22 +30,41 @@ export function useOpenVault() {
     const out = await unlock.mutateAsync(undefined).catch(() => null);
     if (out?.ok) return true;
     // La barra dice già revocata, irraggiungibile o senza Touch ID; annullato è una scelta.
+    // Nel browser: la passkey annullata è una scelta, e una senza PRF la dice la barra.
     const quiet = [
       "touch_id_cancelled",
       "touch_id_unavailable",
       "revoked",
       "unavailable",
       "unpaired",
+      "passkey_failed",
+      "passkey_unsupported",
     ];
-    if (!out || !quiet.includes(out.code)) toast.error(t("vault.bar.openFailed"));
+    if (!out || !quiet.includes(out.code))
+      toast.error(t(isWebAppBuild() ? "vault.bar.openFailedWeb" : "vault.bar.openFailed"));
     return false;
   };
   return { open, pending: unlock.isPending };
 }
 
-/** Il browser con la passkey (D-1a): nell'app lo apre il main; il prototipo lo dice e basta. */
+/**
+ * Il browser con la passkey (D-1a): nell'app lo apre il main, sulla
+ * cassaforte della nuova app nel browser (non più `/credentials` del web
+ * vecchio); il prototipo lo dice e basta. L'indirizzo dall'helper dei link.
+ */
 export function openVaultInBrowser(): void {
-  if (isAppBuild()) openInWeb("/credentials");
+  if (isAppBuild()) openInWeb(appPath({ to: "vault" }));
+}
+
+/**
+ * La pagina A SÉ della cassaforte (fase 2, design §10; revisione I-2):
+ * attivarla, creare la propria chiave. Un documento suo, con la sua CSP: ci
+ * si entra SEMPRE con una navigazione completa, mai cambiando il frammento.
+ * Dal Mac si apre nel browser.
+ */
+export function openVaultSetup(): void {
+  if (isWebAppBuild()) window.location.assign(vaultPagePath("setup"));
+  else if (isAppBuild()) openInWeb(vaultPagePath("setup"));
 }
 
 export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
@@ -99,8 +119,10 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
       glyph = "●";
       text = (
         <span className="flex flex-col">
-          <span>{t("vault.bar.open")}</span>
+          <span>{t(isWebAppBuild() ? "vault.bar.openWeb" : "vault.bar.open")}</span>
           <span className="text-sm text-ink-muted">{t("vault.bar.recorded")}</span>
+          {/* Design §7: nel browser lo stop e il blocco dello schermo chiudono solo al ritorno. */}
+          {isWebAppBuild() && <span className="text-sm text-ink-muted">{t("vault.bar.webLimit")}</span>}
         </span>
       );
       action = (
@@ -109,7 +131,26 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
         </button>
       );
       break;
+    case "passkey_unsupported":
+      // Cassaforte nel browser (§9): la passkey usata non dà la PRF.
+      text = t("vault.bar.passkeyUnsupported");
+      action = (
+        <button type="button" className={secondaryButton} disabled={pending} onClick={() => void open()}>
+          {t("vault.bar.tryAnotherPasskey")}
+        </button>
+      );
+      break;
     case "locked":
+      if (isWebAppBuild()) {
+        // Cassaforte nel browser (§9): si apre con la passkey, nella scheda.
+        text = t("vault.bar.locked");
+        action = (
+          <button type="button" className={primaryButton} disabled={pending} onClick={() => void open()}>
+            {pending ? t("vault.bar.opening") : t("vault.bar.openPasskey")}
+          </button>
+        );
+        break;
+      }
       text = s.touchId ? t("vault.bar.locked") : t("vault.bar.noTouchId");
       action = s.touchId ? (
         <button
@@ -176,7 +217,19 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
       break;
     case "no_key":
       text = t("vault.bar.noKey");
-      action = browser;
+      // Fase 2: la chiave si crea nella pagina della cassaforte, nel browser.
+      action = (
+        <button
+          type="button"
+          className={isWebAppBuild() ? primaryButton : secondaryButton}
+          onClick={() => {
+            openVaultSetup();
+            if (!isWebAppBuild()) toast.show(t("vault.bar.openedBrowser"));
+          }}
+        >
+          {isWebAppBuild() ? t("vault.bar.createKey") : t("vault.bar.openBrowser")}
+        </button>
+      );
       break;
     case "key_pending":
       text = (
@@ -196,9 +249,23 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
       text = (
         <span className="flex flex-col">
           <span>{t("vault.bar.inactive")}</span>
-          {fullAdmin && <span>{t("vault.bar.inactiveAdmin")}</span>}
+          {fullAdmin && !isWebAppBuild() && <span>{t("vault.bar.inactiveAdmin")}</span>}
         </span>
       );
+      // Fase 2: l'admin la attiva nella pagina della cassaforte (nel browser).
+      if (fullAdmin && isAppBuild())
+        action = (
+          <button
+            type="button"
+            className={isWebAppBuild() ? primaryButton : secondaryButton}
+            onClick={() => {
+              openVaultSetup();
+              if (!isWebAppBuild()) toast.show(t("vault.bar.openedBrowser"));
+            }}
+          >
+            {isWebAppBuild() ? t("vault.bar.activateWeb") : t("vault.bar.openBrowser")}
+          </button>
+        );
       break;
   }
 

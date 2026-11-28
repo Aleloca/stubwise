@@ -12,7 +12,7 @@ import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Db } from "./client.js";
 import { projectStatuses, projects, tickets } from "./schema.js";
-import { expectSqlState, firstStatusOf, seedRepository, seedTicket } from "./testing.js";
+import { expectSqlState, firstStatusOf, seedRepository, seedTicket, legacyTicketStatus } from "./testing.js";
 
 /**
  * Migrazione 0108 (9 nov 2026, integrazione area 2): stati per progetto con
@@ -131,14 +131,14 @@ describe("migrazione 0108: stati per progetto", () => {
 
   it("la pipeline che scrive in_review sposta in In review", async () => {
     const { ticketId } = await seedTicket(db);
-    await db.update(tickets).set({ status: "in_progress" }).where(eq(tickets.id, ticketId));
-    await db.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, ticketId));
+    await db.update(legacyTicketStatus).set({ status: "in_progress" }).where(eq(tickets.id, ticketId));
+    await db.update(legacyTicketStatus).set({ status: "in_review" }).where(eq(tickets.id, ticketId));
     expect(await stateOf(db, ticketId)).toMatchObject({ status: "in_review", status_name: "In review" });
   });
 
   it("il webhook che scrive done sposta in Done e valorizza closed_at", async () => {
     const { ticketId } = await seedTicket(db);
-    await db.update(tickets).set({ status: "done" }).where(eq(tickets.id, ticketId));
+    await db.update(legacyTicketStatus).set({ status: "done" }).where(eq(tickets.id, ticketId));
     const s = await stateOf(db, ticketId);
     expect(s).toMatchObject({ status: "done", status_name: "Done" });
     expect(s.closed_at).not.toBeNull();
@@ -146,9 +146,9 @@ describe("migrazione 0108: stati per progetto", () => {
 
   it("in_review → triaged torna nel primo todo, lo status resta triaged e closed_at torna null", async () => {
     const { ticketId } = await seedTicket(db);
-    await db.update(tickets).set({ status: "done" }).where(eq(tickets.id, ticketId));
-    await db.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, ticketId));
-    await db.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, ticketId));
+    await db.update(legacyTicketStatus).set({ status: "done" }).where(eq(tickets.id, ticketId));
+    await db.update(legacyTicketStatus).set({ status: "in_review" }).where(eq(tickets.id, ticketId));
+    await db.update(legacyTicketStatus).set({ status: "triaged" }).where(eq(tickets.id, ticketId));
     expect(await stateOf(db, ticketId)).toMatchObject({
       status: "triaged",
       status_name: "To do",
@@ -189,8 +189,8 @@ describe("migrazione 0108: stati per progetto", () => {
       .from(projectStatuses)
       .where(sql`${projectStatuses.projectId} = ${projectId} and ${projectStatuses.name} = 'QA'`);
     await db.update(tickets).set({ statusId: qa!.id }).where(eq(tickets.id, ticketId));
-    await db.update(tickets).set({ status: "in_progress" }).where(eq(tickets.id, ticketId));
-    await db.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, ticketId));
+    await db.update(legacyTicketStatus).set({ status: "in_progress" }).where(eq(tickets.id, ticketId));
+    await db.update(legacyTicketStatus).set({ status: "in_review" }).where(eq(tickets.id, ticketId));
     expect(await stateOf(db, ticketId)).toMatchObject({ status: "in_review", status_name: "QA" });
   });
 
@@ -214,7 +214,7 @@ describe("migrazione 0108: stati per progetto", () => {
       .where(sql`${projectStatuses.projectId} = ${projectId} and ${projectStatuses.name} = 'To do'`);
     await db.update(tickets).set({ statusId: toDo[0]!.id }).where(eq(tickets.id, ticketId));
     // Il triage scrive triaged: la task resta nel suo todo, non torna in Inbox.
-    await db.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, ticketId));
+    await db.update(legacyTicketStatus).set({ status: "triaged" }).where(eq(tickets.id, ticketId));
     expect(await stateOf(db, ticketId)).toMatchObject({ status: "triaged", status_name: "To do" });
   });
 
@@ -222,7 +222,7 @@ describe("migrazione 0108: stati per progetto", () => {
     const { projectId, ticketId } = await seedTicket(db);
     const done = await firstStatusOf(db, projectId, "closed");
     await expectSqlState(
-      db.update(tickets).set({ status: "in_progress", statusId: done }).where(eq(tickets.id, ticketId)),
+      db.execute(sql`update tickets set status = 'in_progress', status_id = ${done} where id = ${ticketId}`),
       "23514",
     );
   });

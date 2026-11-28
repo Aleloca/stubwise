@@ -52,10 +52,12 @@ import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { openSharedProposalsByThread } from "../services/mail-proposals.js";
 import { legacyOpenSql } from "../services/mail-proposals-legacy.js";
 import { meetingNoteView } from "../services/meetings.js";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
+import { fetchRemoteImage, type ImageFetchResult } from "../mail-images/fetch.js";
+import { numberRemoteImages, remoteImageUrls } from "../mail-images/number.js";
 import { calendarDayUrl, calendarReproposableSql, calendarStatusCaseSql } from "./calendar-status.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -77,7 +79,50 @@ const defaultGoogleClient: MailOriginalClient = { refreshAccessToken, getMessage
 
 export interface MeMailRoutesOptions {
   googleClient?: MailOriginalClient;
+  /** Il fetch del proxy delle immagini (solo test: in produzione quello di `mail-images/fetch.ts`). */
+  imageFetcher?: (url: string) => Promise<ImageFetchResult>;
 }
+
+/** La posizione più alta che la rotta delle immagini accetta: un'email ne ha molte meno. */
+const MAX_IMAGE_INDEX = 999;
+/**
+ * Il corpo oltre il quale le immagini non si offrono (revisione I3): sanificare
+ * è sincrono, e un corpo enorme terrebbe l'event loop per centinaia di ms a
+ * ogni richiesta. `/original` non numera, e la rotta risponde 404.
+ */
+export const MAX_IMAGE_BODY_CHARS = 1_000_000;
+/** Le immagini in volo per persona (revisione I2): il client ne chiede 4 insieme. */
+const MAX_IMAGES_IN_FLIGHT_PER_USER = 4;
+/** La memoria degli URL per messaggio (revisione I3): solo gli URL, breve, limitata. */
+const IMAGE_URLS_TTL_MS = 5 * 60_000;
+const IMAGE_URLS_MAX_ENTRIES = 500;
+const imageUrlsMemo = new Map<string, { urls: string[]; at: number }>();
+
+/**
+ * Gli URL delle immagini remote di un corpo, memoizzati per messaggio: un
+ * corpo in cache è immutabile (un messaggio Gmail non cambia; sparisce col
+ * CASCADE), quindi la lista non scade per correttezza, solo per memoria.
+ * `null` per un corpo oltre `MAX_IMAGE_BODY_CHARS`: lì le immagini non si offrono.
+ */
+function imageUrlsOf(messageId: string, bodyHtml: string): string[] | null {
+  if (bodyHtml.length > MAX_IMAGE_BODY_CHARS) return null;
+  const now = Date.now();
+  const hit = imageUrlsMemo.get(messageId);
+  if (hit && now - hit.at < IMAGE_URLS_TTL_MS) return hit.urls;
+  const urls = remoteImageUrls(sanitizeEmailHtml(bodyHtml));
+  imageUrlsMemo.delete(messageId);
+  imageUrlsMemo.set(messageId, { urls, at: now });
+  while (imageUrlsMemo.size > IMAGE_URLS_MAX_ENTRIES) imageUrlsMemo.delete(imageUrlsMemo.keys().next().value!);
+  return urls;
+}
+
+/** Il corpo sanificato per `/original`, con le immagini numerate solo sotto il tetto (I3). */
+function originalHtml(raw: string): string {
+  const clean = sanitizeEmailHtml(raw);
+  return raw.length > MAX_IMAGE_BODY_CHARS ? clean : numberRemoteImages(clean);
+}
+
+const imagesInFlight = new Map<string, number>();
 
 /**
  * PAGINA POSTA (fase 6, Task 12; fase 6b, Task 8), sotto `/api/me/mail`: i
@@ -802,6 +847,7 @@ export async function meMailRoutes(
 ): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
   const googleClient = opts.googleClient ?? defaultGoogleClient;
+  const imageFetcher = opts.imageFetcher ?? ((url: string) => fetchRemoteImage(url));
 
   app.get(
     "/",
@@ -1532,6 +1578,83 @@ export async function meMailRoutes(
   );
 
   /**
+   * Le immagini delle email passano dal nostro server (design
+   * `docs/plans/2026-11-28-proxy-immagini-posta-design.md`). L'immagine si
+   * chiede per POSIZIONE nel corpo, mai per URL: il server rilegge il corpo
+   * dalla CACHE (`email_bodies`, che `/original` scrive prima che «Show
+   * images» esista), lo sanifica con la stessa funzione della risposta di
+   * `/original` e prende l'`n`-esimo `data-src` (`remoteImageUrls`, la stessa
+   * numerazione di `numberRemoteImages`). Un URL che non compare nell'email
+   * non è raggiungibile per costruzione: non è un proxy aperto.
+   *
+   * Chi legge: `resolveEmailMessage`, cioè le caselle di chi chiama
+   * (`mailbox_owner`: mai gli admin). Messaggio non suo, ignoto, senza cache
+   * o posizione fuori elenco: lo stesso 404. Qualunque rifiuto del fetch
+   * (`mail-images/fetch.ts`: SSRF, tetti, tipo dai byte) è lo stesso 422
+   * `image_unavailable`, senza dettaglio: il server non dice quali host
+   * interni esistono. Nel log vanno l'host e il motivo, mai l'URL intero
+   * (porta spesso il token di tracciamento del destinatario). I byte non si
+   * conservano da nessuna parte.
+   */
+  app.get(
+    "/:source/:id/images/:n",
+    {
+      config: {
+        access: { kind: "user" },
+        mcp: { action: "mail.image", summary: "Scarica un'immagine di un'email delle tue caselle (per posizione, dal proxy del server) e la salva su disco.", effect: "read", tool: "download_file", note: "Contenuto non fidato." },
+        // Un messaggio con 50 immagini aperto due volte di fila passa.
+        rateLimit: { max: 120, timeWindow: "1 minute", hook: "preHandler", keyGenerator: (request: FastifyRequest) => request.user?.id ?? request.ip },
+      },
+      schema: {
+        params: mailDetailParamsSchema.extend({ n: z.coerce.number().int().min(0).max(MAX_IMAGE_INDEX) }),
+        response: { 400: errorSchema, 404: errorSchema, 422: errorSchema, 429: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { source, id, n } = request.params;
+      const message = await resolveEmailMessage(app.db, request.user!.id, source, id);
+      if (!message) return apiError(reply, 404, "not_found", "Image not found");
+      const [cached] = await app.db
+        .select({ bodyHtml: emailBodies.bodyHtml })
+        .from(emailBodies)
+        .where(eq(emailBodies.emailMessageId, message.id));
+      const url = cached?.bodyHtml ? imageUrlsOf(message.id, cached.bodyHtml)?.[n] : undefined;
+      if (!url) return apiError(reply, 404, "not_found", "Image not found");
+      const userId = request.user!.id;
+      const inFlight = imagesInFlight.get(userId) ?? 0;
+      if (inFlight >= MAX_IMAGES_IN_FLIGHT_PER_USER) return apiError(reply, 429, "too_many_images", "Too many images at once");
+      imagesInFlight.set(userId, inFlight + 1);
+      let result: ImageFetchResult;
+      try {
+        result = await imageFetcher(url);
+      } finally {
+        const left = (imagesInFlight.get(userId) ?? 1) - 1;
+        if (left > 0) imagesInFlight.set(userId, left);
+        else imagesInFlight.delete(userId);
+      }
+      if (!result.ok) {
+        let host = "";
+        try {
+          host = new URL(url).hostname;
+        } catch {
+          /* l'host illeggibile resta vuoto */
+        }
+        request.log.info({ host, reason: result.reason }, "mail image unavailable");
+        return apiError(reply, 422, "image_unavailable", "Image unavailable");
+      }
+      return reply
+        .header("Content-Type", result.contentType)
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Content-Security-Policy", "default-src 'none'; sandbox")
+        .header("Cross-Origin-Resource-Policy", "same-origin")
+        .header("Referrer-Policy", "no-referrer")
+        .header("Cache-Control", "no-store")
+        .header("Content-Disposition", `inline; filename="image-${n}"`)
+        .send(result.bytes as never);
+    },
+  );
+
+  /**
    * Fase 7b, Task 7: il messaggio ORIGINALE. Stessa ACL:
    * `resolveEmailMessage` prima di qualunque chiamata di rete, così un id
    * altrui non arriva nemmeno a consumare un token.
@@ -1627,7 +1750,8 @@ export async function meMailRoutes(
           cc: cached.ccAddresses,
           bodyText: cached.bodyText ?? (cached.bodyHtml ? htmlToText(cached.bodyHtml) : null),
           // In cache sta GREZZO: si sanifica adesso, con il filtro di oggi.
-          bodyHtml: cached.bodyHtml ? sanitizeEmailHtml(cached.bodyHtml) : null,
+          // Le immagini remote numerate (`data-image`): la rotta delle immagini le chiede per posizione.
+          bodyHtml: cached.bodyHtml ? originalHtml(cached.bodyHtml) : null,
           attachments: cached.attachments,
           bodySource: "cache" as const,
           fetchedAt: cached.fetchedAt.toISOString(),
@@ -1700,7 +1824,7 @@ export async function meMailRoutes(
           // `sanitizeEmailHtml` (allowlist, mai denylist; immagini remote
           // neutralizzate). Il client lo rende in un iframe in sandbox come
           // SECONDA difesa indipendente, non l'unica.
-          bodyHtml: body.html ? sanitizeEmailHtml(body.html) : null,
+          bodyHtml: body.html ? originalHtml(body.html) : null,
           attachments,
           bodySource: "google" as const,
           fetchedAt: fetchedAt.toISOString(),

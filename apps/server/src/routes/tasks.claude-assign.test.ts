@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { aiJobs, instanceSettings, notifications, personalAccessTokens, projectMembers, roles, ticketFollowers, tickets, users } from "@stubwise/db";
+import { aiJobs, instanceSettings, notifications, personalAccessTokens, projectMembers, roles, ticketFollowers, tickets, users, ticketColumns, roleUpdate } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { personViewSchema } from "@stubwise/shared";
@@ -149,7 +149,7 @@ describe("assegnare Claude avvia il lavoro", () => {
     const t = await task(otherProjectId);
     expect((await req("PATCH", `/api/tasks/${t}`, developer, { assigneeId: claudeId })).statusCode).toBe(404);
     expect(
-      await testDb.db.select().from(tickets).where(and(eq(tickets.id, t), eq(tickets.assigneeId, claudeId))),
+      await testDb.db.select(ticketColumns).from(tickets).where(and(eq(tickets.id, t), eq(tickets.assigneeId, claudeId))),
     ).toEqual([]);
   });
 });
@@ -208,7 +208,7 @@ describe("pianificare Claude chiede anche di poter modificare, e una task aperta
     expect(refused.json()).toMatchObject({ code: "forbidden" });
     expect(await jobsOf(t)).toEqual([]);
     const closed = await task();
-    await testDb.db.update(tickets).set({ closedAt: new Date(), status: "done" }).where(eq(tickets.id, closed));
+    await testDb.db.update(tickets).set({ closedAt: new Date(), ...roleUpdate("done") }).where(eq(tickets.id, closed));
     const onClosed = await req("POST", `/api/tasks/${closed}/plan`, developer, { assigneeId: claudeId, week: null });
     expect(onClosed.statusCode, onClosed.body).toBe(403);
     const [row] = await testDb.db.select({ assigneeId: tickets.assigneeId }).from(tickets).where(eq(tickets.id, closed));

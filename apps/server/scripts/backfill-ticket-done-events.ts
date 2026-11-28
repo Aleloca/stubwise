@@ -1,4 +1,4 @@
-import { aiJobs, createDb, ticketEvents, tickets, type Db } from "@stubwise/db";
+import { aiJobs, createDb, ticketEvents, ticketRoleIn, tickets, type Db } from "@stubwise/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { pathToFileURL } from "node:url";
 
@@ -55,7 +55,7 @@ export async function backfillTicketDoneEvents(
     .from(tickets)
     .where(
       and(
-        eq(tickets.status, "done"),
+        ticketRoleIn(["done"]),
         sql`not exists (
           select 1 from ${ticketEvents}
           where ${ticketEvents.ticketId} = ${tickets.id}

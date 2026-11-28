@@ -3,6 +3,7 @@ import fastifyCookie from "@fastify/cookie";
 import { uploadsOff } from "./services/storage-uploads-gate.js";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyRateLimit from "@fastify/rate-limit";
+import type { ImageFetchResult } from "./mail-images/fetch.js";
 import fastifySwagger from "@fastify/swagger";
 import Fastify, {
   type FastifyError,
@@ -336,6 +337,8 @@ export interface BuildAppOptions {
    * mano.
    */
   mailGoogleClient?: MailOriginalClient;
+  /** Solo test: il fetch del proxy delle immagini della posta (in produzione `mail-images/fetch.ts`). */
+  mailImageFetcher?: (url: string) => Promise<ImageFetchResult>;
   /** Area 6, F3: il client Gmail delle bozze, iniettabile nei test. */
   mailComposeClient?: MailComposeClient;
   /**
@@ -1013,6 +1016,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(meMailRoutes, {
     prefix: "/api/me/mail",
     ...(opts.mailGoogleClient ? { googleClient: opts.mailGoogleClient } : {}),
+    ...(opts.mailImageFetcher ? { imageFetcher: opts.mailImageFetcher } : {}),
   });
   void app.register(meMeetingsRoutes, { prefix: "/api/me/meetings" });
   // Area 8, «Clienti in attesa»: i thread delle MIE caselle in cui un cliente aspetta.

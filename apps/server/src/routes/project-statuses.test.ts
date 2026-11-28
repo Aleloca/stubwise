@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { automationEvents, projectStatuses, projects, ticketEvents, tickets } from "@stubwise/db";
+import { automationEvents, projectStatuses, projects, ticketEvents, tickets, ticketStatusSql } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicket, startTestDb } from "@stubwise/db/testing";
 import { projectStatusViewSchema } from "@stubwise/shared";
@@ -130,7 +130,7 @@ describe("stati del progetto", () => {
     expect(await rows(projectId)).toEqual(before);
     const ok = await put(projectId, { statuses: without, reassign: { [inProgress.id]: before[2]!.id } });
     expect(ok.statusCode).toBe(200);
-    const [t] = await testDb.db.select({ s: tickets.statusId, e: tickets.status }).from(tickets).where(eq(tickets.id, ticketId));
+    const [t] = await testDb.db.select({ s: tickets.statusId, e: ticketStatusSql }).from(tickets).where(eq(tickets.id, ticketId));
     expect(t).toEqual({ s: before[2]!.id, e: "in_progress" });
     expect((await rows(projectId)).map((s) => s.name)).toEqual(["To do", "In review", "Done", "Discarded"]);
     expect(toDo.id).toBe((await rows(projectId))[0]!.id);
@@ -154,7 +154,7 @@ describe("stati del progetto", () => {
     await testDb.db.update(tickets).set({ statusId: review.id }).where(eq(tickets.id, b.ticketId));
     const res = await put(p2, { statuses: now.map((s) => ({ id: s.id, name: s.name, family: s.id === review.id ? "closed" : s.family })), reassign: {} });
     expect(res.statusCode).toBe(200);
-    const [tb] = await testDb.db.select({ e: tickets.status }).from(tickets).where(eq(tickets.id, b.ticketId));
+    const [tb] = await testDb.db.select({ e: ticketStatusSql }).from(tickets).where(eq(tickets.id, b.ticketId));
     expect(["done", "closed"]).toContain(tb!.e);
     const events = await testDb.db.select().from(automationEvents);
     expect(events.filter((e) => e.kind === "task_closed" && e.objectId !== null && [a.ticketId, b.ticketId].includes(e.objectId))).toEqual([]);
@@ -166,13 +166,13 @@ describe("stati del progetto", () => {
     const before = await rows(projectId);
     // Un `triaged` dentro il todo, e un updated_at di ieri.
     await testDb.db.execute(sql`update tickets set status = 'triaged', updated_at = now() - interval '1 day' where id = ${ticketId}`);
-    const [pre] = await testDb.db.select({ s: tickets.status, u: tickets.updatedAt }).from(tickets).where(eq(tickets.id, ticketId));
+    const [pre] = await testDb.db.select({ s: ticketStatusSql, u: tickets.updatedAt }).from(tickets).where(eq(tickets.id, ticketId));
     const res = await put(projectId, {
       statuses: before.map((s, i) => ({ id: s.id, name: i === 0 ? "Backlog" : s.name, family: s.family })),
       reassign: {},
     });
     expect(res.statusCode).toBe(200);
-    const [post] = await testDb.db.select({ s: tickets.status, u: tickets.updatedAt }).from(tickets).where(eq(tickets.id, ticketId));
+    const [post] = await testDb.db.select({ s: ticketStatusSql, u: tickets.updatedAt }).from(tickets).where(eq(tickets.id, ticketId));
     expect(post).toEqual(pre);
   });
 
