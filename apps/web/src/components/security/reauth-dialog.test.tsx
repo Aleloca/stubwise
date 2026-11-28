@@ -249,8 +249,10 @@ describe("ReauthDialog", () => {
     await screen.findByRole("dialog");
     await userEvent.click(screen.getByRole("button", { name: /unlock with passkey/i }));
     await screen.findByRole("alert");
+    // Il rifiuto si aggancia PRIMA del clic: altrimenti resta non gestito per un giro e vitest esce con 1.
+    const rejected = expect(result).rejects.toMatchObject({ code: "vault_unlock_required" });
     await userEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
-    await expect(result).rejects.toMatchObject({ code: "vault_unlock_required" });
+    await rejected;
     expect(calls("POST /api/vault/keys")).toHaveLength(1);
   });
 
