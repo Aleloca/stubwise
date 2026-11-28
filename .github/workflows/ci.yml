@@ -137,9 +137,16 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: node .github/scripts/ci-plan.mjs
 
-  # Un gruppo per macchina: server, worker, web, mobile e «resto» (tutti gli
-  # altri pacchetti con test). Un gruppo non toccato non compare nella
-  # matrice; se non ne serve nessuno il job è saltato (verde).
+  # Un gruppo per macchina: server, worker, desktop, web, mobile e «resto»
+  # (tutti gli altri pacchetti con test). Desktop, server e worker si
+  # dividono in parti (28 nov 2026: erano 19, 20 e 8 minuti di vitest su una
+  # macchina sola, e la CI durava circa 30 minuti): «Test desktop 1/4» … 4/4,
+  # «Test server 1/3» … 3/3, «Test worker 1/2» e 2/2. Le parti e il perché
+  # dei numeri stanno in `SHARDS` di `.github/scripts/ci-plan.mjs`; la parte
+  # arriva allo script `test` del pacchetto con l'env `VITEST_SHARD`, che lo
+  # script passa a `vitest run --shard` (e non al build che server e worker
+  # fanno prima). Un gruppo non toccato non compare nella matrice; se non ne
+  # serve nessuno il job è saltato (verde).
   #
   # I runner ubuntu-latest hanno Docker: i test di server/worker/db avviano
   # Postgres via testcontainers (i fork interni restano limitati dalle
@@ -192,6 +199,8 @@ jobs:
       - name: Test
         env:
           PACKAGES: ${{ matrix.packages }}
+          # La parte (`i/n`) per vitest, vuota nei gruppi su una macchina sola.
+          VITEST_SHARD: ${{ matrix.shard }}
         run: |
           FILTERS=()
           for p in $PACKAGES; do FILTERS+=(--filter "$p"); done

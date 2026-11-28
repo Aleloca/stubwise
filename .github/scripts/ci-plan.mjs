@@ -28,8 +28,16 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** Gruppi con una macchina a sé; tutto il resto con test va in «resto». */
-const OWN_GROUPS = ["server", "worker", "web", "mobile"];
+/**
+ * Gruppi con macchine a sé, e su quante si dividono (`vitest --shard=i/n`,
+ * passato con l'env `VITEST_SHARD` allo script `test` del pacchetto); tutto
+ * il resto con test va in «resto», su una sola. I numeri vengono dai tempi
+ * di vitest nella CI del 27 nov 2026 (run 46077933739): desktop 1163 s,
+ * server 1179 s, worker 455 s; web e mobile stanno sotto i 3 minuti.
+ * Ogni parte di server e worker avvia i suoi testcontainers.
+ */
+const SHARDS = { server: 3, worker: 2, desktop: 4, web: 1, mobile: 1 };
+const OWN_GROUPS = Object.keys(SHARDS);
 const OUTSIDE_PACKAGES = /^(apps|packages|plugins)\//;
 const IGNORED_OUTSIDE = /^(docs|graphify-out)\/|\.md$/;
 
@@ -109,9 +117,15 @@ function plan() {
   const include = [];
   for (const group of OWN_GROUPS) {
     const name = `@stubwise/${group}`;
-    if (testable.some((p) => p.name === name)) {
-      // Le app si testano sui sorgenti: servono solo le dist delle dipendenze.
-      include.push({ group, packages: name, build: "deps" });
+    if (!testable.some((p) => p.name === name)) continue;
+    // Le app si testano sui sorgenti: servono solo le dist delle dipendenze.
+    const n = SHARDS[group];
+    for (let i = 1; i <= n; i++) {
+      include.push(
+        n > 1
+          ? { group: `${group} ${i}/${n}`, packages: name, build: "deps", shard: `${i}/${n}` }
+          : { group, packages: name, build: "deps", shard: "" },
+      );
     }
   }
   const rest = testable
@@ -121,7 +135,7 @@ function plan() {
   if (rest.length > 0) {
     // Il pacchetto stesso compreso: alcuni test leggono la PROPRIA dist
     // (es. `load-isolated.test.ts` di @stubwise/shared).
-    include.push({ group: "resto", packages: rest.join(" "), build: "self" });
+    include.push({ group: "resto", packages: rest.join(" "), build: "self", shard: "" });
   }
   return { reason, include };
 }

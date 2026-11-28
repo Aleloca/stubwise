@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.build.json",
-    "test": "pnpm --filter @stubwise/db... --filter @stubwise/docs-engine... --filter @stubwise/embeddings... --filter @stubwise/git... --filter @stubwise/google... --filter @stubwise/i18n... --filter @stubwise/notifications... build && vitest run",
+    "test": "pnpm --filter @stubwise/db... --filter @stubwise/docs-engine... --filter @stubwise/embeddings... --filter @stubwise/git... --filter @stubwise/google... --filter @stubwise/i18n... --filter @stubwise/notifications... build && vitest run ${VITEST_SHARD:+--shard=$VITEST_SHARD}",
     "smoke": "tsx scripts/smoke.ts",
     "golden": "tsx scripts/golden/run.ts",
     "golden:nightly": "tsx scripts/golden/nightly.ts",
