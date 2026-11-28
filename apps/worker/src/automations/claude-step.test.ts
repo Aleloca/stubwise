@@ -8,6 +8,12 @@ import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runn
 import { buildClaudePrompt, untrusted } from "./claude-step.js";
 import { executeDueRuns } from "./executor.js";
 
+// Il codice del progetto da un contatore, non a caso: 4 cifre esadecimali a caso
+// su un test per `beforeEach` collidevano su `projects_code_unique` (CI di #150).
+// Il vincolo è `^[A-Z][A-Z0-9]{1,5}$`: lettera più 5 cifre.
+let codeSeq = 0;
+const projectCode = () => String(codeSeq++).padStart(5, "0");
+
 /**
  * IL PASSO DI CLAUDE nel worker (area 7, F3, S2 e S3): il budget mensile prima
  * di OGNI passo, una chiamata senza strumenti, il risultato nel registro prima
@@ -30,7 +36,7 @@ beforeEach(async () => {
   await t.db.delete(instanceSettings);
   await t.db.delete(agentRuns);
   ({ projectId } = await seedRepository(t.db));
-  await t.db.update(projects).set({ code: `K${randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}` }).where(eq(projects.id, projectId));
+  await t.db.update(projects).set({ code: `K${projectCode()}` }).where(eq(projects.id, projectId));
   ownerId = (await t.db.insert(users).values({ email: `${randomUUID()}@x.it`, passwordHash: "x", role: "member", displayName: "Olga" }).returning())[0]!.id;
   const [role] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "project_lead"));
   await t.db.insert(projectMembers).values({ projectId, userId: ownerId, roleId: role!.id });

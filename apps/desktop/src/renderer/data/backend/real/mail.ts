@@ -294,7 +294,10 @@ async function messageView(
     cc: body && body.cc.length > 0 ? body.cc.map((a) => addressOf(a, mine)) : null,
     subject,
     at: m.receivedAt,
-    text: m.textExcerpt ?? body?.bodyText ?? "",
+    // Il corpo dell'originale prima dell'estratto: il worker taglia l'estratto
+    // a 20.000 caratteri (`MAX_TEXT_LENGTH`), e un messaggio più lungo si
+    // leggerebbe tagliato. L'estratto resta se l'originale non si legge.
+    text: body?.bodyText ?? m.textExcerpt ?? "",
     quoted: null,
     html: body?.bodyHtml ?? null,
     // Il server non dice la dimensione né scarica l'allegato (che si apre su Gmail).

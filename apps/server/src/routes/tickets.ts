@@ -1160,7 +1160,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/:id/design",
     {
-      config: { access: onTicket("tickets.edit"), mcp: { action: "tickets.setDesign", summary: "Sostituisce il corpo di un ticket con un design, conservando il testo originale.", effect: "write", tool: "set_design" } },
+      config: { access: onTicket("tickets.edit"), mcp: { action: "tickets.setDesign", owner: "mcp", summary: "Sostituisce il corpo di un ticket con un design, conservando il testo originale.", effect: "write", tool: "set_design" } },
       schema: {
         params: idParamsSchema,
         body: setContentSchema,
@@ -1263,7 +1263,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/:id/plan",
     {
-      config: { access: onTicket("tickets.edit"), mcp: { action: "tickets.setPlan", summary: "Imposta il piano di implementazione di un ticket.", effect: "write", tool: "set_plan" } },
+      config: { access: onTicket("tickets.edit"), mcp: { action: "tickets.setPlan", owner: "mcp", summary: "Imposta il piano di implementazione di un ticket.", effect: "write", tool: "set_plan" } },
       schema: {
         params: idParamsSchema,
         body: setContentSchema,

@@ -449,7 +449,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/jobs/:jobId",
     {
-      config: { access: { kind: "project", permission: "member", project: fromBacklogJob("jobId") }, mcp: { action: "backlog.job", summary: "Lo stato del job d'intake di una voce di backlog proposta.", effect: "read" } },
+      config: { access: { kind: "project", permission: "member", project: fromBacklogJob("jobId") }, mcp: { action: "backlog.job", owner: "mcp", summary: "Lo stato del job d'intake di una voce di backlog proposta.", effect: "read" } },
       schema: {
         params: z.object({ jobId: z.uuid() }),
         response: {
@@ -503,7 +503,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id",
     {
-      config: { access: backlogItemAccess("id", "member"), mcp: { action: "backlog.get", summary: "Il dettaglio di una voce di backlog.", effect: "read" } },
+      config: { access: backlogItemAccess("id", "member"), mcp: { action: "backlog.get", owner: "mcp", summary: "Il dettaglio di una voce di backlog.", effect: "read" } },
       schema: {
         params: idParamsSchema,
         response: { 200: backlogItemDetailSchema, 404: errorSchema, ...authErrorResponses },
@@ -548,7 +548,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.update", summary: "Modifica i metadati di una voce di backlog (urgenza, effort, stato…).", effect: "write" } },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.update", owner: "mcp", summary: "Modifica i metadati di una voce di backlog (urgenza, effort, stato…).", effect: "write" } },
       schema: {
         params: idParamsSchema,
         body: updateBacklogItemSchema,
@@ -614,7 +614,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/:id/design",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.setDesign", summary: "Sostituisce il documento di una voce di backlog con un design, conservando l'originale.", effect: "write", tool: "set_design" } },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.setDesign", owner: "mcp", summary: "Sostituisce il documento di una voce di backlog con un design, conservando l'originale.", effect: "write", tool: "set_design" } },
       schema: {
         params: idParamsSchema,
         body: setContentSchema,
@@ -679,7 +679,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/:id/plan",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.setPlan", summary: "Imposta il piano di implementazione di una voce di backlog.", effect: "write", tool: "set_plan" } },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.setPlan", owner: "mcp", summary: "Imposta il piano di implementazione di una voce di backlog.", effect: "write", tool: "set_plan" } },
       schema: {
         params: idParamsSchema,
         body: setContentSchema,
@@ -794,7 +794,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/from-design",
     {
-      config: { access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") }, mcp: { action: "backlog.createFromDesign", summary: "Crea una voce di backlog da un design pronto, testo verbatim.", effect: "write", tool: "create_backlog_from_design" } },
+      config: { access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") }, mcp: { action: "backlog.createFromDesign", owner: "mcp", summary: "Crea una voce di backlog da un design pronto, testo verbatim.", effect: "write", tool: "create_backlog_from_design" } },
       schema: {
         body: createBacklogFromDesignSchema,
         response: {
@@ -882,7 +882,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/convert",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.convert", summary: "Trasforma una voce di backlog in una task.", effect: "write", tool: "convert_backlog_to_ticket" } },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.convert", owner: "mcp", summary: "Trasforma una voce di backlog in una task.", effect: "write", tool: "convert_backlog_to_ticket" } },
       schema: {
         params: idParamsSchema,
         response: {

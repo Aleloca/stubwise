@@ -1,0 +1,16 @@
+{
+  // Typecheck della suite E2E (`e2e/`): gira in Node con Playwright, non nel
+  // bundle Vite, quindi ha il suo tsconfig coi tipi di Node.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"],
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["e2e/**/*.ts"]
+}
