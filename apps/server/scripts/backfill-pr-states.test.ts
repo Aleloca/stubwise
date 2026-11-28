@@ -6,7 +6,10 @@ import {
   notifications,
   prCorrections,
   repositories,
+  roleUpdate,
   ticketRepositories,
+  ticketRoleIn,
+  ticketStatusSql,
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -99,7 +102,7 @@ async function seedPrRow(
       .where(eq(repositories.id, repositoryId));
   }
   const { ticketId } = await seedTicket(testDb.db, { number: ++ticketSeq, projectId, repositoryId });
-  await testDb.db.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, ticketId));
+  await testDb.db.update(tickets).set(roleUpdate("in_review")).where(eq(tickets.id, ticketId));
   const rowId = await seedTicketRepository(testDb.db, {
     ticketId,
     repositoryId,
@@ -143,7 +146,7 @@ async function jobStatus(id: string) {
 /** Fotografia di ciò che lo script NON deve toccare. */
 async function untouchables() {
   return {
-    tickets: await testDb.db.select({ id: tickets.id, status: tickets.status }).from(tickets).orderBy(asc(tickets.id)),
+    tickets: await testDb.db.select({ id: tickets.id, status: ticketStatusSql }).from(tickets).orderBy(asc(tickets.id)),
     notifications: await testDb.db.select({ id: notifications.id }).from(notifications).orderBy(asc(notifications.id)),
     jobs: await testDb.db.select({ id: aiJobs.id }).from(aiJobs).orderBy(asc(aiJobs.id)),
   };
@@ -411,12 +414,12 @@ describe("backfillPrStates", () => {
 
     // Elencati, mai toccati: tutti e tre ancora in_review.
     const statuses = await testDb.db
-      .select({ status: tickets.status })
+      .select({ status: ticketStatusSql })
       .from(tickets)
-      .where(eq(tickets.status, "in_review"));
+      .where(ticketRoleIn(["in_review"]));
     expect(statuses.length).toBeGreaterThanOrEqual(3);
     for (const id of [a.ticketId, b.ticketId, c.ticketId]) {
-      const [t] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, id));
+      const [t] = await testDb.db.select({ status: ticketStatusSql }).from(tickets).where(eq(tickets.id, id));
       expect(t!.status).toBe("in_review");
     }
   });

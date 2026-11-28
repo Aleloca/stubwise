@@ -14,7 +14,7 @@ import {
   projects,
   tickets,
   type Db,
-  projectNotArchived, ticketStatusSql } from "@stubwise/db";
+  projectNotArchived, ticketStatusSql, ticketRoleNotIn } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import {
   ticketPrioritySchema,
@@ -996,7 +996,7 @@ async function loadContext(
 
   const openWhere = and(
     inArray(tickets.projectId, allowed),
-    notInArray(ticketStatusSql, ["done", "closed"]),
+    ticketRoleNotIn(["done", "closed"]),
   );
   const recentTickets = await db
     .select({

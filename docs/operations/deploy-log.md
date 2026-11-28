@@ -7452,7 +7452,11 @@ deploy o di un rollback che la tocca.
     todo è `open`). Il backfill mette `triaged_at = updated_at` sui ticket
     oggi `triaged`. Il trigger riallinea l'enum al derivato quando cambia
     `triaged_at`, così per uno scrittore nuovo la colonna resta quella di
-    prima.
+    prima. E tiene allineato uno scrittore VECCHIO, che scrive l'enum senza
+    toccare `triaged_at` (il worker nella finestra fra i due rebuild, o un
+    rollback del server): `triaged` mette il segno, `open` lo toglie, anche
+    all'INSERT. Uno spostamento fra due stati todo che non dice `triaged_at`
+    toglie il segno, come faceva lo scrittore vecchio.
   - **L'eccezione voluta, l'unica del test d'accordo**
     (`packages/db/src/ticket-status.test.ts`): una task in «In review» a cui
     la pipeline dà `in_progress` (un fix rilanciato) resta in «In review»
@@ -7460,18 +7464,42 @@ deploy o di un rollback che la tocca.
     Prima era `in_progress`, perché l'enum restava quello scritto, in
     contraddizione con la board. Di conseguenza in quel caso non nasce più
     un evento `status_changed`: gli eventi degli scrittori di sistema dicono
-    lo stato RAGGIUNTO, non il ruolo chiesto. Lo stesso vale in un progetto
-    con un solo stato chiuso, dove «closed» diventa lo stato `done` e
-    l'evento lo dice.
+    lo stato RAGGIUNTO, non il ruolo chiesto.
+  - **Stati personalizzati: vale lo stato RAGGIUNTO** (decisione della
+    revisione, 28 nov 2026). In un progetto senza uno stato con ruolo
+    `in_review`, o con un solo stato chiuso, il ruolo chiesto e lo stato
+    raggiunto divergono: `in_review` finisce nell'unico active e lo status è
+    `in_progress`, `closed` finisce nello stato `done` e lo status è `done`.
+    Prima l'enum diceva il ruolo chiesto, in contraddizione con la board. Il
+    test d'accordo lo prova anche su un insieme di stati personalizzati (due
+    todo, un active, un closed).
+  - **Il webhook della PR chiusa senza merge non guarda più lo status**
+    (conseguenza della decisione sopra): riapre il ticket se sta in uno stato
+    active e ha una PR aperta (il job `pr_opened`, la riga del repository
+    con la PR aperta, o quella che l'evento stesso ha appena chiuso),
+    `awaitingPr` in `routes/webhooks.ts`. Prima chiedeva
+    lo status `in_review`, che nei progetti senza quello stato non c'è mai:
+    lì la PR chiusa lasciava il ticket fermo e il job `pr_opened`. Cambia
+    anche nei progetti di default, ai bordi: un ticket `in_review` senza job
+    `pr_opened` né riga aperta non si riapre più; uno spostato a mano in
+    «In progress» con la PR ancora aperta sì. E un fix rilanciato su una task
+    in review, con la PR vecchia chiusa a metà run, ora riapre la task (prima
+    l'enum diceva `in_progress` e il webhook non faceva nulla): il fix, a
+    fine run, la riporta in review con la PR nuova.
   - **La guardia**: `status` non è più nello schema drizzle di `tickets`,
     quindi il compilatore trova ogni uso. L'SQL grezzo lo copre
-    `packages/db/src/ticket-status-guard.test.ts`, con un solo uso
-    dichiarato: il riallineamento dell'enum quando uno stato cambia famiglia
-    (`routes/project-statuses.ts`), che va via con R3.
-  - **Limite accettato**: i filtri per status (`?status=`, gli elenchi del
-    polso) passano dalla funzione, non più dall'indice
-    `tickets_project_id_status_idx`. Sono elenchi per progetto, già filtrati
-    per `project_id`. L'indice resta finché resta la colonna.
+    `packages/db/src/ticket-status-guard.test.ts` (sorgenti e script di
+    server e worker, notifiche, db, mcp): ogni `status` nudo in un template
+    che nomina `tickets`, o in un `sql.raw`. Gli usi dichiarati sono il
+    riallineamento dell'enum quando uno stato cambia famiglia
+    (`routes/project-statuses.ts`), che va via con R3, e il testo del prompt
+    di triage, che non è SQL.
+  - **I filtri per status** (`?status=`, gli elenchi del polso, la posta, gli
+    script di backfill) non chiamano la funzione riga per riga: `ticketRoleIn`
+    / `ticketRoleNotIn` scrivono `status_id IN (gli stati di quei ruoli)`, più
+    la condizione su `triaged_at` quando serve distinguere `open` da
+    `triaged`, così usano gli indici su `status_id`. L'indice
+    `tickets_project_id_status_idx` resta finché resta la colonna.
   **Cosa ribuildare e in che ordine**: prima **`server`** (healthy e
   migrazione applicata), POI **`worker`**: il worker nomina `triaged_at` e
   `stubwise_ticket_status`. Nessuna env, nessun passo manuale. Niente
@@ -7482,9 +7510,11 @@ deploy o di un rollback che la tocca.
   cresce coi ticket nuovi.
   **Rollback**: sicuro scendere d'immagine su server e worker insieme. La
   colonna enum è rimasta coerente e il trigger vecchio la tiene. La 0240 non
-  si toglie: `triaged_at` e il trigger restano, e uno scrittore vecchio che
-  rimette un ticket in todo lo trova senza il segno. Dopo un rollback i
-  ticket smistati nel frattempo hanno l'enum `triaged`, come prima.
+  si toglie: `triaged_at` e il trigger restano, e tengono «smistato»
+  allineato a quello che lo scrittore vecchio scrive nell'enum, quindi
+  rimontando il server nuovo lo status derivato è quello giusto. Dopo un
+  rollback i ticket smistati nel frattempo hanno l'enum `triaged`, come
+  prima.
   ⚠️ La migrazione è la **0240** perché la **0239** è delle workspace
   (#141), che entra prima. Se l'ordine si invertisse, rinumera chi entra per
   secondo.

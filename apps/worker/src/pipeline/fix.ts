@@ -1970,10 +1970,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       .from(tickets)
       .where(eq(tickets.id, ticket.id));
     const [reached] = await tx
-        .update(tickets)
-        .set(roleUpdate("in_review"))
-        .where(eq(tickets.id, ticket.id))
-        .returning({ status: ticketStatusSql });
+      .update(tickets)
+      .set(roleUpdate("in_review"))
+      .where(eq(tickets.id, ticket.id))
+      .returning({ status: ticketStatusSql });
     if (before) {
       await recordTicketStatusChange(tx, {
         ticketId: ticket.id,

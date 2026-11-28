@@ -60,7 +60,7 @@ import {
   ticketRepositories,
   repositories,
   tickets,
-  users, ticketStatusSql, ticketColumns } from "@stubwise/db";
+  users, ticketStatusSql, ticketRoleIn, ticketColumns } from "@stubwise/db";
 import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
 import { publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
@@ -682,8 +682,8 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           values.push(parsed.data);
         }
         // Dedup: evita bind param ripetuti con ?statuses=open,open,...
-        conditions.push(inArray(ticketStatusSql, [...new Set(values)]));
-      } else if (status) conditions.push(eq(ticketStatusSql, status));
+        conditions.push(ticketRoleIn([...new Set(values)]));
+      } else if (status) conditions.push(ticketRoleIn([status]));
       if (type) conditions.push(eq(tickets.type, type));
       if (priority) conditions.push(eq(tickets.priority, priority));
       if (assigneeId) conditions.push(eq(tickets.assigneeId, assigneeId));

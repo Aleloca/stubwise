@@ -496,10 +496,10 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
           .from(tickets)
           .where(eq(tickets.id, ticket.id));
         const [reached] = await tx
-        .update(tickets)
-        .set(roleUpdate("triaged"))
-        .where(eq(tickets.id, ticket.id))
-        .returning({ status: ticketStatusSql });
+          .update(tickets)
+          .set(roleUpdate("triaged"))
+          .where(eq(tickets.id, ticket.id))
+          .returning({ status: ticketStatusSql });
         // Audit della transizione: actorId null, il triage non è una persona.
         if (before) {
           await recordTicketStatusChange(tx, {
@@ -582,10 +582,10 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
           .from(tickets)
           .where(eq(tickets.id, ticket.id));
         const [reached] = await tx
-        .update(tickets)
-        .set(roleUpdate("closed"))
-        .where(eq(tickets.id, ticket.id))
-        .returning({ status: ticketStatusSql });
+          .update(tickets)
+          .set(roleUpdate("closed"))
+          .where(eq(tickets.id, ticket.id))
+          .returning({ status: ticketStatusSql });
         if (before) {
           await recordTicketStatusChange(tx, {
             ticketId: ticket.id,

@@ -394,10 +394,10 @@ async function closeOriginTicket(
     .from(tickets)
     .where(eq(tickets.id, ticket.id));
   const [reached] = await tx
-        .update(tickets)
-        .set(roleUpdate("closed"))
-        .where(eq(tickets.id, ticket.id))
-        .returning({ status: ticketStatusSql });
+    .update(tickets)
+    .set(roleUpdate("closed"))
+    .where(eq(tickets.id, ticket.id))
+    .returning({ status: ticketStatusSql });
   if (before) {
     await recordTicketStatusChange(tx, {
       ticketId: ticket.id,

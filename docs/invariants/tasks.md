@@ -69,14 +69,34 @@ Task 2. Migrazione: `packages/db/drizzle/0108_project_statuses.sql`. Test:
   traduzione per chi parla ancora coi sei valori (API, mobile, MCP).
 - **«Smistato» vive in `triaged_at`**, non in uno stato: il trigger
   `tickets_triaged_reset` lo azzera quando il ticket esce dalla famiglia
-  todo, quindi rientrando in todo è `open`.
+  todo, quindi rientrando in todo è `open`. Uno scrittore che non tocca
+  `triaged_at` lo lascia decidere all'enum che scrive (`triaged` lo mette,
+  `open` lo toglie): è lo scrittore vecchio di una finestra di deploy o di un
+  rollback, e anche uno spostamento fra due stati todo, per cui
+  `tickets_status_sync` scrive `open`.
+- **Vale lo stato RAGGIUNTO, non il ruolo chiesto**: in un progetto senza uno
+  stato `in_review`, o con un solo stato chiuso, `roleUpdate("in_review")`
+  finisce nell'unico active (status `in_progress`) e `roleUpdate("closed")`
+  nello stato `done` (status `done`). Nessuna logica decide sullo status
+  `in_review`: il webhook della PR chiusa senza merge riapre un ticket se è
+  in uno stato active e ha una PR aperta (`awaitingPr` in
+  `routes/webhooks.ts`). Chi scrive una regola nuova che dipende dal ruolo
+  di un ticket la scriva sulla famiglia e sui fatti (la PR, il job), non su
+  `in_review` o `closed`. Il test d'accordo copre anche un insieme di stati
+  personalizzati.
+- **Un filtro per status usa `ticketRoleIn` / `ticketRoleNotIn`**, non
+  `inArray(ticketStatusSql, …)`: stesso esito, ma su `status_id`, quindi con
+  gli indici.
 - **Gli eventi di sistema dicono lo stato RAGGIUNTO**: gli scrittori di
   webhook e pipeline passano a `recordTicketStatusChange` lo status derivato
   restituito dall'UPDATE, non il ruolo chiesto. Un ruolo che lascia il
   ticket dov'è (un `in_progress` su una task in review) non lascia eventi.
-- **La guardia sull'SQL grezzo** è `packages/db/src/ticket-status-guard.test.ts`.
-  L'unico uso dichiarato è il riallineamento dell'enum in
-  `routes/project-statuses.ts`, finché esiste la colonna (R3).
+- **La guardia sull'SQL grezzo** è `packages/db/src/ticket-status-guard.test.ts`,
+  su sorgenti e script di server e worker, notifiche, db e mcp: in un
+  template che nomina `tickets` (o in un `sql.raw`) conta ogni `status`
+  nudo non qualificato da un'altra tabella. Gli usi dichiarati sono il
+  riallineamento dell'enum in `routes/project-statuses.ts`, finché esiste la
+  colonna (R3), e il testo del prompt di triage.
 - **Nei test** si semina con `roleInsert(projectId, ruolo)` e si legge o
   scrive l'enum, quando serve, con `legacyTicketStatus` (`@stubwise/db/testing`):
   i test della 0108 provano ancora il trigger con gli scrittori vecchi.

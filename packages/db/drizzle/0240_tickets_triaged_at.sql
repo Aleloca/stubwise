@@ -28,15 +28,32 @@ $$;
 CREATE FUNCTION tickets_triaged_reset() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+	-- Uno scrittore che NON tocca `triaged_at`. Se ha scritto l'enum è uno
+	-- scrittore VECCHIO (il worker non ancora ribuildato, o un rollback del
+	-- server): il segno dello smistamento si ricava da quello che ha scritto,
+	-- `triaged` lo mette, `open` lo toglie, così «smistato» non si disallinea.
+	-- Uno scrittore nuovo non scrive mai l'enum: se sposta il ticket di stato
+	-- (anche fra due stati todo) senza dire `triaged_at`, `tickets_status_sync`
+	-- ha già messo nell'enum il ruolo dello stato (`open` per un todo), e il
+	-- segno cade per la stessa regola.
+	IF TG_OP = 'INSERT' THEN
+		IF NEW."triaged_at" IS NULL AND NEW."status" = 'triaged' THEN
+			NEW."triaged_at" := now();
+		END IF;
+	ELSIF NEW."triaged_at" IS NOT DISTINCT FROM OLD."triaged_at" THEN
+		IF NEW."status" IS DISTINCT FROM OLD."status" AND NEW."status" = 'triaged' THEN
+			NEW."triaged_at" := now();
+		ELSIF NEW."status" IS DISTINCT FROM OLD."status" AND NEW."status" = 'open' THEN
+			NEW."triaged_at" := NULL;
+		END IF;
+	END IF;
 	IF NEW."triaged_at" IS NOT NULL
 		AND (SELECT "family" FROM "project_statuses" WHERE "id" = NEW."status_id") IS DISTINCT FROM 'todo' THEN
 		NEW."triaged_at" := NULL;
 	END IF;
-	-- Uno scrittore NUOVO tocca `triaged_at` (smistare, o dare `open`, o
-	-- creare un ticket già smistato): la
-	-- colonna enum, finché esiste, si riallinea allo status derivato, come la
-	-- lasciava lo scrittore vecchio. Uno scrittore vecchio (un rollback) non
-	-- tocca `triaged_at`, e il suo enum resta quello che ha scritto.
+	-- Quando `triaged_at` cambia (o nasce già impostato), la colonna enum,
+	-- finché esiste, si riallinea allo status derivato, come la lasciava lo
+	-- scrittore vecchio.
 	IF (TG_OP = 'INSERT' AND NEW."triaged_at" IS NOT NULL)
 		OR (TG_OP = 'UPDATE' AND NEW."triaged_at" IS DISTINCT FROM OLD."triaged_at") THEN
 		NEW."status" := stubwise_ticket_status(NEW."status_id", NEW."triaged_at");

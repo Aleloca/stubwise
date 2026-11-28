@@ -46,6 +46,34 @@ export function roleUpdate(role: TicketRole): { statusId: SQL<string>; triagedAt
  */
 export const ticketStatusSql: SQL<TicketRole> = sql<TicketRole>`stubwise_ticket_status(${tickets.statusId}, ${tickets.triagedAt})`;
 
+const ALL_ROLES: readonly TicketRole[] = ["open", "triaged", "in_progress", "in_review", "done", "closed"];
+
+/**
+ * Il filtro «il ticket ha uno di questi ruoli», scritto in modo che usi gli
+ * indici su `status_id`: `status_id IN (gli stati del ruolo)` più, se serve,
+ * la condizione su `triaged_at` (che fuori da todo è sempre NULL, lo
+ * garantisce il trigger). Dà lo stesso esito di
+ * `inArray(ticketStatusSql, roles)`, che invece calcola la funzione riga per riga.
+ */
+export function ticketRoleIn(roles: readonly TicketRole[]): SQL {
+  const wanted = new Set(roles);
+  const legacy = [...new Set([...wanted].map((r) => (r === "triaged" ? "open" : r)))];
+  if (legacy.length === 0) return sql`false`;
+  const inStates = sql`${tickets.statusId} in (select "id" from "project_statuses" where "legacy_status" = any(array[${sql.join(
+    legacy.map((r) => sql`${r}`),
+    sql`, `,
+  )}]::"ticket_status"[]))`;
+  if (wanted.has("open") && !wanted.has("triaged")) return sql`(${inStates} and ${tickets.triagedAt} is null)`;
+  if (wanted.has("triaged") && !wanted.has("open"))
+    return sql`(${inStates} and (${tickets.triagedAt} is not null or ${tickets.statusId} not in (select "id" from "project_statuses" where "legacy_status" = 'open')))`;
+  return inStates;
+}
+
+/** Il contrario di `ticketRoleIn`: il ticket NON ha nessuno di questi ruoli. */
+export function ticketRoleNotIn(roles: readonly TicketRole[]): SQL {
+  return ticketRoleIn(ALL_ROLES.filter((r) => !roles.includes(r)));
+}
+
 /** I ruoli chiusi (famiglia `closed`). */
 export const CLOSED_ROLES: readonly TicketRole[] = ["done", "closed"];
 

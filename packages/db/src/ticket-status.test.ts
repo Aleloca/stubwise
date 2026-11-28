@@ -14,41 +14,52 @@ import { roleUpdate, statusIdForRole, ticketStatusSql, type TicketRole } from ".
 
 let testDb: TestDb;
 let db: Db;
-let projectId: string;
-let statuses: { id: string; name: string; family: string; legacy: string }[];
+type Status = { id: string; name: string; family: string; legacy: string };
 let next = 100;
 
-beforeAll(async () => {
-  testDb = await startTestDb();
-  db = testDb.db;
-  ({ projectId } = await seedRepository(db));
-  statuses = (
+/** Il progetto con gli stati di default, e uno con stati PERSONALIZZATI: due todo, un solo active (niente «In review»), un solo closed. */
+let standard: { projectId: string; statuses: Status[] };
+let custom: { projectId: string; statuses: Status[] };
+
+async function statusesOf(projectId: string): Promise<Status[]> {
+  return (
     await db
       .select({ id: projectStatuses.id, name: projectStatuses.name, family: projectStatuses.family, legacy: projectStatuses.legacyStatus })
       .from(projectStatuses)
       .where(eq(projectStatuses.projectId, projectId))
       .orderBy(projectStatuses.position)
   ).map((r) => ({ ...r, legacy: String(r.legacy) }));
+}
+
+beforeAll(async () => {
+  testDb = await startTestDb();
+  db = testDb.db;
+  const a = await seedRepository(db);
+  standard = { projectId: a.projectId, statuses: await statusesOf(a.projectId) };
+  const b = await seedRepository(db);
+  await db.delete(projectStatuses).where(eq(projectStatuses.projectId, b.projectId));
+  await db.insert(projectStatuses).values([
+    { projectId: b.projectId, name: "Inbox", family: "todo", position: 0, legacyStatus: "open" },
+    { projectId: b.projectId, name: "Ready", family: "todo", position: 1, legacyStatus: "open" },
+    { projectId: b.projectId, name: "Doing", family: "active", position: 2, legacyStatus: "in_progress" },
+    { projectId: b.projectId, name: "Shipped", family: "closed", position: 3, legacyStatus: "done" },
+  ]);
+  custom = { projectId: b.projectId, statuses: await statusesOf(b.projectId) };
 }, 120_000);
 afterAll(async () => {
   await testDb.stop();
 });
 
-async function ticketIn(statusId: string, triaged: boolean): Promise<string> {
-  const [row] = await db
+async function ticketIn(conn: Db, projectId: string, statusId: string): Promise<string> {
+  const [row] = await conn
     .insert(tickets)
     .values({ projectId, number: next++, title: "t", type: "bug", priority: "medium", source: "manual", statusId })
     .returning({ id: tickets.id });
-  // Un todo smistato: come lo lasciava uno scrittore vecchio (enum `triaged`) e come lo lascia quello nuovo (`triaged_at`).
-  if (triaged) {
-    await db.update(legacyTicketStatus).set({ status: "triaged" }).where(eq(legacyTicketStatus.id, row!.id));
-    await db.update(tickets).set({ triagedAt: sql`now()` }).where(eq(tickets.id, row!.id));
-  }
   return row!.id;
 }
 
-async function observed(id: string) {
-  const [row] = await db
+async function observed(conn: Db, id: string) {
+  const [row] = await conn
     .select({ statusId: tickets.statusId, derived: ticketStatusSql, column: legacyTicketStatus.status })
     // La stessa riga: `legacyTicketStatus` è la tabella `tickets` vista con la sola colonna enum.
     .from(tickets)
@@ -58,47 +69,117 @@ async function observed(id: string) {
 
 const ROLES: TicketRole[] = ["open", "triaged", "in_progress", "in_review", "done", "closed"];
 
-describe("statusIdForRole contro lo scrittore vecchio dell'enum", () => {
-  it("per ogni ruolo da ogni stato di partenza: stesso stato, stessa colonna enum, stesso status mostrato", async () => {
-    const differences: string[] = [];
-    for (const start of statuses) {
-      for (const triaged of start.family === "todo" ? [false, true] : [false]) {
-        for (const role of ROLES) {
-          const oldId = await ticketIn(start.id, triaged);
-          const newId = await ticketIn(start.id, triaged);
-          await db.execute(sql`update tickets set status = ${role}::"ticket_status" where id = ${oldId}`);
-          await db.update(tickets).set(roleUpdate(role)).where(eq(tickets.id, newId));
-          const before = await observed(oldId);
-          const after = await observed(newId);
-          const label = `${start.name}${triaged ? " (smistato)" : ""} → ${role}`;
-          if (after.statusId !== before.statusId) differences.push(`${label}: stato ${before.statusId} → ${after.statusId}`);
-          // Lo status MOSTRATO: prima era la colonna, ora è il derivato.
-          if (after.derived !== before.column) differences.push(`${label}: mostrato ${before.column} → ${after.derived}`);
-          // La colonna enum, ancora tenuta dal trigger: identica, salvo `triaged` (che ora vive in `triaged_at`).
-          if (role !== "triaged" && after.column !== before.column) differences.push(`${label}: colonna ${before.column} → ${after.column}`);
-        }
-      }
+/**
+ * Le differenze fra lo scrittore vecchio e quello nuovo, per ogni ruolo da ogni
+ * stato di partenza del progetto. Il percorso VECCHIO gira com'era prima di
+ * 0240: senza `tickets_triaged_reset` (spento nella sua transazione) e con
+ * `triaged_at` sempre NULL, «smistato» vive solo nell'enum. Il NUOVO usa
+ * `roleUpdate`, e un todo smistato è `triaged_at`.
+ */
+async function differencesIn(project: { projectId: string; statuses: Status[] }): Promise<string[]> {
+  const cases = project.statuses.flatMap((start) =>
+    (start.family === "todo" ? [false, true] : [false]).flatMap((triaged) => ROLES.map((role) => ({ start, triaged, role }))),
+  );
+  const before = await db.transaction(async (tx) => {
+    await tx.execute(sql`alter table tickets disable trigger tickets_triaged_reset`);
+    const out = [];
+    for (const c of cases) {
+      const id = await ticketIn(tx as unknown as Db, project.projectId, c.start.id);
+      if (c.triaged) await tx.execute(sql`update tickets set status = 'triaged' where id = ${id}`);
+      await tx.execute(sql`update tickets set status = ${c.role}::"ticket_status" where id = ${id}`);
+      out.push(await observed(tx as unknown as Db, id));
     }
+    await tx.execute(sql`alter table tickets enable trigger tickets_triaged_reset`);
+    return out;
+  });
+  const differences: string[] = [];
+  for (const [n, c] of cases.entries()) {
+    const id = await ticketIn(db, project.projectId, c.start.id);
+    if (c.triaged) await db.update(tickets).set(roleUpdate("triaged")).where(eq(tickets.id, id));
+    await db.update(tickets).set(roleUpdate(c.role)).where(eq(tickets.id, id));
+    const old = before[n]!;
+    const now = await observed(db, id);
+    const label = `${c.start.name}${c.triaged ? " (smistato)" : ""} → ${c.role}`;
+    if (now.statusId !== old.statusId) differences.push(`${label}: stato ${old.statusId} → ${now.statusId}`);
+    // Lo status MOSTRATO: prima era la colonna, ora è il derivato.
+    if (now.derived !== old.column) differences.push(`${label}: mostrato ${old.column} → ${now.derived}`);
+    // La colonna enum, ancora tenuta dal trigger.
+    if (now.column !== old.column) differences.push(`${label}: colonna ${old.column} → ${now.column}`);
+  }
+  return differences;
+}
+
+describe("statusIdForRole contro lo scrittore vecchio dell'enum", () => {
+  it("stati di default: per ogni ruolo da ogni stato di partenza, stesso stato, stessa colonna enum, stesso status mostrato", async () => {
     // L'UNICA differenza, voluta: una task in «In review» a cui la pipeline dà
     // `in_progress` (un fix rilanciato) resta in «In review» in entrambi i
     // modi, ma lo scrittore vecchio lasciava l'enum a `in_progress`, in
     // contraddizione con lo stato. Ora lo status mostrato è quello dello stato.
-    expect(differences).toEqual([
+    expect(await differencesIn(standard)).toEqual([
       "In review → in_progress: mostrato in_progress → in_review",
       "In review → in_progress: colonna in_progress → in_review",
     ]);
   });
 
+  it("stati personalizzati (due todo, un active, un closed): vale lo stato RAGGIUNTO, anche quando non ha il ruolo chiesto", async () => {
+    // Senza uno stato «in_review» e senza uno «closed», lo scrittore vecchio
+    // finiva nello stesso stato (l'unico active, l'unico closed) ma con l'enum
+    // al ruolo CHIESTO, in contraddizione con la board. Ora lo status è quello
+    // dello stato raggiunto (decisione della revisione di R0, I1).
+    const expected = custom.statuses.flatMap((start) =>
+      (start.family === "todo" ? [false, true] : [false]).flatMap((triaged) => {
+        const label = `${start.name}${triaged ? " (smistato)" : ""}`;
+        return [
+          `${label} → in_review: mostrato in_review → in_progress`,
+          `${label} → in_review: colonna in_review → in_progress`,
+          `${label} → closed: mostrato closed → done`,
+          `${label} → closed: colonna closed → done`,
+        ];
+      }),
+    );
+    expect(await differencesIn(custom)).toEqual(expected);
+  });
+
   it("triaged: un todo smistato mostra triaged; uscito da todo torna senza segno, e rientrando in todo è open", async () => {
-    const todo = statuses.find((s) => s.family === "todo")!;
-    const id = await ticketIn(todo.id, false);
+    const todo = standard.statuses.find((s) => s.family === "todo")!;
+    const id = await ticketIn(db, standard.projectId, todo.id);
     await db.update(tickets).set(roleUpdate("triaged")).where(eq(tickets.id, id));
-    expect((await observed(id)).derived).toBe("triaged");
+    expect((await observed(db, id)).derived).toBe("triaged");
     await db.update(tickets).set({ statusId: statusIdForRole("in_progress") }).where(eq(tickets.id, id));
     const [mid] = await db.select({ triagedAt: tickets.triagedAt }).from(tickets).where(eq(tickets.id, id));
     expect(mid!.triagedAt).toBeNull();
-    expect((await observed(id)).derived).toBe("in_progress");
+    expect((await observed(db, id)).derived).toBe("in_progress");
     await db.update(tickets).set(roleUpdate("open")).where(eq(tickets.id, id));
-    expect((await observed(id)).derived).toBe("open");
+    expect((await observed(db, id)).derived).toBe("open");
+  });
+
+  it("uno scrittore VECCHIO (worker non ribuildato, rollback): l'enum che scrive tiene allineato «smistato»", async () => {
+    const todo = standard.statuses.find((s) => s.family === "todo")!;
+    const triagedAt = async (id: string) => (await db.select({ t: tickets.triagedAt }).from(tickets).where(eq(tickets.id, id)))[0]!.t;
+    const id = await ticketIn(db, standard.projectId, todo.id);
+    await db.execute(sql`update tickets set status = 'triaged' where id = ${id}`);
+    expect(await triagedAt(id)).not.toBeNull();
+    expect((await observed(db, id)).derived).toBe("triaged");
+    await db.execute(sql`update tickets set status = 'open' where id = ${id}`);
+    expect(await triagedAt(id)).toBeNull();
+    expect((await observed(db, id)).derived).toBe("open");
+    // E all'INSERT, senza `status_id`: com'era il createTicket di prima.
+    const [row] = await db.execute<{ id: string }>(
+      sql`insert into tickets (project_id, number, title, type, priority, source, status) values (${standard.projectId}, ${next++}, 't', 'bug', 'medium', 'manual', 'triaged') returning id`,
+    );
+    expect(await triagedAt(row!.id)).not.toBeNull();
+    expect((await observed(db, row!.id)).derived).toBe("triaged");
+  });
+
+  it("uno spostamento fra due stati todo senza dire triaged_at toglie il segno, come lo scrittore vecchio", async () => {
+    const [inbox, ready] = custom.statuses.filter((s) => s.family === "todo");
+    const id = await ticketIn(db, custom.projectId, inbox!.id);
+    await db.update(tickets).set(roleUpdate("triaged")).where(eq(tickets.id, id));
+    expect((await observed(db, id)).derived).toBe("triaged");
+    await db.update(tickets).set({ statusId: ready!.id }).where(eq(tickets.id, id));
+    const now = await observed(db, id);
+    expect(now.statusId).toBe(ready!.id);
+    expect(now.derived).toBe("open");
+    expect(now.column).toBe("open");
   });
 });

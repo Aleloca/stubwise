@@ -174,7 +174,8 @@ export async function patchTicket(
     return { ok: false, error: "assignee_not_found" };
   }
 
-  const updates: Partial<Ticket> = {};
+  // Le colonne: lo `status` (un ruolo) non è fra queste, va per `roleUpdate`.
+  const updates: Partial<Omit<Ticket, "status">> = {};
   if (patch.title !== undefined) updates.title = patch.title;
   if (patch.type !== undefined) updates.type = patch.type;
   if (patch.priority !== undefined) updates.priority = patch.priority;
@@ -207,11 +208,9 @@ export async function patchTicket(
   // Lo `status` della PATCH è un RUOLO (blocco T, R0): diventa `status_id`
   // con la regola di 0108 (`roleUpdate`), mai una scrittura dell'enum, che
   // non è più nello schema e che drizzle scarterebbe in silenzio.
-  const { status: _status, ...columns } = updates;
-  void _status;
   const [updated] = await tx
     .update(tickets)
-    .set({ ...columns, ...(patch.status !== undefined ? roleUpdate(patch.status) : {}) })
+    .set({ ...updates, ...(patch.status !== undefined ? roleUpdate(patch.status) : {}) })
     .where(eq(tickets.id, ticketId))
     .returning(ticketColumns);
   // L'evento dice lo stato RAGGIUNTO, che la regola di 0108 può tenere dov'è

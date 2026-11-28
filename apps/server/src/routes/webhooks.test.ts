@@ -23,6 +23,7 @@ import {
   repositories,
   ticketEvents,
   ticketRepositories,
+  projectStatuses,
   tickets, roleUpdate, ticketStatusSql } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedGitAccount, startTestDb, roleInsert } from "@stubwise/db/testing";
@@ -1063,6 +1064,50 @@ describe("POST /webhooks/git/:projectSlug", () => {
     const job = await jobById(jobId);
     expect(job.status).toBe("pr_closed");
     expect(job.finishedAt).not.toBeNull();
+  });
+
+  it("stati personalizzati senza «In review»: la PR chiusa senza merge riapre comunque il ticket (vale la PR aperta, non lo status)", async () => {
+    const project = await createProject({
+      name: "Webhook Stati Propri",
+      provider: "github",
+      repoUrl: "https://github.com/acme/webhook-stati-propri",
+      credentials: { token: "tok" },
+    });
+    const [repository] = await testDb.db
+      .select({ projectId: repositories.projectId })
+      .from(repositories)
+      .where(eq(repositories.id, project.id));
+    const projectId = repository!.projectId!;
+    // Un solo stato active, nessuno con ruolo in_review: la task con la PR
+    // aperta sta in «Doing», e il suo status è in_progress.
+    await testDb.db.delete(projectStatuses).where(eq(projectStatuses.projectId, projectId));
+    await testDb.db.insert(projectStatuses).values([
+      { projectId, name: "Inbox", family: "todo", position: 0, legacyStatus: "open" },
+      { projectId, name: "Doing", family: "active", position: 1, legacyStatus: "in_progress" },
+      { projectId, name: "Shipped", family: "closed", position: 2, legacyStatus: "done" },
+    ]);
+    const ticketId = await insertTicket(project.id, 1, "in_review");
+    expect(await ticketStatus(ticketId)).toBe("in_progress");
+    const jobId = await insertJob(ticketId, "pr_opened");
+    const body = githubClosedUnmergedPayload("stubwise/ticket-1");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(project.webhookSecret, body),
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(await ticketStatus(ticketId)).toBe("triaged");
+    expect(await ticketComments(ticketId)).toHaveLength(1);
+    expect((await jobById(jobId)).status).toBe("pr_closed");
+    const events = await ticketStatusEvents(ticketId);
+    expect(events.map((e) => e.payload)).toEqual([{ from: "in_progress", to: "triaged" }]);
   });
 
   it("PR chiusa senza merge su ticket NON in_review (triaged) → 204 idempotente, nessun commento, job intatto", async () => {

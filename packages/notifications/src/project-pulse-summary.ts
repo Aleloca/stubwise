@@ -9,8 +9,8 @@ import {
   repositories,
   ticketRepositories,
   tickets,
-  type Db, ticketStatusSql } from "@stubwise/db";
-import { and, eq, exists, inArray, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
+  type Db, ticketStatusSql, ticketRoleNotIn } from "@stubwise/db";
+import { and, eq, exists, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   actorAllows,
   type ActionableNotification,
@@ -515,7 +515,7 @@ export async function summarizeProject(
       .where(
         and(
           eq(tickets.projectId, projectId),
-          notInArray(ticketStatusSql, [...CLOSED_TICKET_STATUSES]),
+          ticketRoleNotIn([...CLOSED_TICKET_STATUSES]),
           visibleTicket,
         ),
       ),
@@ -536,7 +536,7 @@ export async function summarizeProject(
       .where(
         and(
           eq(tickets.projectId, projectId),
-          notInArray(ticketStatusSql, [...CLOSED_TICKET_STATUSES]),
+          ticketRoleNotIn([...CLOSED_TICKET_STATUSES]),
           visibleTicket,
         ),
       ),
@@ -567,7 +567,7 @@ export async function summarizeProject(
       .where(
         and(
           eq(tickets.projectId, projectId),
-          notInArray(ticketStatusSql, [...CLOSED_TICKET_STATUSES]),
+          ticketRoleNotIn([...CLOSED_TICKET_STATUSES]),
           eq(ticketRepositories.prState, "open"),
           isNotNull(ticketRepositories.prUrl),
           visibleTicket,
