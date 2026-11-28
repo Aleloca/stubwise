@@ -336,6 +336,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 6 — Posta e Calendario
 
+- **Proxy delle immagini: l'oracolo di tempo sui nomi interni** *(S,
+  accettato, revisione di sicurezza, M4, 28 nov 2026)*: solo il
+  proprietario della casella, mandandosi un'email, può distinguere dai tempi
+  un nome interno che risolve a un IP privato (rifiutato subito dopo il DNS)
+  da un NXDOMAIN o da un host esterno. Sa se un nome esiste, non può
+  scansionare: nessuna connessione parte verso un indirizzo vietato.
+  Chiudere vorrebbe dire uniformare i tempi di risposta, e oggi non vale il
+  costo.
 - **Le immagini nelle descrizioni degli eventi del calendario** *(S, 28 nov
   2026, design `2026-11-28-proxy-immagini-posta-design.md`, PI 8)*: il proxy
   delle immagini copre le email (per posizione, dal corpo in `email_bodies`),

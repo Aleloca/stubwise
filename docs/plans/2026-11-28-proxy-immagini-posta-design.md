@@ -267,6 +267,13 @@ stessa scelta degli altri download binari. **[PI 10]**
   `2002::/16`, `3fff::/20`) e `168.63.129.16`; **M5** SNI e `Host` senza il
   punto finale; **M6** `Cache-Control: no-store` (cambia [PI 9]); **M7**
   nell'invariante.
+- **M4, accettato**: un oracolo di tempo, solo per il proprietario della
+  casella. Un nome interno che risolve a un IP privato si rifiuta subito dopo
+  il DNS, mentre un NXDOMAIN o un host esterno hanno tempi diversi: chi si
+  manda un'email da solo può sapere se un nome DNS interno esiste (per
+  esempio i nomi del compose). Non può scansionare porte né servizi, perché
+  nessuna connessione parte verso un indirizzo vietato, e la risposta è
+  sempre lo stesso 422.
 
 ## Le scelte da confermare
 
