@@ -481,7 +481,7 @@ describe("GET /api/tasks/:ticketId/activity", () => {
 });
 
 describe("GET /api/tasks/:ticketId/work", () => {
-  it("work: awaiting_plan_approval → awaiting_approval con webHref", async () => {
+  it("work: awaiting_plan_approval → awaiting_approval", async () => {
     const t = await insertTask();
     await testDb.db.insert(aiJobs).values({ ticketId: t.id, status: "awaiting_plan_approval" });
     const res = await get(`/api/tasks/${t.id}/work`);
@@ -489,7 +489,6 @@ describe("GET /api/tasks/:ticketId/work", () => {
     expect(taskWorkViewSchema.parse(res.json())).toMatchObject({
       claude: "awaiting_approval",
       pullRequests: [],
-      webHref: `/tickets/${t.id}`,
     });
   });
 

@@ -141,7 +141,7 @@ describe("POST /api/users/:id/password-reset (admin)", () => {
     const res = await issueReset(member.id);
     expect(res.statusCode).toBe(201);
     const body = res.json() as { url: string; expiresAt: string };
-    expect(body.url).toMatch(new RegExp(`^${PUBLIC_URL}/reset-password/[A-Za-z0-9_-]{43}$`));
+    expect(body.url).toMatch(new RegExp(`^${PUBLIC_URL}/#/reset-password/[A-Za-z0-9_-]{43}$`));
     const expiresIn = new Date(body.expiresAt).getTime() - before;
     expect(expiresIn).toBeGreaterThan(24 * 60 * 60 * 1000 - 60_000);
     expect(expiresIn).toBeLessThanOrEqual(24 * 60 * 60 * 1000 + 60_000);

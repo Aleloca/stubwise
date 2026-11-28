@@ -9,7 +9,6 @@
   "updateInternalDependencies": "patch",
   "ignore": [
     "@stubwise/server",
-    "@stubwise/web",
     "@stubwise/worker",
     "@stubwise/docs",
     "@stubwise/db",

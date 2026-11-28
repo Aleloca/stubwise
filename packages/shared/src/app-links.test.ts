@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { APP_ENTRY, appPath, appUrl, legacyWebPath, RESERVED_DOC_PAGE_SLUGS, RESERVED_REPOSITORY_SLUGS, unreservedSlug } from "./app-links.js";
+import { APP_ENTRY, appPath, appUrl, RESERVED_DOC_PAGE_SLUGS, RESERVED_REPOSITORY_SLUGS, unreservedSlug } from "./app-links.js";
 
 describe("i link della nuova app (app-links)", () => {
   it("una task si apre col parametro `task`, una richiesta col suo id, il progetto sulla panoramica", () => {
@@ -36,10 +36,9 @@ describe("i link della nuova app (app-links)", () => {
     expect(appPath({ to: "docs", projectCode: "ACQ", repositorySlug: "a b/c" })).toBe("/#/p/ACQ/docs/a%20b%2Fc");
   });
 
-  it("i percorsi del web vecchio che restano finché esiste", () => {
-    expect(legacyWebPath.ticket("t1")).toBe("/tickets/t1");
-    expect(legacyWebPath.backlogItem("b1")).toBe("/backlog/b1");
-    expect(legacyWebPath.googleAccountSettings("ok")).toBe("/settings/account?google=ok");
+  it("l'app sta alla radice (R1)", () => {
+    expect(APP_ENTRY).toBe("/");
+    expect(appPath({ to: "home" })).toBe("/#/home");
   });
 });
 

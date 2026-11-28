@@ -93,7 +93,6 @@ describe("GET /api/requests/to-convert", () => {
       title: expect.stringMatching(/^Richiesta /),
       status: "new",
       urgency: "high",
-      webHref: `/backlog/${a}`,
     });
     // Il codice di catalogo: `<PROGETTO>-R<n>`, n in ordine di creazione nel progetto.
     expect(first.code).toBe(`${projectCode}-R1`);

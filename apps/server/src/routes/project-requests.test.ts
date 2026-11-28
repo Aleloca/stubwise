@@ -129,7 +129,6 @@ describe("la vista ProjectRequest", () => {
       description: "La richiesta originale",
       design: "# Design",
       plan: "Piano",
-      webHref: `/backlog/${a.id}`,
     });
     // Per codice, anche in minuscolo; un codice che non c'è → 404.
     expect((await view(`/api/requests/by-code/${projectCode.toLowerCase()}-R${a.number}`)).id).toBe(a.id);

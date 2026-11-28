@@ -441,7 +441,7 @@ describe("il piano che si approva è quello letto (planDigest atteso, area 3)", 
 
 describe("server vecchio", () => {
   it("una risposta senza i campi nuovi si legge coi default (la sezione degrada, non si rompe)", () => {
-    const old = taskWorkViewSchema.parse({ claude: "none", pullRequests: [], webHref: "/tickets/x" });
+    const old = taskWorkViewSchema.parse({ claude: "none", pullRequests: [] });
     expect(old).toMatchObject({
       runs: [],
       prEvents: [],

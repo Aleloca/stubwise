@@ -407,8 +407,6 @@ export const taskWorkViewSchema = z.object({
       }),
     )
     .default([]),
-  /** Il dettaglio del ticket nel web vecchio (piano, approvazione, domande, sessione). */
-  webHref: z.string(),
   // --- Integrazione area 3, fetta 3a: il lavoro intero, in lettura. Tutti con
   // un default: un server della fetta 1 non li manda, e la sezione degrada.
   /** Le sessioni di lavoro (i job AI) dalla più vecchia; vuoto per chi non ha `repos.view`. */

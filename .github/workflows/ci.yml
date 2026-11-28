@@ -95,7 +95,7 @@ jobs:
       # vero»). DUE bundle, con i comandi di `apps/desktop/package.json` (UNA
       # regola sola: `check:seed:web` lo usa anche Dockerfile.caddy, e i
       # pacchetti del Mac vanno sullo stesso `check:seed:app`):
-      # - `check:seed:web`: il bundle servito da caddy su /app (`dist-web`);
+      # - `check:seed:web`: il bundle servito da caddy alla radice (`dist-web`);
       # - `check:seed:app`: quello dell'app Electron (`out/`, main, preload e
       #   renderer), che prima si controllava SOLO a mano in `package:mac`
       #   (25 nov 2026: il seme ci è entrato senza che nessun automatismo lo
@@ -137,7 +137,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: node .github/scripts/ci-plan.mjs
 
-  # Un gruppo per macchina: server, worker, desktop, web, mobile e «resto»
+  # Un gruppo per macchina: server, worker, desktop, mobile e «resto»
   # (tutti gli altri pacchetti con test). Desktop, server e worker si
   # dividono in parti (28 nov 2026: erano 19, 20 e 8 minuti di vitest su una
   # macchina sola, e la CI durava circa 30 minuti): «Test desktop 1/4» … 4/4,
@@ -205,45 +205,3 @@ jobs:
           FILTERS=()
           for p in $PACKAGES; do FILTERS+=(--filter "$p"); done
           pnpm -r --workspace-concurrency=1 "${FILTERS[@]}" test
-
-  e2e:
-    name: E2E (Playwright)
-    # Fissato (9 nov 2026): `ubuntu-latest` è passato a 26.04, dove la nostra
-    # versione di Playwright non installa Chromium («does not support chromium
-    # on ubuntu26.04-x64»). Si torna a `latest` aggiornando Playwright.
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Abilita corepack (pnpm)
-        run: corepack enable
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Installa le dipendenze
-        run: pnpm install --frozen-lockfile
-
-      # La suite e2e avvia uno stack reale (server Fastify + vite dev) contro
-      # un Postgres testcontainer; serve la build dei package di workspace.
-      - name: Build
-        run: pnpm -r build
-
-      - name: Installa il browser Playwright
-        run: pnpm --filter @stubwise/web exec playwright install --with-deps chromium
-
-      - name: Esegui i test e2e
-        run: pnpm --filter @stubwise/web e2e
-
-      - name: Carica il report Playwright in caso di fallimento
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: |
-            apps/web/playwright-report/
-            apps/web/test-results/
-          if-no-files-found: ignore
-          retention-days: 7

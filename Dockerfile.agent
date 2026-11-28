@@ -19,8 +19,8 @@
 #
 # --user 0: i nomi delle app PM2 si leggono da <PM2_HOME>/pids, e con PM2 root
 # (/root è 700) l'utente 10001 qui sotto non ci entra → si vedrebbe il comando
-# (`npm run start`) al posto del nome. È nel comando mostrato dalla UI
-# (apps/web/.../monitor/server-admin.tsx). L'USER dell'immagine resta 10001:
+# (`npm run start`) al posto del nome. È nel comando mostrato dall'app
+# (`packages/shared/src/servers/install.ts`). L'USER dell'immagine resta 10001:
 # chi non vuole dare root all'agente toglie il flag e perde solo i nomi PM2 root.
 #
 # Il --group-add serve SENZA --user 0: da UID 10001 non-root, senza il gid del

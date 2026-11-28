@@ -1,4 +1,3 @@
-import { legacyWebPath } from "@stubwise/shared";
 import { registerPersonMask } from "../services/people-known.js";
 import {
   aiJobs,
@@ -493,7 +492,6 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
         url: pr.url!,
         state: pr.state === "closed_unmerged" ? ("closed" as const) : pr.state,
       })),
-      webHref: legacyWebPath.ticket(ticketId),
       // Area 3, fetta 3a: il lavoro intero, in lettura, coi permessi di chi guarda.
       ...(await loadTaskWorkExtras(app.db, { ticketId, viewerId, permissions })),
     };

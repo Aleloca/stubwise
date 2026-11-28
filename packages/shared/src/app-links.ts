@@ -149,18 +149,3 @@ export function appPath(target: AppTarget): string {
 export function appUrl(publicUrl: string | null | undefined, target: AppTarget): string {
   return `${(publicUrl ?? "").replace(/\/+$/, "")}${appPath(target)}`;
 }
-
-/**
- * I percorsi del WEB VECCHIO che qualcuno deve ancora poter scrivere, finché
- * il web vecchio esiste: il «Apri nel web» dell'app (`webHref` di task,
- * richieste e decisioni) e il ritorno di Google per chi l'ha avviato dal web
- * vecchio. Stanno qui per lo stesso motivo dei link dell'app: al ritiro si
- * cancella questo blocco, e il compilatore trova chi lo usava ancora.
- */
-export const legacyWebPath = {
-  ticket: (ticketId: string) => `/tickets/${seg(ticketId)}`,
-  backlogItem: (itemId: string) => `/backlog/${seg(itemId)}`,
-  /** Il link di reset della password che il web vecchio mostra all'admin (la nuova app lo compone dal `token`). */
-  resetPassword: (token: string) => `/reset-password/${seg(token)}`,
-  googleAccountSettings: (outcome: string) => `/settings/account${query({ google: outcome })}`,
-} as const;

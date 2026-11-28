@@ -26,7 +26,7 @@ describe("F6: additivo", () => {
   });
 
   it("una richiesta senza `productOrigin` si legge null", () => {
-    const req = { id: ID, code: "PRO-R1", projectId: ID, title: "T", description: "", status: "new", urgency: null, createdAt: "2026-11-21T00:00:00.000Z", webHref: "/x" };
+    const req = { id: ID, code: "PRO-R1", projectId: ID, title: "T", description: "", status: "new", urgency: null, createdAt: "2026-11-21T00:00:00.000Z" };
     expect(readerSchema(projectRequestViewSchema).parse(req).productOrigin).toBeNull();
   });
 

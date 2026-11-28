@@ -190,10 +190,11 @@ function callback(state: string, code = "code-di-google") {
   });
 }
 
-/** L'esito letto dal `Location` del redirect. */
+/** L'esito letto dal `Location` del redirect: la query del frammento della nuova app (`/#/preferences/account?google=…`). */
 function outcomeOf(res: { headers: Record<string, unknown> }): string {
   const location = String(res.headers.location ?? "");
-  return new URL(location, PUBLIC_URL).searchParams.get("google") ?? "";
+  const hash = new URL(location, PUBLIC_URL).hash;
+  return new URLSearchParams(hash.slice(hash.indexOf("?") + 1)).get("google") ?? "";
 }
 
 async function accountRows() {
@@ -999,14 +1000,14 @@ describe("ritiro del web vecchio: il ritorno OAuth alla nuova app nel browser", 
     return new URL((res.json() as { authorizeUrl: string }).authorizeUrl).searchParams.get("state")!;
   };
 
-  it("`client: \"web\"` (la nuova app nel browser) torna a Preferenze → Account della nuova app, con l'esito; il web vecchio (senza client) resta su /settings/account", async () => {
+  it("`client: \"web\"` (la nuova app nel browser) torna a Preferenze → Account della nuova app, con l'esito; anche un consenso senza client (avviato dal web vecchio prima di R1) torna nella nuova app", async () => {
     const workspaceId = await createWorkspace();
     const ok = await callback(await appState(workspaceId));
     expect([ok.statusCode, ok.headers.location]).toEqual([302, "/#/preferences/account?google=ok"]);
     const denied = await app.inject({ method: "GET", url: `/api/me/google/callback?error=access_denied&state=${encodeURIComponent(await appState(workspaceId))}` });
     expect(denied.headers.location).toBe("/#/preferences/account?google=error");
     const legacy = await callback(await stateFor(workspaceId));
-    expect(legacy.headers.location).toBe("/settings/account?google=ok");
+    expect(legacy.headers.location).toBe("/#/preferences/account?google=ok");
   });
 });
 

@@ -14,7 +14,7 @@ function clientReturning(body: unknown) {
 /** `tasks.work` passa da `readerSchema` (area 3, fetta 3a): un server della fetta 1 non manda i campi nuovi, uno più nuovo manda valori ignoti. */
 describe("tasks.work", () => {
   it("un server della fetta 1 (senza i campi nuovi): i default, la sezione degrada", async () => {
-    const work = await clientReturning({ claude: "none", pullRequests: [], webHref: `/tickets/${T}` }).tasks.work(T);
+    const work = await clientReturning({ claude: "none", pullRequests: [] }).tasks.work(T);
     expect(work).toMatchObject({
       runs: [],
       hiddenRuns: false,
@@ -28,7 +28,6 @@ describe("tasks.work", () => {
     const work = await clientReturning({
       claude: "working",
       pullRequests: [],
-      webHref: `/tickets/${T}`,
       runs: [{ id: J, createdAt: "2026-11-10T10:00:00.000Z", state: "uno_stato_nuovo" }],
       actions: { start: "una_disponibilita_nuova" },
     }).tasks.work(T);
@@ -43,7 +42,7 @@ describe("tasks.cancelRun (area 3, fetta 3b)", () => {
   it("POST /api/tasks/:id/cancel-run e restituisce il lavoro aggiornato", async () => {
     const fetchImpl = vi.fn<typeof globalThis.fetch>(
       async () =>
-        new Response(JSON.stringify({ claude: "none", pullRequests: [], webHref: `/tickets/${T}` }), {
+        new Response(JSON.stringify({ claude: "none", pullRequests: [] }), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),

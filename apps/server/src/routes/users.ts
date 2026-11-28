@@ -1,4 +1,4 @@
-import { legacyWebPath } from "@stubwise/shared";
+import { appPath } from "@stubwise/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { projectPermissionsFor, requireBrowserOrConfirmedDesktop } from "../auth/access.js";
 import type { FastifyInstance } from "fastify";
@@ -268,7 +268,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
         params: z.object({ id: z.uuid() }),
         response: {
           // `token` (area 9, F1, additivo): il renderer della web «app» compone
-          // `${origin}/#/reset-password/<token>`; `url` resta quello del web vecchio.
+          // `${origin}/#/reset-password/<token>`; `url` è lo stesso link, intero.
           201: z.object({ url: z.string(), token: z.string(), expiresAt: z.iso.datetime() }),
           ...authErrorResponses,
           400: errorSchema,
@@ -316,9 +316,9 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
         await publishSecurityAlert(app.db, id, "password_reset_link", request.user!.email);
       }
       // URL assoluto quando PUBLIC_URL è configurato (in produzione lo è
-      // sempre), altrimenti il solo path: il web lo completa con la propria
-      // origin.
-      const path = legacyWebPath.resetPassword(issued.token);
+      // sempre), altrimenti il solo path: il client lo completa con la propria
+      // origin. La pagina è quella della nuova app (R1).
+      const path = appPath({ to: "resetPassword", token: issued.token });
       const base = publicUrlOrUndefined(instance);
       return reply
         .code(201)
