@@ -63,6 +63,12 @@ jobs:
       # controllo degli script inline del build di caddy.
       - name: CSP di Caddy
         run: node --test scripts/caddy-csp.test.mjs
+      # I Dockerfile senza Docker: ogni COPY dal contesto esiste nel repo, e
+      # ogni pacchetto che uno stage compila ha il suo package.json nel layer
+      # dell'install. Rotti, hanno fermato il deploy tre volte (#140, #142,
+      # #154) senza che la CI se ne accorgesse.
+      - name: Dockerfile
+        run: node --test scripts/dockerfiles.test.mjs
 
       # Il plugin Claude Code «stubwise» (plugins/stubwise, marketplace in
       # .claude-plugin/): (1) sulle PR, una modifica al plugin chiede un
