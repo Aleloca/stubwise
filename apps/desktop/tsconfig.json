@@ -20,7 +20,8 @@
       "@backend/runtime": ["./src/renderer/data/runtime.ts"],
       "@backend/viewer": ["./src/renderer/data/viewer.ts"],
       "@backend/vault": ["./src/renderer/data/backend/real/vault/electron.ts"],
-      "@backend/vault-boot": ["./src/renderer/data/backend/real/vault/boot-none.ts"]
+      "@backend/vault-boot": ["./src/renderer/data/backend/real/vault/boot-none.ts"],
+      "@backend/vault-setup": ["./src/renderer/data/backend/real/vault/setup-none.ts"]
     }
   },
   "include": ["src/renderer", "vitest.config.ts"]

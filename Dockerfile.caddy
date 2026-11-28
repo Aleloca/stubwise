@@ -94,7 +94,8 @@ RUN pnpm --filter @stubwise/docs build
 # api-client). `check-no-seed` fa fallire il build se nel bundle c'è un dato
 # del seed del prototipo; `check-vault-target` (dentro `check:seed:web`) se
 # c'è il ponte della cassaforte del desktop (design della cassaforte nel
-# browser §4).
+# browser §4). `check:seed:web` builda anche la pagina a sé della cassaforte
+# (`build:vault`, dist-vault) e la controlla come bundle a sé (I-2).
 COPY apps/desktop apps/desktop
 RUN pnpm --filter "@stubwise/desktop^..." build \
   && pnpm --filter @stubwise/desktop check:seed:web
@@ -104,7 +105,7 @@ RUN pnpm --filter "@stubwise/desktop^..." build \
 # `script-src 'self'` non girerebbero), e scrive il frammento della guida con
 # gli hash degli script inline di Starlight (importato dal Caddyfile).
 COPY scripts/caddy-csp.mjs scripts/caddy-csp.mjs
-RUN node scripts/caddy-csp.mjs --web apps/web/dist --app apps/desktop/dist-web --docs apps/docs/dist --out /repo/csp-guide.caddy
+RUN node scripts/caddy-csp.mjs --web apps/web/dist --app apps/desktop/dist-web --vault apps/desktop/dist-vault --docs apps/docs/dist --out /repo/csp-guide.caddy
 
 FROM caddy:2-alpine AS runtime
 # Statici della SPA serviti da /srv/web (root nel Caddyfile).
@@ -119,5 +120,7 @@ COPY --from=web-build /repo/apps/docs/dist /srv/docs
 COPY --from=web-build /repo/packages/widget/dist /srv/widget
 # La nuova app, servita su /app (vedi Caddyfile).
 COPY --from=web-build /repo/apps/desktop/dist-web /srv/app
+# La pagina a sé della cassaforte, servita su /app/vault/ con la sua CSP (I-2).
+COPY --from=web-build /repo/apps/desktop/dist-vault /srv/vault
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY --from=web-build /repo/csp-guide.caddy /etc/caddy/csp-guide.caddy

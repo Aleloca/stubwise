@@ -14,7 +14,7 @@
 //      per uno, mai con `'unsafe-inline'`. Il file generato è un frammento
 //      Caddy importato dal blocco /guide del Caddyfile.
 //
-//   node scripts/caddy-csp.mjs --web <dir> --app <dir> --docs <dir> --out <file>
+//   node scripts/caddy-csp.mjs --web <dir> --app <dir> --vault <dir> --docs <dir> --out <file>
 
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
@@ -34,6 +34,39 @@ import { pathToFileURL } from "node:url";
  * immagini remote, e la loro CSP stretta la mette il frame stesso.
  */
 export const BASE_DIRECTIVES = ["object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'", "connect-src 'self'"];
+
+/**
+ * La pagina A SÉ della cassaforte (`/app/vault/`, revisione di sicurezza
+ * della fase 2, I-2): una CSP sua, più stretta di quella dell'origine (tutto
+ * chiuso salvo l'origine stessa per script, stili, immagini, font, rete e il
+ * worker; nessun form, nessuna cornice, nessun `<base>`), e i Trusted Types
+ * con la SOLA politica del worker: lì non si scrive HTML.
+ */
+export const VAULT_PAGE_CSP = [
+  "default-src 'none'",
+  "script-src 'self'",
+  "style-src 'self'",
+  "img-src 'self'",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "worker-src 'self'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "require-trusted-types-for 'script'",
+  "trusted-types stubwise-vault-worker",
+].join("; ");
+
+/**
+ * La COOP della pagina a sé (seconda revisione di sicurezza della fase 2,
+ * I-1): `same-origin` non separa una pagina della STESSA origine, e uno script
+ * nell'app che apre `/app/vault/` (o ne segue la scheda) la governerebbe
+ * prima del boot. `noopener-allow-popups` chiude il riferimento in Chromium
+ * (`apps/desktop/scripts/verify-vault-isolation.mjs`). Dove il valore non è
+ * supportato resta il comportamento di `unsafe-none`: la difesa vera è
+ * un'origine separata (registro dei rimandi).
+ */
+export const VAULT_PAGE_COOP = "noopener-allow-popups";
 
 export function cspHeader(scriptSources) {
   return [`script-src ${["'self'", ...scriptSources].join(" ")}`, ...BASE_DIRECTIVES].join("; ");
@@ -94,9 +127,13 @@ function args(argv) {
 // Lanciato come script (non importato dal test): il confronto passa per un URL
 // vero, così regge spazi, caratteri da codificare e symlink nel percorso.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  const { web, app, docs, out } = args(process.argv.slice(2));
+  const { web, app, vault, docs, out } = args(process.argv.slice(2));
   const problems = [];
-  for (const [name, dir] of [["web", web], ["app", app]]) {
+  for (const [name, dir] of [["web", web], ["app", app], ["vault", vault]]) {
+    if (!dir) {
+      problems.push(`${name}: cartella mancante (--${name})`);
+      continue;
+    }
     const { hashes, handlers } = inlineHashes(dir);
     if (hashes.length > 0 || handlers > 0) problems.push(`${name} (${dir}): ${hashes.length} script inline e ${handlers} attributi on*= — con script-src 'self' non girano`);
   }

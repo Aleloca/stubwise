@@ -81,6 +81,11 @@ function onCredential(credential: Credential, stash: (prf: ArrayBuffer) => void)
   if (!prf) return { ok: false, code: "passkey_unsupported" };
   stash(prf);
   // 2. Il resto, coi getter catturati.
+  return assertionOf(credential);
+}
+
+/** La risposta per la verifica del server, coi getter catturati e SENZA risultati PRF. */
+function assertionOf(credential: Credential): CeremonyOutcome {
   const response = primitives.credential(credential, "response");
   const bytes = (v: unknown) => toBase64Url(v as ArrayBuffer);
   const userHandle = primitives.assertionResponse(response, "userHandle");
@@ -101,4 +106,48 @@ function onCredential(credential: Credential, stash: (prf: ArrayBuffer) => void)
     ...(attachment ? { authenticatorAttachment: attachment } : {}),
   };
   return { ok: true, credentialId: id, assertion };
+}
+
+/**
+ * I-1 (revisione della fase 2): una presenza FRESCA per il recupero col kit.
+ * Una passkey qualunque della persona, SENZA l'estensione PRF (chi recupera
+ * può non avere una chiave): le opzioni sono quelle della riconferma normale,
+ * e la risposta la verifica il worker col server.
+ */
+export function plainCeremony(options: PasskeyAuthenticationOptions): Promise<CeremonyOutcome> {
+  const publicKey = {
+    __proto__: null,
+    challenge: fromBase64Url(options.challenge),
+    ...(options.rpId ? { rpId: options.rpId } : {}),
+    ...(options.timeout ? { timeout: options.timeout } : {}),
+    ...(options.userVerification ? { userVerification: options.userVerification } : {}),
+    allowCredentials: (options.allowCredentials ?? []).map((c) => ({
+      __proto__: null,
+      type: "public-key" as const,
+      id: fromBase64Url(c.id),
+      ...(c.transports ? { transports: c.transports as AuthenticatorTransport[] } : {}),
+    })),
+  } as unknown as PublicKeyCredentialRequestOptions;
+  return primitives.newPromise<CeremonyOutcome>((resolve) => {
+    let platform: Promise<Credential | null>;
+    try {
+      platform = primitives.credentialsGet({ __proto__: null, publicKey } as unknown as CredentialRequestOptions);
+    } catch {
+      resolve(failed);
+      return;
+    }
+    primitives.then(
+      platform,
+      (credential) => {
+        let out: CeremonyOutcome;
+        try {
+          out = credential ? assertionOf(credential) : failed;
+        } catch {
+          out = failed;
+        }
+        resolve(out);
+      },
+      () => resolve(failed),
+    );
+  });
 }

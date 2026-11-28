@@ -443,6 +443,11 @@ const rootRoute = createRootRoute({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
+  // I-2: il ritorno alla pagina a sé della cassaforte; lo valida `vaultReturn`, da un elenco chiuso.
+  validateSearch: (search: Record<string, unknown>): { next?: string; state?: string } => ({
+    next: typeof search.next === "string" ? search.next : undefined,
+    state: typeof search.state === "string" ? search.state : undefined,
+  }),
   component: LoginPage,
 });
 

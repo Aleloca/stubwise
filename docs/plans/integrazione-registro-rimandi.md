@@ -2075,6 +2075,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Trasversali
 
+- **La pagina a sé della cassaforte su un'ORIGINE separata** *(S, seconda
+  revisione di sicurezza della fase 2, 28 nov 2026; decisione di 46)*: oggi
+  sta su `/app/vault/`, la stessa origine dell'app, e la separa solo la COOP
+  `noopener-allow-popups`, che Chromium applica e Firefox e Safari possono
+  ignorare (lì uno script nell'app che apre la pagina la governa). Un
+  sottodominio suo (es. `vault.<istanza>`), con la sua CSP, la sessione
+  passata da un handoff monouso come `desktop-exchange`, e il `rpId` della
+  passkey da tenere uguale (la passkey è della radice dell'istanza), chiude
+  il limite per tutti i browser. Va deciso col maintainer: cambia il deploy
+  self-hosted (un nome DNS e un certificato in più).
+
 - **Rinominare il codice di un progetto rompe i link della nuova app già
   spediti** *(S, revisione dei link M6, 27 nov 2026)*: card, email, push e
   webhook portano `/app/#/p/<CODICE>/…` (design

@@ -21,23 +21,36 @@ async function checksum(pkcs8: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
 export async function generateRecoveryKit(): Promise<{ publicKey: string; kitText: string }> {
   const { publicKey, privateKeyPkcs8 } = await generateExportableKeyPair();
   const payload = new Uint8Array(privateKeyPkcs8.length + CHECKSUM_BYTES);
-  payload.set(privateKeyPkcs8);
-  payload.set(await checksum(privateKeyPkcs8), privateKeyPkcs8.length);
-  const text = toBase32(payload);
-  const groups = text.match(new RegExp(`.{1,${GROUP}}`, "g")) ?? [];
-  return { publicKey, kitText: groups.join("-") };
+  try {
+    payload.set(privateKeyPkcs8);
+    payload.set(await checksum(privateKeyPkcs8), privateKeyPkcs8.length);
+    const text = toBase32(payload);
+    const groups = text.match(new RegExp(`.{1,${GROUP}}`, "g")) ?? [];
+    return { publicKey, kitText: groups.join("-") };
+  } finally {
+    // m-7: la privata in chiaro non resta in memoria più del necessario (il
+    // testo del kit è una stringa, e quella non si azzera: lo dice il design §12).
+    privateKeyPkcs8.fill(0);
+    payload.fill(0);
+  }
 }
 
 /** Ricava la privata (non estraibile) dal testo del kit; lancia se non torna. */
 export async function parseRecoveryKit(kitText: string): Promise<CryptoKey> {
   const normalized = kitText.toUpperCase().replace(/[\s-]/g, "");
   const payload = fromBase32(normalized);
-  if (payload.length <= CHECKSUM_BYTES) throw new Error("kit di recupero non valido");
-  const pkcs8 = payload.slice(0, payload.length - CHECKSUM_BYTES);
-  const expected = await checksum(pkcs8);
-  const actual = payload.subarray(payload.length - CHECKSUM_BYTES);
-  if (!expected.every((b, i) => b === actual[i])) throw new Error("kit di recupero: checksum errato");
-  return importPrivateKey(pkcs8);
+  const pkcs8 = payload.slice(0, Math.max(0, payload.length - CHECKSUM_BYTES));
+  try {
+    if (payload.length <= CHECKSUM_BYTES) throw new Error("kit di recupero non valido");
+    const expected = await checksum(pkcs8);
+    const actual = payload.subarray(payload.length - CHECKSUM_BYTES);
+    if (!expected.every((b, i) => b === actual[i])) throw new Error("kit di recupero: checksum errato");
+    return await importPrivateKey(pkcs8);
+  } finally {
+    // m-7: i byte della privata si azzerano appena importata (non estraibile).
+    pkcs8.fill(0);
+    payload.fill(0);
+  }
 }
 
 // Sfida di possesso del kit: il server cifra per la pubblica di recupero un
