@@ -153,9 +153,9 @@ sotto la riga in prosa. Uno stato alla volta (dallo stato del main,
 | revocata (D-5) | ▲ `warning` «This Mac no longer opens the vault. You're still signed in.» | **Pair again** |
 | irraggiungibile | ▲ «Couldn't reach Stubwise to open the vault.» | **Try again** |
 | tocco annullato | (resta «Locked.», nessun avviso: annullare è una scelta) | — |
-| nessuna chiave | ○ «You don't have a vault key yet. Create it in the browser with a passkey: credentials shared with you reach you after a reader confirms it.» | **Open in the browser** (Mac) · **Create your key** (build web): la pagina della cassaforte, `#/vault-setup` |
+| nessuna chiave | ○ «You don't have a vault key yet. Create it in the browser with a passkey: credentials shared with you reach you after a reader confirms it.» | **Open in the browser** (Mac) · **Create your key** (build web): la pagina a sé, `/app/vault/#/setup` |
 | chiave in attesa | ○ «Your vault key is waiting for confirmation. A reader who can share confirms it when they pass you a credential.» (+ l'impronta della propria chiave, monospace) | — |
-| non attiva | «The vault hasn't been activated on this instance yet.» (+ per l'admin, sul Mac: «Activate it in the browser.») | al full admin: **Open in the browser** (Mac) · **Activate the vault** (build web), `#/vault-setup`; agli altri — |
+| non attiva | «The vault hasn't been activated on this instance yet.» (+ per l'admin, sul Mac: «Activate it in the browser.») | al full admin: **Open in the browser** (Mac) · **Activate the vault** (build web), `/app/vault/#/setup`; agli altri — |
 
 - **Open with Touch ID**: il dialogo di sistema di macOS («Stubwise wants
   to open the vault»). Durante: il bottone «Opening…» con l'anello; il
@@ -255,46 +255,51 @@ sotto la riga in prosa. Uno stato alla volta (dallo stato del main,
   («shown», «copied») · **da dove**: «from the Mac» / «from the browser»
   (D-8). Vuoto: «Nobody has shown or copied a password yet.»
 
-### La pagina della cassaforte (fase 2, solo build web)
+### La pagina a sé della cassaforte (fase 2, revisione I-2)
 
-`#/vault-setup` e `#/vault-pair?state=…`: pagine dell'**ingresso**, fuori
-dall'intelaiatura (niente binario, colonna, chat, posta né riquadro di
-Claude), nella colonna da 432px di `EntryColumn`, col login dentro la pagina
-come `/desktop-login`, e il dialogo «Confirm it's you» montato lì. Il router
-le registra SOLO nella build web (design §4: nella build Electron
-`/vault-pair` non esiste). Passi e testi sono quelli del web vecchio
-(`apps/web/src/routes/vault-setup.tsx`, `vault-recovery.tsx`,
-`vault-pair.tsx`), coi componenti e i token dell'app.
+Un documento suo, **fuori dall'app**: `vault.html` (`vaultPage/`), servito
+su `/app/vault/` con la sua CSP stretta; ci si entra SEMPRE con una
+navigazione completa (la barra, «Use for the vault» in Security, il Mac),
+mai cambiando il frammento dell'app. Niente binario, colonna, chat, posta,
+riquadro di Claude, né il livello dati dell'app: la colonna da 432px come
+l'ingresso, il logo, la pagina, e in fondo i rimandi («Back to Stubwise»,
+le altre pagine). Senza sessione: il login dell'app, e poi il ritorno qui.
+La riconferma è un riquadro «Confirm it's you» nella pagina (la passkey, o
+il codice se non ce n'è una), non il dialogo dell'app. Passi e testi sono
+quelli del web vecchio (`apps/web/src/routes/vault-setup.tsx`,
+`vault-recovery.tsx`, `vault-pair.tsx`), coi token dell'app.
 
-- **Non attiva**: al full admin «Generate the recovery kit» → il kit,
-  mostrato **una volta** (monospace, «Print», «Download», l'avvertenza in
-  `critical`) → la casella «I printed/saved the kit» abilita «Activate the
-  vault» → la passkey (una senza PRF ferma tutto PRIMA di attivare), la
-  riconferma se serve, e la chiave di chi attiva. Agli altri: «The vault
-  hasn't been activated on this instance yet. A full admin activates it
-  here.»
-- **Attiva**: la propria chiave — «Create your key» (nessuna), la frase
-  dell'attesa (in attesa), «You have a vault key.» (confermata); se nessuna
-  passkey la apre più, l'avviso in `critical` e «Recreate the vault key».
-  Sotto, il rimando alle passkey (Preferenze → Security) e «Go to the vault».
-- **Full admin**: «Regenerate the recovery kit» (l'anteprima prima del kit:
-  con credenziali senza la propria copia l'elenco e niente kit; la
-  sostituzione vuole la cassaforte aperta, e se è chiusa la apre con la
-  passkey) e «Use the recovery kit» (il testo incollato lascia subito la
-  pagina; poi una scheda per persona in attesa: email, chiave e
+- **`#/setup` — non attiva**: al full admin «Generate the recovery kit» →
+  il kit, mostrato **una volta** (monospace, «Print», «Download»,
+  l'avvertenza in `critical`) → la casella «I printed/saved the kit»
+  abilita «Activate the vault» → la passkey (una senza PRF ferma tutto
+  PRIMA di attivare), la riconferma se serve, e la chiave di chi attiva.
+  Agli altri: «The vault hasn't been activated on this instance yet. A full
+  admin activates it here.»
+- **`#/setup` — attiva**: la propria chiave — «Create your key» (nessuna),
+  la frase dell'attesa (in attesa), «You have a vault key.» (confermata);
+  se nessuna passkey la apre più, l'avviso in `critical` e «Recreate the
+  vault key». Al full admin con la chiave confermata, «Regenerate the
+  recovery kit» (l'anteprima prima del kit: con credenziali senza la
+  propria copia l'elenco e niente kit; la sostituzione vuole la cassaforte
+  aperta, e se è chiusa la apre con la passkey).
+- **`#/recover`** (solo full admin): il testo incollato lascia subito la
+  pagina; poi una scheda per persona in attesa (email, chiave e
   dispositivo, impronta monospace, quante credenziali, «Confirm with the
-  kit»; «Done: forget the kit»).
+  kit», con un tocco della passkey per ogni conferma o, senza passkey, il
+  codice); «Done: forget the kit». Il kit vale 10 minuti: scaduto, la
+  pagina lo dice e lo richiede.
 - **Il kit** non va negli appunti, in una cache, in `#print-root` né nel
   contesto di Claude: sta nello stato del componente che lo mostra, e si
   butta dopo la conferma o lasciando la pagina.
-- **`#/vault-pair`**: l'avviso «Continue only if you started this from your
-  Mac just now…» in `warning`, il nome del Mac e il suo login, il campo degli
-  ultimi 4 caratteri (l'impronta NON si mostra, M3), «Pair this Mac» solo
-  con 4 caratteri, la passkey, e il ritorno a `stubwise://vault?state=…`.
-- **«Use for the vault»** (Preferenze → Security → Passkeys, build web):
-  accanto a una passkey senza sigillo, con la chiave viva aperta da
-  un'altra; due tocchi (prima una che apre, poi questa). Col sigillo, la
-  riga dice «Opens the vault».
+- **`#/pair?state=…`**: l'avviso «Continue only if you started this from
+  your Mac just now…» in `warning`, il nome del Mac e il suo login, il campo
+  degli ultimi 4 caratteri (l'impronta NON si mostra, M3), «Pair this Mac»
+  solo con 4 caratteri, la passkey, e il ritorno a `stubwise://vault?state=…`.
+- **`#/passkeys`**: le proprie passkey, «Opens the vault» per quelle col
+  sigillo e «Use for the vault» per le altre (due tocchi: prima una che
+  apre, poi questa). In Preferenze → Security, accanto a una passkey senza
+  sigillo, «Use for the vault» è il link a questa pagina.
 
 ### La finestra dell'associazione (Pair this Mac)
 
@@ -319,8 +324,8 @@ browser, with your passkey.
   apre il browser; il dialogo mostra l'impronta e i tre passi, e «Waiting
   for the browser…» con l'anello.
 - **Il codice si scrive, non si confronta** (M3 della seconda revisione,
-  decisione di 46, 25 nov 2026): la pagina `#/vault-pair` della nuova app
-  nel browser (prima `vault-pair` del web vecchio) NON mostra
+  decisione di 46, 25 nov 2026): la pagina `#/pair` della pagina a sé della
+  cassaforte (`/app/vault/`; prima `vault-pair` del web vecchio) NON mostra
   l'impronta; chiede gli ultimi 4 caratteri di quella che mostra QUESTO
   dialogo, e li confronta con l'impronta calcolata dalla pubblica del
   server. Mostrata anche nel browser, la si copierebbe dalla pagina stessa
@@ -397,9 +402,9 @@ browser, with your passkey.
   28 nov 2026): attivare la cassaforte, il kit di recupero e la sua
   rotazione, creare o ricreare la propria chiave, il recupero col kit, la
   pagina che sigilla un Mac, «Use for the vault» accanto a una passkey.
-  D-7 («restano del browser») ora vuol dire **la nuova app nel browser**,
-  non il web vecchio, che verrà ritirato. Vedi «La pagina della
-  cassaforte» sotto.
+  D-7 («restano del browser») ora vuol dire **la pagina a sé della
+  cassaforte nel browser** (`/app/vault/`), non il web vecchio, che verrà
+  ritirato. Vedi «La pagina a sé della cassaforte» sotto.
 - **Anti-obiettivi**: una password nel DOM a cassaforte chiusa; una
   password che resta mostrata dopo la chiusura; «Show» che apre un
   dialogo modale con la password;
