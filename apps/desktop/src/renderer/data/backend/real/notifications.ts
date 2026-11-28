@@ -1,7 +1,7 @@
 import { ApiError } from "@stubwise/api-client";
 import { isPersonPlaceholder, type InboxItem, type SnoozeUntil } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import { featureIntegrated, isIntegrated } from "../../integration";
+import { featureIntegrated, integrationTargetOf, isIntegrated } from "../../integration";
 import type { AppNotification, MandatoryReason, ProductAnswerChoice } from "../../types";
 import { daysFromToday } from "./clock";
 import { appClient, session } from "./client";
@@ -10,10 +10,9 @@ import { reasonOf, sourceViewFrom } from "./productClaude";
 
 // Le notifiche della build app (integrazione area 2, fetta 1): la stessa
 // inbox del web vecchio e del mobile (`/api/inbox`), con lo stato «letta»
-// condiviso. Si mostrano TUTTE le card: quelle delle aree integrate aprono
-// la task nel pannello; le altre (piani, domande di Claude, proposte della
-// posta e del pulse… e ogni kind che questa app non conosce) aprono la pagina
-// del web vecchio («Open in web»).
+// condiviso. Si mostrano TUTTE le card, e ognuna si apre nella nuova app
+// (inventario del ritiro §1.1 c): la sua pagina, dal link che il server
+// deriva, o la pagina più vicina (`nearestPage`). Nessuna apre il web vecchio.
 
 /** I kind che l'app nuova risolve sul posto: aprono il pannello della task. */
 export const INTEGRATED_KINDS: ReadonlySet<string> = new Set([
@@ -72,29 +71,47 @@ function viaClaudeOf(item: InboxItem, ctx: PresentContext): Pick<AppNotification
 }
 
 /**
- * Dove apre una card, come la sua inbox del web vecchio (`inbox-item.tsx`):
- * un percorso dell'istanza, o l'URL assoluto di una pagina fuori
- * dall'istanza (http(s) soltanto).
+ * Le famiglie di indirizzi che `appLinkFor` decide da sé, con regole più
+ * strette dell'area (una sezione accesa ma una sua pagina no): se lui le
+ * rifiuta, la card va alla pagina più vicina, non all'indirizzo.
  */
-export function webHrefFor(
-  item: Pick<InboxItem, "kind" | "url" | "jobId" | "ticketId">,
-  instanceOrigin?: string,
-): string {
-  if (item.kind === "job.awaiting_input" && item.jobId && item.ticketId) {
-    return `/agents/job/${item.jobId}?ticketId=${item.ticketId}`;
+const APP_LINK_FAMILY = /^#\/p\/[^/?#]+\/(releases|docs|requests)(\/|\?|$)|^#\/p\/[^/?#]+\/overview\?brief=|^#\/preferences\/security$/;
+
+/**
+ * Il percorso nell'app (`#/…`) del link di una card, se è un link della nuova
+ * app DELL'ISTANZA e la sua pagina è accesa in questa build. Il server scrive
+ * il link dell'app per quasi ogni kind (`openUrl` di `@stubwise/notifications`,
+ * da `app-links`): qui lo si apre così com'è. Anche `/app/#/…`, dei link
+ * scritti prima di R1.
+ */
+export function appRouteFor(rawUrl: string | null | undefined, instanceOrigin?: string): string | null {
+  if (!rawUrl) return null;
+  let url: URL;
+  try {
+    url = new URL(rawUrl, "http://instance.invalid");
+  } catch {
+    return null;
   }
-  if (item.url) {
-    try {
-      const relative = item.url.startsWith("/") && !item.url.startsWith("//");
-      const url = new URL(item.url, "http://instance.invalid");
-      if (relative || url.origin === instanceOrigin) return `${url.pathname}${url.search}${url.hash}`;
-      if (url.protocol === "https:" || url.protocol === "http:") return url.href;
-    } catch {
-      // un url illeggibile: si ripiega sul ticket o sull'inbox
-    }
-  }
-  if (item.ticketId) return `/tickets/${item.ticketId}`;
-  return "/inbox";
+  const relative = rawUrl.startsWith("/") && !rawUrl.startsWith("//");
+  if (!relative && url.origin !== instanceOrigin) return null;
+  if (url.pathname !== "/" && url.pathname !== "/app/" && url.pathname !== "/app") return null;
+  if (!url.hash.startsWith("#/") || APP_LINK_FAMILY.test(url.hash)) return null;
+  const [path, query] = url.hash.slice(1).split("?", 2) as [string, string | undefined];
+  const target = integrationTargetOf(path, { view: new URLSearchParams(query ?? "").get("view") ?? undefined });
+  return target === null || isIntegrated(target.target) ? url.hash : null;
+}
+
+/**
+ * La pagina più vicina, per una card il cui link non porta a una pagina
+ * dell'app (un percorso del web vecchio di una card di prima, la PR su
+ * GitHub, nessun link, una pagina spenta in questa build): la task, se la
+ * card ne ha una che chi legge vede; il progetto (il suo indice porta alla
+ * sezione predefinita); la Home.
+ */
+function nearestPage(taskCode: string | undefined, projectCode: string | undefined): string {
+  if (taskCode && projectCode) return `#/p/${projectCode}/tasks?task=${taskCode}`;
+  if (projectCode) return `#/p/${projectCode}`;
+  return "#/home";
 }
 
 /** Le card del monitor che aprono la pagina del server (S12). */
@@ -133,7 +150,7 @@ function mandatoryOf(item: InboxItem, ctx: PresentContext): Pick<AppNotification
  * pubblicazione). Diventa il percorso nell'app (`#/p/…`) solo se è
  * dell'istanza e porta a una pagina ACCESA in questa build: il rilascio
  * (`releases`), il pannello di una PR (`releases-prs`, `?pr=<repository>#<n>`)
- * e i Docs del progetto. Altrimenti `null`: la card resta «Open in web».
+ * e i Docs del progetto. Altrimenti `null`: la card va alla pagina più vicina.
  */
 export function appLinkFor(rawUrl: string | null | undefined, instanceOrigin?: string): string | null {
   if (!rawUrl) return null;
@@ -365,7 +382,7 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
   // `google.handedByUser` (il nome solo se chi guarda lo conosce: un
   // segnaposto o un nome null è «Someone»); «Already decided» da
   // `google.proposalDecided`, derivato dal server (una card archiviata a mano
-  // non è una decisione). Una card di PRIMA resta «Open in web».
+  // non è una decisione). Una card di PRIMA va alla pagina più vicina.
   const handed = item.kind === "google.proposal_handed" ? (item as Partial<InboxItem>).google : undefined;
   if (handed?.sourceProposalId && isIntegrated({ kind: "destination", name: "mail" })) {
     const by = handed.handedByUser ?? null;
@@ -437,7 +454,7 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
   // Area 8, F4a (S12): una card del monitor apre il server nell'app per codice
   // (derivato a lettura dal server): nel progetto dell'ancora, o
   // nell'Amministrazione senza ancora (zero o più progetti: `monitor.manage`).
-  // Senza codice (un server rimosso) resta «Open in web» (I1).
+  // Senza codice (un server rimosso) va alla pagina più vicina (I1).
   // Area 8, F4b: «Diagnosis ready» apre la sua task; senza task (causa non
   // determinata, fallita, bloccata, o una task che chi legge non vede) la
   // pagina del server, come le card del monitor.
@@ -512,8 +529,9 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
     read: item.readAt !== null,
     archived: item.status === "handled",
     snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
-    link: integrated ? `#/p/${projectCode}/tasks?task=${taskCode}` : "",
-    ...(integrated ? {} : { webHref: webHrefFor(item, ctx.instanceOrigin) }),
+    link: integrated
+      ? `#/p/${projectCode}/tasks?task=${taskCode}`
+      : (appRouteFor(item.url, ctx.instanceOrigin) ?? nearestPage(taskCode, projectCode)),
     ...mandatoryOf(item, ctx),
     ...viaClaudeOf(item, ctx),
   };
