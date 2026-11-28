@@ -3,12 +3,14 @@ import {
   decryptPassword,
   encryptPassword,
   generatePersonKeyPair,
+  generateRecoveryKit,
   openPrivateKey,
   parseRecoveryKit,
   sealPrivateKey,
   unwrapItemKey,
   wrapActorChallenge,
   wrapItemKey,
+  wrapRecoveryChallenge,
 } from "@stubwise/vault-crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 import { VaultCore, type CoreEvent } from "./core";
@@ -440,5 +442,116 @@ describe("la rotazione del kit di recupero, nel worker (fase 2)", () => {
     expect(bodies).toHaveLength(2);
     expect(bodies[0]).toBe(bodies[1]);
     expect(calls.filter((c) => c.path === "/api/vault/recovery-key/preview").length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("il recupero col kit, nel worker (fase 2)", () => {
+  const C1 = "33333333-3333-4333-8333-333333333333";
+  const PROJECT = "66666666-6666-4666-8666-666666666666";
+  const BEA_KEY = "88888888-8888-4888-8888-888888888888";
+  let core: VaultCore;
+  let kit: { publicKey: string; kitText: string };
+  let bea: Awaited<ReturnType<typeof generatePersonKeyPair>>;
+  let ciphertext: string;
+  let recoveryCopy: string;
+  let challenges: { challengeId: string; secret: string }[];
+  let used: Set<string>;
+
+  beforeEach(async () => {
+    core = setup();
+    kit = await generateRecoveryKit();
+    bea = await generatePersonKeyPair();
+    const enc = await encryptPassword(C1, "Kx4!pa-77Wq");
+    ciphertext = enc.ciphertext;
+    recoveryCopy = await wrapItemKey(enc.itemKey, kit.publicKey, C1, "recovery");
+    challenges = [];
+    used = new Set();
+    routes["POST /api/vault/recovery/challenge"] = () => {
+      const secret = crypto.getRandomValues(new Uint8Array(32));
+      const challengeId = crypto.randomUUID();
+      challenges.push({ challengeId, secret: toBase64Url(secret) });
+      return {
+        status: 201,
+        body: wrapRecoveryChallenge(secret, kit.publicKey, challengeId).then((wrapped) => ({ challengeId, wrapped, expiresAt: "2026-11-28T10:05:00.000Z" })),
+      };
+    };
+    const valid = (b: { challengeId: string; proof: string }) => challenges.some((c) => c.challengeId === b.challengeId && c.secret === b.proof) && !used.has(b.challengeId);
+    routes["POST /api/vault/recovery/pending"] = () => {
+      const b = calls.at(-1)!.body as { challengeId: string; proof: string };
+      if (!valid(b)) return { status: 403, body: { code: "recovery_proof_invalid" } };
+      return {
+        body: {
+          items: [
+            {
+              user: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", email: "bea@example.com" },
+              personKey: { id: BEA_KEY, status: "pending", createdAt: "2026-11-27T10:00:00.000Z", device: "Firefox on Linux", fingerprintSource: bea.publicKey },
+              credentials: [{ id: C1, projectId: PROJECT, service: "AWS", label: null, wrappedKey: recoveryCopy, keyVersion: "v1" }],
+            },
+          ],
+        },
+      };
+    };
+    routes[`POST /api/vault/recovery/confirm/${BEA_KEY}`] = () => {
+      const b = calls.at(-1)!.body as { challengeId: string; proof: string };
+      if (!valid(b)) return { status: 403, body: { code: "recovery_proof_invalid" } };
+      used.add(b.challengeId);
+      return { body: { personKeyId: BEA_KEY, status: "confirmed", saved: [C1], skipped: [] } };
+    };
+  });
+
+  it("il kit si legge nel worker: al server solo la prova, alla pagina chi aspetta senza le copie", async () => {
+    const out = (await core.handle({ t: "recoveryLoad", kitText: kit.kitText })) as { ok: true; items: Record<string, unknown>[] };
+    expect(out.ok).toBe(true);
+    expect(out.items).toHaveLength(1);
+    expect(out.items[0]).toMatchObject({ email: "bea@example.com", personKeyId: BEA_KEY, credentials: [{ id: C1, service: "AWS" }] });
+    expect(JSON.stringify(out)).not.toContain(recoveryCopy.slice(0, 20));
+    expect(JSON.stringify(calls)).not.toContain(kit.kitText.slice(0, 11));
+  });
+
+  it("un testo che non è un kit, o il kit di un'altra cassaforte", async () => {
+    expect(await core.handle({ t: "recoveryLoad", kitText: "non è un kit" })).toEqual({ ok: false, code: "invalid_kit" });
+    expect(calls).toHaveLength(0);
+    const other = await generateRecoveryKit();
+    expect(await core.handle({ t: "recoveryLoad", kitText: other.kitText })).toEqual({ ok: false, code: "wrong_kit" });
+  });
+
+  it("conferma: la copia di recupero ricifrata per la chiave della persona, con una prova per conferma", async () => {
+    await core.handle({ t: "recoveryLoad", kitText: kit.kitText });
+    const out = await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY });
+    expect(out).toMatchObject({ ok: true, saved: 1, keyChanged: 0, notAllowed: 0, unopenable: 0 });
+    const body = calls.find((c) => c.path === `/api/vault/recovery/confirm/${BEA_KEY}`)!.body as {
+      copies: { credentialId: string; wrappedKey: string; keyVersion: string }[];
+    };
+    expect(body.copies.map((c) => [c.credentialId, c.keyVersion])).toEqual([[C1, "v1"]]);
+    const privateKey = await crypto.subtle.importKey("pkcs8", bea.privateKeyPkcs8.slice(), { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+    const itemKey = await unwrapItemKey(body.copies[0]!.wrappedKey, privateKey, C1, BEA_KEY);
+    expect(await decryptPassword(C1, ciphertext, itemKey)).toBe("Kx4!pa-77Wq");
+    // La prova dell'elenco l'ha consumata la conferma; la seconda ne chiede una nuova.
+    const before = challenges.length;
+    await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY });
+    expect(challenges.length).toBeGreaterThan(before);
+  });
+
+  it("senza il kit caricato, o dopo `recoveryForget`, niente conferma", async () => {
+    expect(await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY })).toEqual({ ok: false, code: "no_kit" });
+    await core.handle({ t: "recoveryLoad", kitText: kit.kitText });
+    await core.handle({ t: "recoveryForget" });
+    expect(await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY })).toEqual({ ok: false, code: "no_kit" });
+    expect(calls.some((c) => c.path.startsWith("/api/vault/recovery/confirm/"))).toBe(false);
+  });
+
+  it("una persona che non aspetta più: `not_pending`, senza bruciare la prova", async () => {
+    await core.handle({ t: "recoveryLoad", kitText: kit.kitText });
+    expect(await core.handle({ t: "recoveryConfirm", personKeyId: "99999999-9999-4999-8999-999999999999" })).toEqual({ ok: false, code: "not_pending" });
+    expect(used.size).toBe(0);
+  });
+
+  it("una riconferma chiesta non butta il kit caricato", async () => {
+    await core.handle({ t: "recoveryLoad", kitText: kit.kitText });
+    const real = routes[`POST /api/vault/recovery/confirm/${BEA_KEY}`]!;
+    routes[`POST /api/vault/recovery/confirm/${BEA_KEY}`] = () => ({ status: 403, body: { code: "reauth_required" } });
+    expect(await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY })).toEqual({ ok: false, code: "reauth_required" });
+    routes[`POST /api/vault/recovery/confirm/${BEA_KEY}`] = real;
+    expect(await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY })).toMatchObject({ ok: true, saved: 1 });
   });
 });

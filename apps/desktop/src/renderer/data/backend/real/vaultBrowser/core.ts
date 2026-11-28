@@ -4,6 +4,7 @@ import {
   vaultActorChallengeResponseSchema,
   vaultConfirmResponseSchema,
   vaultPendingResponseSchema,
+  vaultRecoveryChallengeResponseSchema,
   vaultRecoveryKeyPreviewSchema,
   type VaultRecoveryKeyPreview,
   type VaultPendingPerson,
@@ -24,6 +25,8 @@ import {
   generateRecoveryKit,
   keyFingerprint,
   openActorChallenge,
+  openRecoveryChallenge,
+  parseRecoveryKit,
   openPrivateKey,
   resealPrivateKey,
   sealPrivateKey,
@@ -140,6 +143,16 @@ export type CoreRequest =
    * per la pubblica del kit generato qui; al server con la prova.
    */
   | { t: "rotateKit"; personId: string; sessionTag: string }
+  /**
+   * Fase 2, il recupero col kit (full admin, riconferma): il testo incollato
+   * arriva QUI, se ne ricava la privata (non estraibile) e al server va solo
+   * la prova di una sfida aperta col kit. Alla pagina chi aspetta, senza le
+   * copie. Il kit resta qui fino a `recoveryForget` (o all'uscita); confermare
+   * apre la copia di recupero di ogni credenziale e la ricifra per la persona.
+   */
+  | { t: "recoveryLoad"; kitText: string }
+  | { t: "recoveryConfirm"; personKeyId: string }
+  | { t: "recoveryForget" }
   | { t: "reveal"; id: string; action: "show" | "copy"; personId: string; sessionTag: string }
   /**
    * Una credenziale nuova: non vuole la cassaforte aperta (si cifra con le
@@ -222,6 +235,34 @@ function changed<T>(error: unknown, key: string, schema: { safeParse: (v: unknow
   return out.success ? (out.data as T) : null;
 }
 
+/** Chi aspetta, per la pagina: senza le copie, con l'impronta calcolata qui. */
+function summarize(people: VaultPendingPerson[]) {
+  return Promise.all(
+    people.map(async (p) => ({
+      userId: p.user.id,
+      email: p.user.email,
+      personKeyId: p.personKey.id,
+      status: p.personKey.status,
+      createdAt: p.personKey.createdAt,
+      device: p.personKey.device,
+      fingerprint: await keyFingerprint(p.personKey.fingerprintSource),
+      credentials: p.credentials.map((c) => ({ id: c.id, projectId: c.projectId, service: c.service, label: c.label })),
+    })),
+  );
+}
+
+/** L'esito di una conferma in conteggi. */
+function counts(response: unknown) {
+  const result = vaultConfirmResponseSchema.safeParse(response);
+  if (!result.success) throw new HttpError(0, "invalid_response");
+  return {
+    ok: true as const,
+    saved: result.data.saved.length,
+    keyChanged: result.data.skipped.filter((s) => s.reason === "key_changed").length,
+    notAllowed: result.data.skipped.filter((s) => s.reason === "not_allowed").length,
+  };
+}
+
 export class VaultCore {
   private key: {
     privateKey: CryptoKey;
@@ -244,6 +285,8 @@ export class VaultCore {
   private stashed: { prf: ArrayBuffer; at: number } | null = null;
   /** Il kit generato qui: solo la pubblica (il testo è andato alla pagina). */
   private kit: { publicKey: string; purpose: "activate" | "rotate" } | null = null;
+  /** Il kit del recupero, letto: la privata, chi aspetta (con le copie), e una prova non ancora consumata. */
+  private recovery: { key: CryptoKey; people: VaultPendingPerson[]; proof: { challengeId: string; proof: string } | null } | null = null;
   /** La prima metà di `sealBegin`: la PRF che apre la chiave, e per quale passkey nuova. */
   private sealing: {
     prf: ArrayBuffer;
@@ -385,6 +428,9 @@ export class VaultCore {
   lock(reason: LockReason, code?: string): void {
     this.dropStash();
     this.dropSealing();
+    // Il kit del recupero non è la chiave della persona: lo butta la fine della
+    // sessione, non una chiusura per inattività o una riconferma chiesta.
+    if (reason === "session" || reason === "logout" || reason === "remote" || reason === "pagehide") this.recovery = null;
     const was = this.key;
     this.key = null;
     if (this.timer !== null) this.deps.clearTimer(this.timer);
@@ -678,38 +724,95 @@ export class VaultCore {
     const person = (await this.pendingPeople()).find((p) => p.personKey.id === keyId);
     // Un codice locale, non un 404 del server: non spegne niente, e nessuna prova.
     if (!person) return { ok: false as const, code: "not_pending" };
+    const { copies, unopenable } = await this.rewrap(person, k.privateKey, k.personKeyId);
+    // Copie da aprire c'erano, e nessuna si è aperta: niente da salvare, e
+    // niente prova bruciata. (Una persona senza credenziali in attesa si
+    // conferma comunque: la sua chiave passa a «confermata».)
+    if (person.credentials.length > 0 && copies.length === 0) return { ok: false as const, code: "nothing_opened" };
+    const result = await this.http("POST", `/api/vault/pending/${seg(keyId)}/confirm`, {
+      copies,
+      actorProof: await this.prove(k.privateKey, k.personKeyId),
+    });
+    return { ...counts(result), unopenable };
+  }
+
+  /**
+   * Le copie per una persona: ogni copia di chi conferma (`recipientId`: la
+   * propria chiave, o `recovery` col kit) si apre e si ricifra per la sua
+   * chiave; una che non si apre si salta.
+   */
+  private async rewrap(person: VaultPendingPerson, privateKey: CryptoKey, recipientId: string) {
     const copies: { credentialId: string; wrappedKey: string; keyVersion: string }[] = [];
     let unopenable = 0;
     for (const c of person.credentials) {
       try {
-        const itemKey = await unwrapItemKey(c.wrappedKey, k.privateKey, c.id, k.personKeyId);
+        const itemKey = await unwrapItemKey(c.wrappedKey, privateKey, c.id, recipientId);
         copies.push({
           credentialId: c.id,
-          wrappedKey: await wrapItemKey(itemKey, person.personKey.fingerprintSource, c.id, keyId),
+          wrappedKey: await wrapItemKey(itemKey, person.personKey.fingerprintSource, c.id, person.personKey.id),
           keyVersion: c.keyVersion,
         });
       } catch {
         unopenable += 1;
       }
     }
-    // Copie da aprire c'erano, e nessuna si è aperta: niente da salvare, e
-    // niente prova bruciata. (Una persona senza credenziali in attesa si
-    // conferma comunque: la sua chiave passa a «confermata».)
+    return { copies, unopenable };
+  }
+
+  /** Una sfida del recupero aperta col kit: la prova. `wrong_kit` se il kit non è questo. */
+  private async recoveryProof(key: CryptoKey): Promise<{ challengeId: string; proof: string }> {
+    const challenge = vaultRecoveryChallengeResponseSchema.safeParse(await this.http("POST", "/api/vault/recovery/challenge", {}));
+    if (!challenge.success) throw new HttpError(0, "invalid_response");
+    try {
+      return {
+        challengeId: challenge.data.challengeId,
+        proof: await openRecoveryChallenge(challenge.data.wrapped, key, challenge.data.challengeId),
+      };
+    } catch {
+      throw new HttpError(0, "wrong_kit");
+    }
+  }
+
+  /** Chi aspetta, visto col kit: con una prova nuova, che resta buona per la prossima conferma. */
+  private async recoveryReload(key: CryptoKey): Promise<VaultPendingPerson[]> {
+    const proof = await this.recoveryProof(key);
+    const out = vaultPendingResponseSchema.safeParse(await this.http("POST", "/api/vault/recovery/pending", proof));
+    if (!out.success) throw new HttpError(0, "invalid_response");
+    this.recovery = { key, people: out.data.items, proof };
+    return out.data.items;
+  }
+
+  /**
+   * Conferma col kit: una sfida per conferma (quella dell'elenco, se non è
+   * ancora consumata; scaduta, se ne chiede una nuova una volta). Poi
+   * l'elenco si rilegge: se non riesce, l'esito resta.
+   */
+  private async recoveryConfirm(personKeyId: string) {
+    const r = this.recovery;
+    if (!r) return { ok: false as const, code: "no_kit" };
+    const person = r.people.find((p) => p.personKey.id === personKeyId);
+    if (!person) return { ok: false as const, code: "not_pending" };
+    const { copies, unopenable } = await this.rewrap(person, r.key, "recovery");
     if (person.credentials.length > 0 && copies.length === 0) return { ok: false as const, code: "nothing_opened" };
-    const result = vaultConfirmResponseSchema.safeParse(
-      await this.http("POST", `/api/vault/pending/${seg(keyId)}/confirm`, {
-        copies,
-        actorProof: await this.prove(k.privateKey, k.personKeyId),
-      }),
-    );
-    if (!result.success) throw new HttpError(0, "invalid_response");
-    return {
-      ok: true as const,
-      saved: result.data.saved.length,
-      keyChanged: result.data.skipped.filter((s) => s.reason === "key_changed").length,
-      notAllowed: result.data.skipped.filter((s) => s.reason === "not_allowed").length,
-      unopenable,
-    };
+    const send = (proof: { challengeId: string; proof: string }) =>
+      this.http("POST", `/api/vault/recovery/confirm/${seg(personKeyId)}`, { ...proof, copies });
+    const first = r.proof ?? (await this.recoveryProof(r.key));
+    r.proof = null;
+    let result: unknown;
+    try {
+      result = await send(first);
+    } catch (error) {
+      if (!(error instanceof HttpError && error.code === "recovery_proof_invalid")) throw error;
+      result = await send(await this.recoveryProof(r.key));
+    }
+    const outcome = { ...counts(result), unopenable };
+    let items: VaultPendingPerson[] | null = null;
+    try {
+      if (this.recovery === r) items = await this.recoveryReload(r.key);
+    } catch {
+      items = null;
+    }
+    return { ...outcome, items: items === null ? null : await summarize(items) };
   }
 
   async handle(req: CoreRequest): Promise<unknown> {
@@ -868,24 +971,23 @@ export class VaultCore {
         });
         return { ok: true };
       }
-      case "pending": {
-        const people = await this.pendingPeople();
-        return {
-          ok: true,
-          items: await Promise.all(
-            people.map(async (p) => ({
-              userId: p.user.id,
-              email: p.user.email,
-              personKeyId: p.personKey.id,
-              status: p.personKey.status,
-              createdAt: p.personKey.createdAt,
-              device: p.personKey.device,
-              fingerprint: await keyFingerprint(p.personKey.fingerprintSource),
-              credentials: p.credentials.map((c) => ({ id: c.id, projectId: c.projectId, service: c.service, label: c.label })),
-            })),
-          ),
-        };
+      case "pending":
+        return { ok: true, items: await summarize(await this.pendingPeople()) };
+      case "recoveryLoad": {
+        this.recovery = null;
+        let key: CryptoKey;
+        try {
+          key = await parseRecoveryKit(String(req.kitText));
+        } catch {
+          return { ok: false, code: "invalid_kit" };
+        }
+        return { ok: true, items: await summarize(await this.recoveryReload(key)) };
       }
+      case "recoveryConfirm":
+        return this.recoveryConfirm(req.personKeyId);
+      case "recoveryForget":
+        this.recovery = null;
+        return { ok: true };
       case "confirm": {
         if (!req.presence) return { ok: false, code: "presence_required" };
         const k = await this.live(req.personId, req.sessionTag);
