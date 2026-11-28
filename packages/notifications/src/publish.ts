@@ -110,7 +110,7 @@ export interface PublishOpts {
 
 /**
  * I kind OBBLIGATORI: le loro consegne push e DM Slack ignorano le preferenze
- * dell'utente (`notifyPush`, `notifySlackDm`). Restano necessari i requisiti
+ * dell'utente (`notifyPush`). Restano necessari i requisiti
  * del canale — un'identità Slack, un device attivo — perché senza quelli non
  * c'è dove consegnare. L'avviso di sicurezza (chi ha spento tutto deve
  * comunque sapere che qualcuno ha azzerato il suo secondo fattore) e la

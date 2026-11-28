@@ -339,21 +339,10 @@ export const users = pgTable("users", {
   // Lingua preferita dell'utente per la UI. Default "en"; ogni utente la
   // sceglie indipendentemente dalla lingua dei contenuti generati.
   language: language("language").notNull().default("en"),
-  // Identità Slack del membro: lo user id dell'utente nel workspace Slack.
-  // Unique perché un'identità Slack mappa a un solo membro; nullable perché i
-  // membri creati fuori da Slack (es. invito email) non hanno un id Slack. In
-  // Postgres l'unique ignora i NULL, quindi più membri senza Slack convivono.
-  slackUserId: text("slack_user_id").unique(),
-  // URL dell'avatar Slack del membro, mostrato nella UI quando disponibile.
-  slackAvatarUrl: text("slack_avatar_url"),
-  // Username Bitbucket linkato al membro (speculare a slackUserId): un solo
+  // Username Bitbucket linkato al membro: un solo
   // membro per username, nullable (l'unique ignora i NULL in Postgres).
   bitbucketUsername: text("bitbucket_username").unique(),
-  // Preferenza di recapito: se true le notifiche destinate a questo utente
-  // vengono anche inviate come DM Slack (oltre a comparire nella sua inbox).
-  // Default true; senza `slackUserId` il canale resta comunque muto.
-  notifySlackDm: boolean("notify_slack_dm").notNull().default(true),
-  // Preferenza di recapito speculare a `notifySlackDm`, per le push sui device
+  // Preferenza di recapito per le push sui device
   // mobili (fase 4). Default true; senza device attivi in `device_tokens` il
   // canale resta comunque muto.
   notifyPush: boolean("notify_push").notNull().default(true),
@@ -383,12 +372,6 @@ export const invites = pgTable("invites", {
   token: text("token").primaryKey(),
   email: text("email").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  // Identità Slack opzionale propagata all'utente quando l'invito viene
-  // accettato (invito originato da Slack). NON unique: più inviti pendenti
-  // possono fare riferimento alla stessa identità Slack.
-  slackUserId: text("slack_user_id"),
-  // URL dell'avatar Slack da copiare sull'utente all'accettazione dell'invito.
-  slackAvatarUrl: text("slack_avatar_url"),
   // Ruolo d'istanza da dare all'accettazione (0097): null = preset `User`.
   instanceRoleId: uuid("instance_role_id").references(() => roles.id, { onDelete: "set null" }),
   // Chi ha creato l'invito (0099, ruling R51): all'accettazione i progetti
@@ -1999,10 +1982,11 @@ export const notificationKind = pgEnum("notification_kind", [
 export const notificationStatus = pgEnum("notification_status", ["open", "handled", "snoozed"]);
 
 // Canale di recapito di una consegna: `webhook` (il webhook d'istanza di
-// notification_settings, per EVENTO), `slack_dm` (messaggio diretto al
-// destinatario), `slack_update` (aggiornamento di un DM già inviato,
-// identificato dal `ts` in `externalRef`) o `push` (notifica ai device mobili
-// del destinatario, fase 4).
+// notification_settings, per EVENTO) o `push` (notifica ai device mobili del
+// destinatario, fase 4). `slack_dm` e `slack_update` erano i DM Slack, tolti
+// con R2: la 0246 ne ha cancellato le righe, e i due valori restano nel tipo
+// solo perché togliere un valore da un enum vuol dire ricrearlo. Nessuno li
+// scrive; il poller chiude come `skipped` un canale che non conosce.
 // Lista LETTERALE per scelta: questi valori non escono mai dall'API — vivono
 // solo in `notification_deliveries`, che nessuna rotta serializza. Se un giorno
 // lo stato di recapito comparisse in una risposta, la regola di `enumValues`
@@ -2016,7 +2000,7 @@ export const deliveryChannel = pgEnum("delivery_channel", [
 
 // Stato di una consegna in outbox: `pending` (da tentare, non prima di
 // `nextAttemptAt`), `sent`, `failed` (tentativi esauriti, `error` valorizzato) o
-// `skipped` (canale non applicabile, es. destinatario senza identità Slack).
+// `skipped` (canale non applicabile, o non più implementato).
 export const deliveryStatus = pgEnum("delivery_status", ["pending", "sent", "failed", "skipped"]);
 
 /**
@@ -2136,13 +2120,6 @@ export const instanceSettings = pgTable("instance_settings", {
   s3SecretKeyLast4: text("s3_secret_key_last4"),
   /** L'interruttore degli allegati (0228, lotto 6): spento, niente caricamenti nuovi; la lettura resta. */
   attachmentsSwitch: boolean("attachments_switch").notNull().default(true),
-  // Credenziali Slack per l'ingestion (slash command / interazioni) e per la
-  // verifica delle richieste in arrivo. Entrambe nullable: l'integrazione Slack
-  // è opzionale; con queste colonne a null la feature è disattivata. Cifrate a
-  // riposo (AES-256-GCM, vedi secrets.ts) come le altre secret: non escono mai
-  // in chiaro dall'API.
-  slackSigningSecretEncrypted: text("slack_signing_secret_encrypted"),
-  slackBotTokenEncrypted: text("slack_bot_token_encrypted"),
   // Configurazione d'istanza dell'AMMISSIONE della posta (fase 6c), separata
   // dall'ATTRIBUZIONE (project_email_routes, fase 6, invariata). I default
   // sono un ALLARGAMENTO del perimetro di oggi, mai un restringimento: chi ha
@@ -2206,43 +2183,6 @@ export const attachments = pgTable(
     index("attachments_comment_id_idx").on(table.commentId),
     // Una chiave di storage mappa esattamente un oggetto.
     uniqueIndex("attachments_storage_key_unique").on(table.storageKey),
-  ],
-);
-
-/**
- * Vista salvata di un utente: un set di filtri della lista ticket riusabile
- * (es. "I miei bug aperti"). `filters` è un oggetto jsonb con i criteri di
- * filtraggio (tutti opzionali). `shared` true = visibile agli altri utenti
- * dell'istanza; false (default) = privata del proprietario. Cancellata in
- * cascata con l'utente. L'unique (owner_id, name) impedisce viste omonime per
- * lo stesso proprietario.
- */
-export const savedViews = pgTable(
-  "saved_views",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    ownerId: uuid("owner_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    // Criteri di filtraggio della lista ticket; tutti opzionali.
-    filters: jsonb("filters").notNull().$type<{
-      projectId?: string;
-      status?: string;
-      type?: string;
-      priority?: string;
-      assigneeId?: string;
-      milestoneId?: string;
-      q?: string;
-    }>(),
-    shared: boolean("shared").notNull().default(false),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    // Le viste si elencano sempre per proprietario.
-    index("saved_views_owner_id_idx").on(table.ownerId),
-    // Nome univoco per proprietario.
-    uniqueIndex("saved_views_owner_id_name_unique").on(table.ownerId, table.name),
   ],
 );
 
@@ -3822,7 +3762,7 @@ export const checkSamplesRollup = pgTable(
 /**
  * Alias email git → membro. Un membro può committare con più email (lavoro,
  * personale, noreply del provider): relazione 1 membro : N email. Distinta da
- * users.slackUserId (colonna singola) proprio per questo. L'email è memorizzata
+ * un'identità a colonna singola proprio per questo. L'email è memorizzata
  * lowercase; l'unique impedisce che la stessa email sia linkata a due membri.
  */
 export const gitIdentities = pgTable(
@@ -4630,7 +4570,7 @@ export const notifications = pgTable(
  * Outbox delle consegne verso i canali esterni, una riga per (evento, canale).
  * Separata da `notifications` perché le due cose hanno cardinalità diverse: il
  * webhook d'istanza è UNO per evento (riga con `notificationId` null e l'evento
- * copiato in `event`), il DM Slack è uno per destinatario (riga legata alla sua
+ * copiato in `event`), la push è una per destinatario (riga legata alla sua
  * notifica, che porta già il payload). Il poller claima le righe `pending`
  * dovute e riprova con backoff su `nextAttemptAt`.
  */
@@ -4657,9 +4597,6 @@ export const notificationDeliveries = pgTable(
     // avanti. Default now() = consegna dovuta subito.
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
     error: text("error"),
-    // Riferimento del messaggio sul canale esterno: il `ts` del messaggio Slack,
-    // così una consegna `slack_update` può aggiornarlo invece di ripostarlo.
-    externalRef: text("external_ref"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
   },
@@ -6985,7 +6922,7 @@ export const taskDayArrangements = pgTable(
 
 /**
  * Filtri salvati dell'app nuova (0116, integrazione area 2, fetta 3). Tabella
- * nuova: `saved_views` del web vecchio resta intatta. `owner_id` null = un
+ * nuova: `saved_views` del web vecchio è stata tolta con R3 (0246). `owner_id` null = un
  * filtro di esempio (`seed_key`) o di una persona eliminata. I criteri li
  * valida `filterCriteriaSchema` di `@stubwise/shared` in scrittura.
  */

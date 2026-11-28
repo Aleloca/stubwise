@@ -76,13 +76,6 @@ describe("schema: fondamenta dell'inbox di notifiche", () => {
     expect(dopoDelete?.requestedByUserId).toBeNull();
   });
 
-  it("users: notifySlackDm default true", async () => {
-    const userId = await seedUser();
-    const [user] = await db.select().from(users).where(eq(users.id, userId));
-    if (!user) throw new Error("read dell'utente non ha restituito la riga");
-    expect(user.notifySlackDm).toBe(true);
-  });
-
   it("una notifica per destinatario sullo stesso job, rileggibile per job_id", async () => {
     const { projectId, ticketId } = await seedTicket(db);
     const [job] = await db.insert(aiJobs).values({ ticketId }).returning();
@@ -155,7 +148,6 @@ describe("schema: fondamenta dell'inbox di notifiche", () => {
     expect(delivery.attempts).toBe(0);
     expect(delivery.nextAttemptAt).toBeInstanceOf(Date);
     expect(delivery.error).toBeNull();
-    expect(delivery.externalRef).toBeNull();
     expect(delivery.sentAt).toBeNull();
     expect(delivery.event).toEqual({ kind: "ticket.created" });
   });

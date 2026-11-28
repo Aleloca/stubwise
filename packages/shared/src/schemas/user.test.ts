@@ -14,7 +14,6 @@ const utente = {
   role: "member",
   language: "it",
   avatarUrl: null,
-  slackUserId: null,
 };
 
 describe("sessionResponseSchema: permessi verso un server più vecchio", () => {

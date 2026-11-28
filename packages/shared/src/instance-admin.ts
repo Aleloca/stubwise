@@ -141,12 +141,6 @@ export const instanceSettingsViewSchema = z.object({
    * nuovi si fermano. `.default(true)`: un server più vecchio non ce l'ha.
    */
   attachmentsSwitch: z.boolean().default(true),
-  // Slack: solo i flag, INERTI dal ritiro del web vecchio (R2): l'integrazione
-  // non c'è più, le colonne restano fino a R3 e i client che leggono questi
-  // campi (la mobile) continuano a compilare.
-  slackSigningSecretSet: z.boolean().default(false),
-  slackBotTokenSet: z.boolean().default(false),
-  slackEnabled: z.boolean().default(false),
   // Il budget, calcolato dal server con la regola del worker (`aiBudgetState`):
   /** Lo speso del mese corrente (USD), anche senza un tetto. */
   spentUsd: z.number().nonnegative().default(0),

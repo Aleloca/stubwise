@@ -1,8 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
-import { deviceTokens, projectFollows, users } from "@stubwise/db";
+import { deviceTokens, projectFollows } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
@@ -68,7 +67,7 @@ function getPrefs(cookie = seeded.adminCookie) {
 
 /** PATCH: si mandano i soli campi da cambiare, non l'insieme intero. */
 function patchPrefs(
-  prefs: { slackDm?: boolean; push?: boolean },
+  prefs: { push?: boolean },
   cookie = seeded.adminCookie,
 ) {
   return app.inject({
@@ -88,7 +87,7 @@ describe("autenticazione", () => {
       app.inject({
         method: "PATCH",
         url: "/api/me/notification-prefs",
-        payload: { slackDm: true, push: true },
+        payload: { push: true },
       }),
     ];
     for (const res of await Promise.all(calls)) {
@@ -152,52 +151,37 @@ describe("/api/me/follows", () => {
 });
 
 describe("/api/me/notification-prefs", () => {
-  it("GET: default acceso, ma senza identità Slack collegata", async () => {
+  it("GET: default acceso, la sola push", async () => {
     const res = await getPrefs();
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ slackDm: true, push: true, slackLinked: false });
+    expect(res.json()).toEqual({ push: true });
   });
 
-  it("PATCH aggiorna i toggle e non tocca gli altri utenti", async () => {
-    expect((await patchPrefs({ slackDm: false, push: false })).statusCode).toBe(204);
-    expect((await getPrefs()).json()).toMatchObject({ slackDm: false, push: false });
-    expect((await getPrefs(seeded.memberCookie)).json()).toMatchObject({
-      slackDm: true,
-      push: true,
-    });
-
-    expect((await patchPrefs({ slackDm: true, push: true })).statusCode).toBe(204);
-    expect((await getPrefs()).json()).toMatchObject({ slackDm: true, push: true });
-  });
-
-  it("PATCH: un body col solo slackDm non azzera push", async () => {
-    // È la proprietà che rende sicuro aggiungere un canale: un client vecchio
-    // manda solo i campi che conosceva e non spegne quelli che ignora.
-    expect((await patchPrefs({ slackDm: true, push: true })).statusCode).toBe(204);
-    expect((await patchPrefs({ slackDm: false })).statusCode).toBe(204);
-    expect((await getPrefs()).json()).toMatchObject({ slackDm: false, push: true });
-  });
-
-  it("PATCH: un body col solo push non azzera slackDm", async () => {
-    expect((await patchPrefs({ slackDm: true, push: true })).statusCode).toBe(204);
+  it("PATCH aggiorna il toggle e non tocca gli altri utenti", async () => {
     expect((await patchPrefs({ push: false })).statusCode).toBe(204);
-    expect((await getPrefs()).json()).toMatchObject({ slackDm: true, push: false });
+    expect((await getPrefs()).json()).toEqual({ push: false });
+    expect((await getPrefs(seeded.memberCookie)).json()).toEqual({ push: true });
+
+    expect((await patchPrefs({ push: true })).statusCode).toBe(204);
+    expect((await getPrefs()).json()).toEqual({ push: true });
   });
 
   it("PATCH: un body vuoto è un no-op da 204, non un 400", async () => {
-    expect((await patchPrefs({ slackDm: false, push: false })).statusCode).toBe(204);
+    expect((await patchPrefs({ push: false })).statusCode).toBe(204);
     expect((await patchPrefs({})).statusCode).toBe(204);
-    expect((await getPrefs()).json()).toMatchObject({ slackDm: false, push: false });
+    expect((await getPrefs()).json()).toEqual({ push: false });
   });
 
-  it("slackLinked segue users.slack_user_id", async () => {
-    await db
-      .update(users)
-      .set({ slackUserId: `U${randomUUID().replace(/-/g, "").slice(0, 8)}` })
-      .where(eq(users.id, seeded.adminId));
-    expect((await getPrefs()).json()).toMatchObject({ slackLinked: true });
-    await db.update(users).set({ slackUserId: null }).where(eq(users.id, seeded.adminId));
-    expect((await getPrefs()).json()).toMatchObject({ slackLinked: false });
+  it("R3: `slackDm` di un client vecchio è un 400, e la push resta com'era", async () => {
+    expect((await patchPrefs({ push: true })).statusCode).toBe(204);
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/me/notification-prefs",
+      headers: { cookie: seeded.adminCookie },
+      payload: { slackDm: false, push: false },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((await getPrefs()).json()).toEqual({ push: true });
   });
 
   it("rifiuta un campo sconosciuto: un typo non deve passare per successo", async () => {
@@ -225,7 +209,7 @@ describe("/api/me/notification-prefs", () => {
       method: "PATCH",
       url: "/api/me/notification-prefs",
       headers: { cookie: seeded.adminCookie },
-      payload: { slackDm: "si" },
+      payload: { push: "si" },
     });
     expect(res.statusCode).toBe(400);
   });

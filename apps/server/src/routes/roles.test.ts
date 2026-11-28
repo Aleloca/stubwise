@@ -9,6 +9,7 @@ import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { PRESET_ROLES, PROJECT_PERMISSIONS } from "@stubwise/shared";
 import { addMember, createUserWithSession, presetRoleId, seedUsers } from "../test/fixtures.js";
+import { hashInviteToken } from "../services/invite-token.js";
 
 /**
  * Gestione di ruoli e membri (Task 9, design
@@ -620,7 +621,7 @@ describe("inviti con ruolo d'istanza e progetti", () => {
     expect(invite.statusCode).toBe(201);
     const token = (invite.json() as { token: string }).token;
     expect(
-      await testDb.db.select().from(inviteProjects).where(eq(inviteProjects.inviteToken, token)),
+      await testDb.db.select().from(inviteProjects).where(eq(inviteProjects.inviteToken, hashInviteToken(token))),
     ).toHaveLength(2);
 
     const register = await app.inject({
@@ -723,7 +724,7 @@ describe("inviti: ruling R51", () => {
     });
     expect(res.statusCode).toBe(201);
     const token = (res.json() as { token: string }).token;
-    const [row] = await testDb.db.select().from(invites).where(eq(invites.token, token));
+    const [row] = await testDb.db.select().from(invites).where(eq(invites.token, hashInviteToken(token)));
     expect(row?.instanceRoleId).toBe(user.id);
     expect(row?.invitedByUserId).toBe(inviter.id);
   });

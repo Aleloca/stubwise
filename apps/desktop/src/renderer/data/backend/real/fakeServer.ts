@@ -66,7 +66,6 @@ export const me = (over: Record<string, unknown> = {}) => ({
     role: "member",
     language: "en",
     avatarUrl: null,
-    slackUserId: null,
   },
   instancePermissions: ["users.view_all"],
   projectPermissions: { [PROJECT_ID]: ["tickets.create", "tickets.edit"] },

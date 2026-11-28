@@ -33,7 +33,6 @@ const successUser = {
   role: "member",
   language: "it",
   avatarUrl: null,
-  slackUserId: null,
 };
 
 function jsonResponse(status: number, body: unknown): Response {

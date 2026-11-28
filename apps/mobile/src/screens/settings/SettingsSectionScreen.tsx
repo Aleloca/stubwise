@@ -47,7 +47,7 @@ const LANGUAGES: Language[] = ["it", "en"];
  *
  * Scope volutamente più STRETTO del canvas: niente "Quiet hours" né "Canali"
  * (email) — nessuno dei due ha un campo lato server (`notificationPrefsSchema`
- * ha solo `slackDm`/`push`, senza un canale email), e il testo del Task 20
+ * ha solo `push`, senza un canale email), e il testo del Task 20
  * elenca esplicitamente solo push + progetti seguiti. Aggiungerli richiede
  * prima lo schema server, fuori perimetro qui.
  *

@@ -18,19 +18,10 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  *
  * Sono gli ingressi dell'instradamento delle notifiche (`packages/notifications`
  * → `recipientsFor`): i follow decidono CHI riceve un evento di progetto,
- * `notify_slack_dm` e `notify_push` se a quella persona si manda anche il DM
- * Slack o la push, e `device_tokens` DOVE recapitare quella push. Nessun
- * privilegio admin: ognuno gestisce solo le proprie righe, e `userId` è sempre
- * nel WHERE — un utente non può leggere né scrivere le preferenze altrui.
- *
- * ⚠️ **Una sola rotta fa eccezione, di proposito: `PUT /devices`.** È un upsert
- * sul `token`, che è unique GLOBALE, e non ha nessun `userId` nel WHERE: per
- * costruzione può riscrivere la riga di un ALTRO utente, perché è così che un
- * telefono passa di mano quando A esce e B entra. Chi legge la regola qui
- * sopra e poi quell'upsert vede una contraddizione, e la correzione che viene
- * naturale — mettere `userId` nel bersaglio del conflitto — è esattamente il
- * bug del telefono muto per sempre. Prima di toccarlo, il punto 2 del docblock
- * di quella rotta.
+ * `notify_push` se a quella persona si manda anche la push. Nessun privilegio
+ * admin: ognuno gestisce solo le proprie righe, e `userId` è sempre nel WHERE
+ * — un utente non può leggere né scrivere le preferenze altrui. (La
+ * registrazione dei telefoni, `PUT /devices`, è andata via con R2.)
  *
  * Separate da `/api/users` (che è l'amministrazione degli utenti, riservata
  * agli admin) proprio per questa ragione: qui il soggetto è sempre "io".
@@ -115,37 +106,29 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  /**
-   * Preferenze di notifica. `slackLinked` non è una preferenza ma il contesto
-   * che serve alla UI: senza identità Slack collegata il toggle del DM va
-   * mostrato disabilitato, perché anche acceso il canale resterebbe muto.
-   */
+  /** Preferenze di notifica: oggi la sola push. */
   app.get(
     "/notification-prefs",
     {
-      config: { mcp: { action: "me.notificationPrefs", summary: "Le tue preferenze di notifica (DM Slack, push sui telefoni).", effect: "read" }, access: { kind: "user" } },
+      config: { mcp: { action: "me.notificationPrefs", summary: "Le tue preferenze di notifica (push sui telefoni).", effect: "read" }, access: { kind: "user" } },
       schema: {
         response: { 200: notificationPrefsViewSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       const [row] = await app.db
-        .select({
-          slackDm: users.notifySlackDm,
-          push: users.notifyPush,
-          slackUserId: users.slackUserId,
-        })
+        .select({ push: users.notifyPush })
         .from(users)
         .where(eq(users.id, request.user!.id));
       // Utente cancellato fra l'autenticazione e questa query: raro ma non
       // impossibile, e meglio di un 500 su `row` undefined.
       if (!row) return apiError(reply, 404, "not_found", "User not found");
-      return { slackDm: row.slackDm, push: row.push, slackLinked: row.slackUserId !== null };
+      return { push: row.push };
     },
   );
 
   /**
-   * Accende o spegne i canali opzionali (DM Slack, push sui device mobili).
+   * Accende o spegne i canali opzionali (oggi la push sui device mobili).
    * Applica i campi presenti e lascia stare gli assenti — non sostituisce
    * l'insieme. Così un client vecchio, che manda solo i canali che conosceva,
    * continua a funzionare quando ne aggiungiamo uno: è l'invariante «solo
@@ -168,7 +151,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/notification-prefs",
     {
-      config: { mcp: { action: "me.updateNotificationPrefs", summary: "Accende o spegne i tuoi canali di notifica (DM Slack, push).", effect: "write" }, access: { kind: "user" } },
+      config: { mcp: { action: "me.updateNotificationPrefs", summary: "Accende o spegne i tuoi canali di notifica (push sui telefoni).", effect: "write" }, access: { kind: "user" } },
       schema: {
         body: notificationPrefsUpdateSchema,
         response: { 204: z.null(), ...authErrorResponses },
@@ -179,7 +162,6 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
       // l'update resterebbe senza colonne da scrivere e drizzle solleverebbe
       // "No values to set" (un 500 al posto del no-op).
       const patch: Partial<typeof users.$inferInsert> = {};
-      if (request.body.slackDm !== undefined) patch.notifySlackDm = request.body.slackDm;
       if (request.body.push !== undefined) patch.notifyPush = request.body.push;
       if (Object.keys(patch).length > 0) {
         await app.db.update(users).set(patch).where(eq(users.id, request.user!.id));

@@ -26,7 +26,6 @@ const USER: Reader<SessionUser> = {
   role: "member",
   language: "it",
   avatarUrl: null,
-  slackUserId: null,
 };
 
 const ADMIN_USER: Reader<SessionUser> = { ...USER, id: "u2", email: "admin@farmakom.it", role: "admin" };
@@ -49,7 +48,7 @@ function makeClient(overrides: ClientOverrides = {}): StubwiseClient {
   return {
     me: {
       notificationPrefs:
-        overrides.notificationPrefs ?? jest.fn().mockResolvedValue({ push: true, slackDm: false, slackLinked: false }),
+        overrides.notificationPrefs ?? jest.fn().mockResolvedValue({ push: true }),
       setNotificationPrefs: overrides.setNotificationPrefs ?? jest.fn().mockResolvedValue(undefined),
       follows: overrides.follows ?? jest.fn().mockResolvedValue({ projectIds: [PROJECT_A.id] }),
       setFollows: overrides.setFollows ?? jest.fn().mockResolvedValue(undefined),
@@ -131,7 +130,7 @@ describe("SettingsSectionScreen — profilo", () => {
 
 describe("SettingsSectionScreen — notifiche push", () => {
   test("riflette lo stato letto da me.notificationPrefs()", async () => {
-    const notificationPrefs = jest.fn().mockResolvedValue({ push: true, slackDm: false, slackLinked: false });
+    const notificationPrefs = jest.fn().mockResolvedValue({ push: true });
     await renderSheet(makeClient({ notificationPrefs }));
     await waitFor(() => expect(notificationPrefs).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId("settings-push-switch").props.value).toBe(true));
@@ -155,7 +154,7 @@ describe("SettingsSectionScreen — notifiche push", () => {
     await waitFor(() => expect(screen.getByTestId("settings-push-error")).toBeTruthy());
     expect(screen.queryByTestId("settings-push-switch")).toBeNull();
 
-    notificationPrefs.mockResolvedValue({ push: true, slackDm: false, slackLinked: false });
+    notificationPrefs.mockResolvedValue({ push: true });
     await fireEvent.press(screen.getByTestId("settings-push-retry"));
     await waitFor(() => expect(screen.getByTestId("settings-push-switch")).toBeTruthy());
   });

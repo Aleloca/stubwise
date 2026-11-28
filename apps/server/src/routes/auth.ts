@@ -55,6 +55,7 @@ import { apiError } from "../errors.js";
 import { avatarUrlsFor } from "../services/avatars.js";
 import { confirmEmailChange, peekEmailChange } from "../services/email-change.js";
 import { readInvite } from "../services/invite-link.js";
+import { hashInviteToken } from "../services/invite-token.js";
 import { sendEmailChangeError } from "./me-email-change.js";
 import { personObject, recordChange } from "../services/change-log.js";
 import { inviteObject, inviteParams } from "../services/invite-change.js";
@@ -152,9 +153,7 @@ async function verifyCredentials(
     email: user.email,
     role: user.role,
     language: user.language,
-    slackAvatarUrl: user.slackAvatarUrl,
     displayName: user.displayName,
-    slackUserId: user.slackUserId,
     instanceRolePermissions: user.instanceRolePermissions,
   };
 }
@@ -479,7 +478,7 @@ export async function authRoutes(
       },
     },
     async (request) => ({
-      // Area 9, F1: la foto caricata vince sull'avatar di Slack.
+      // Area 9, F1: la foto caricata (l'avatar di Slack non c'è più, R3).
       user: { ...request.user!, avatarUrl: (await avatarUrlsFor(app.db, [request.user!.id])).get(request.user!.id) ?? request.user!.avatarUrl },
       instancePermissions: [...request.user!.instancePermissions],
       projectPermissions: await projectPermissionsMap(app.db, request.user!),
@@ -576,7 +575,10 @@ export async function authRoutes(
     async (request, reply) => {
       const { email, instanceRoleId } = request.body;
       const grants = request.body.projects ?? [];
+      // Il token in chiaro va solo nella risposta (il link); nel DB e in ogni
+      // riga collegata, il suo hash (R3, `invite-token.ts`).
       const token = randomBytes(32).toString("base64url");
+      const stored = hashInviteToken(token);
       const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
       let warnings: InviteWarning[] = [];
       try {
@@ -586,22 +588,22 @@ export async function authRoutes(
           const roleId = await assertInviteGrants(tx, request.user!, instanceRoleId, grants);
           const workspaceGrants = await assertInviteWorkspaces(tx, request.user!, request.body.workspaces ?? []);
           await tx.insert(invites).values({
-            token,
+            token: stored,
             email,
             expiresAt,
             instanceRoleId: roleId,
             invitedByUserId: request.user!.id,
           });
-          await saveInviteGrants(tx, token, grants);
-          await saveInviteWorkspaces(tx, token, workspaceGrants);
+          await saveInviteGrants(tx, stored, grants);
+          await saveInviteWorkspaces(tx, stored, workspaceGrants);
           warnings = await inviteDepartmentWarnings(tx, request.user!, grants);
           // Area 9, F2: con l'id opaco e i nomi, mai il token.
-          await recordChange(tx, { type: "invite.created", actor: request.user!, projectId: null, data: { object: inviteObject(token, email), params: await inviteParams(tx, roleId, grants, workspaceGrants) } });
+          await recordChange(tx, { type: "invite.created", actor: request.user!, projectId: null, data: { object: inviteObject(stored, email), params: await inviteParams(tx, roleId, grants, workspaceGrants) } });
         });
       } catch (error) {
         return sendRoleRuleError(reply, error);
       }
-      return reply.code(201).send({ id: inviteIdOf(token), token, expiresAt: expiresAt.toISOString(), warnings });
+      return reply.code(201).send({ id: inviteIdOf(stored), token, expiresAt: expiresAt.toISOString(), warnings });
     },
   );
 
@@ -618,7 +620,7 @@ export async function authRoutes(
     },
     async (request, reply) => {
       const deleted = await app.db.transaction(async (tx) => {
-        const [row] = await tx.delete(invites).where(eq(invites.token, request.params.token)).returning({ token: invites.token, email: invites.email });
+        const [row] = await tx.delete(invites).where(eq(invites.token, hashInviteToken(request.params.token))).returning({ token: invites.token, email: invites.email });
         if (row) await recordChange(tx, { type: "invite.revoked", actor: request.user!, projectId: null, data: { object: inviteObject(row.token, row.email) } });
         return row;
       });
@@ -642,7 +644,7 @@ export async function authRoutes(
         response: { 200: inviteLinkSchema },
       },
     },
-    async (request) => readInvite(app.db, request.params.token),
+    async (request) => readInvite(app.db, hashInviteToken(request.params.token)),
   );
 
   app.post(
@@ -665,7 +667,7 @@ export async function authRoutes(
       const [invite] = await app.db
         .select()
         .from(invites)
-        .where(eq(invites.token, request.body.token));
+        .where(eq(invites.token, hashInviteToken(request.body.token)));
       // Token sconosciuto e token già consumato sono indistinguibili (la riga
       // non c'è più): stessa risposta 410.
       if (!invite) {
@@ -692,26 +694,6 @@ export async function authRoutes(
           "email_already_exists",
           "A user with this email already exists",
         );
-      }
-
-      // Identità Slack dell'invito propagata all'utente. Lo Slack id su `users`
-      // è unique: se è già di un altro utente, NON si fa fallire la
-      // registrazione: un pre-check (non atomico ma sufficiente — l'admin non
-      // emette inviti concorrenti sullo stesso Slack id) omette i campi Slack e
-      // crea comunque l'utente, senza identità Slack. È più semplice e robusto
-      // del distinguere la unique violation su email da quella su slack_user_id
-      // intercettando l'errore.
-      let inviteSlackUserId = invite.slackUserId;
-      let inviteSlackAvatarUrl = invite.slackAvatarUrl;
-      if (inviteSlackUserId) {
-        const [slackOwner] = await app.db
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.slackUserId, inviteSlackUserId));
-        if (slackOwner) {
-          inviteSlackUserId = null;
-          inviteSlackAvatarUrl = null;
-        }
       }
 
       const passwordHash = await hashPassword(request.body.password);
@@ -741,8 +723,6 @@ export async function authRoutes(
               // senza ruolo nell'invito, il trigger dà il preset `User`.
               role: "member",
               ...(invite.instanceRoleId ? { instanceRoleId: invite.instanceRoleId } : {}),
-              slackUserId: inviteSlackUserId,
-              slackAvatarUrl: inviteSlackAvatarUrl,
             })
             .returning();
           if (!created) throw new Error("insert del member non ha restituito la riga");

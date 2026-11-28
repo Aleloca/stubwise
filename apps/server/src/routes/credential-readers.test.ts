@@ -205,7 +205,7 @@ beforeAll(async () => {
   // Un secondo full admin, per l'avviso del recupero.
   const [second] = await testDb.db
     .insert(users)
-    .values({ email: "admin2@example.com", passwordHash: "x", role: "admin", notifySlackDm: false })
+    .values({ email: "admin2@example.com", passwordHash: "x", role: "admin" })
     .returning({ id: users.id });
   admin2 = {
     id: second!.id,

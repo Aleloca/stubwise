@@ -387,9 +387,6 @@ describe("PUT /api/settings/instance", () => {
       s3SecretKeyLast4: null,
       attachmentsEnabled: false,
       attachmentsSwitch: true,
-      slackSigningSecretSet: false,
-      slackBotTokenSet: false,
-      slackEnabled: false,
       spentUsd: expect.any(Number),
       budgetReached: false,
       budgetEffect: null,
@@ -642,25 +639,17 @@ function stripLanguage(full: typeof FULL_S3) {
   };
 }
 
-// --- Impostazioni d'istanza: credenziali Slack ---
+// --- Impostazioni d'istanza: niente Slack ---
 
-interface InstanceSlack {
-  slackSigningSecretSet: boolean;
-  slackBotTokenSet: boolean;
-  slackEnabled: boolean;
-}
-
-describe("PUT /api/settings/instance — Slack non c'è più (R2)", () => {
-  it("i segreti Slack mandati da un client di prima si scartano: niente si salva, i flag restano falsi", async () => {
+describe("PUT /api/settings/instance — Slack non c'è più (R2, R3)", () => {
+  it("i segreti Slack mandati da un client di prima si scartano, e la risposta non ha più campi Slack", async () => {
     const put = await putInstance(
       { contentLanguage: "en", slackSigningSecret: "secret-sig", slackBotToken: "secret-tok" } as never,
       users.adminCookie,
     );
     expect(put.statusCode).toBe(200);
-    const body = (await getInstance(users.adminCookie)).json() as InstanceSlack;
-    expect(body.slackSigningSecretSet).toBe(false);
-    expect(body.slackBotTokenSet).toBe(false);
-    expect(body.slackEnabled).toBe(false);
+    const body = (await getInstance(users.adminCookie)).json() as Record<string, unknown>;
+    expect(Object.keys(body).filter((k) => /slack/i.test(k))).toEqual([]);
     expect(JSON.stringify(body)).not.toContain("secret-sig");
   });
 });

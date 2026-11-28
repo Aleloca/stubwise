@@ -79,10 +79,7 @@ describe("la riconferma sulle rotte con segreti", () => {
     expect(row!.label).toBe("Rinominato");
 
     expect((await call(stale, "PUT", "/api/settings/instance", { contentLanguage: "it" })).statusCode).toBe(200);
-    await expectReauth(await call(stale, "PUT", "/api/settings/instance", { contentLanguage: "it", slackBotToken: "xoxb-nuovo" }));
     await expectReauth(await call(stale, "PUT", "/api/settings/instance", { contentLanguage: "it", s3SecretKey: "" }));
-    const [settings] = await db.select().from(instanceSettings);
-    expect(settings?.slackBotTokenEncrypted ?? null).toBeNull();
   });
 });
 

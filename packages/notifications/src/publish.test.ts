@@ -72,8 +72,6 @@ describe("publishNotification", () => {
   /** Crea un utente col ruolo dato; email univoca per chiamata. */
   async function seedUser(opts: {
     role: "admin" | "member";
-    slackUserId?: string | null;
-    notifySlackDm?: boolean;
     notifyPush?: boolean;
   }): Promise<string> {
     const [row] = await db
@@ -82,8 +80,6 @@ describe("publishNotification", () => {
         email: `${randomUUID()}@example.com`,
         passwordHash: "hash-placeholder",
         role: opts.role,
-        slackUserId: opts.slackUserId ?? null,
-        notifySlackDm: opts.notifySlackDm ?? true,
         notifyPush: opts.notifyPush ?? true,
       })
       .returning();
@@ -135,7 +131,7 @@ describe("publishNotification", () => {
    */
   async function seedScenario() {
     const { projectId, ticketId } = await seedTicket(db);
-    const adminId = await seedUser({ role: "admin", slackUserId: `U${randomUUID().slice(0, 8)}` });
+    const adminId = await seedUser({ role: "admin" });
     const followerId = await seedUser({ role: "member" });
     const outsiderId = await seedUser({ role: "member" });
     await joinProject(followerId, projectId);
@@ -280,14 +276,6 @@ describe("publishNotification", () => {
     expect(rows.map((row) => row.userId).sort()).toEqual([adminId, followerId, outsiderId].sort());
   });
 
-  it("non crea più nessuna slack_dm, nemmeno per chi ha un'identità Slack (R2)", async () => {
-    const { projectId, ticketId } = await seedScenario();
-
-    await publishNotification(db, prOpened, { projectId, ticketId });
-
-    expect(await db.select().from(notificationDeliveries)).toEqual([]);
-  });
-
   it("crea una push per chi ha un device attivo, legata alla SUA notifica", async () => {
     const { projectId, ticketId } = await seedTicket(db);
     // Nessuna identità Slack: così l'unica consegna possibile è la push, e
@@ -351,7 +339,6 @@ describe("publishNotification", () => {
     const { projectId, ticketId } = await seedTicket(db);
     const adminId = await seedUser({
       role: "admin",
-      slackUserId: `U${randomUUID().slice(0, 8)}`,
     });
     await seedDevice(adminId, { platform: "ios" });
     await seedDevice(adminId, { platform: "android" });
@@ -657,8 +644,6 @@ describe("publishNotification", () => {
     it("con notifyPush=false la consegna push viene comunque scritta (e nessun DM Slack, R2)", async () => {
       const userId = await seedUser({
         role: "member",
-        slackUserId: `U${randomUUID().slice(0, 8)}`,
-        notifySlackDm: false,
         notifyPush: false,
       });
       await seedDevice(userId);
@@ -671,8 +656,8 @@ describe("publishNotification", () => {
       expect(deliveries.every((d) => d.notificationId === row?.id)).toBe(true);
     });
 
-    it("senza device e senza Slack resta solo la riga d'inbox", async () => {
-      const userId = await seedUser({ role: "member", notifySlackDm: false, notifyPush: false });
+    it("senza device resta solo la riga d'inbox", async () => {
+      const userId = await seedUser({ role: "member", notifyPush: false });
       // Un device spento non è un recapito: l'obbligatorietà salta le
       // preferenze, non i requisiti del canale.
       await seedDevice(userId, { disabledReason: "invalid_token" });
@@ -689,8 +674,6 @@ describe("publishNotification", () => {
       const { projectId, ticketId } = await seedTicket(db);
       const userId = await seedUser({
         role: "admin",
-        slackUserId: `U${randomUUID().slice(0, 8)}`,
-        notifySlackDm: false,
         notifyPush: false,
       });
       await seedDevice(userId);
@@ -978,7 +961,6 @@ describe("publishNotification", () => {
       const { projectId, ticketId } = await seedTicket(db);
       const removedId = await seedUser({
         role: "member",
-        slackUserId: `U${randomUUID().slice(0, 8)}`,
       });
       await seedDevice(removedId);
       await db.insert(projectFollows).values({ userId: removedId, projectId });

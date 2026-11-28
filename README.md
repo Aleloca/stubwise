@@ -69,11 +69,9 @@ Stubwise still works as a complete self-hosted issue tracker.
 - **Attachments** on tickets, stored on an S3-compatible bucket.
 - **Milestones**: group a project's tickets into milestones with a due date and
   completion progress.
-- **Saved views**: save a combination of ticket-list filters as a private or
-  team-shared view and re-apply it in one click.
-- **Inbound channels beyond the SDK**: manual tickets, an inbound webhook and
-  Slack (`/stubwise` slash command and a "Create Stubwise ticket" message
-  action).
+- **Saved filters**: save a combination of task filters and re-apply it in
+  one click.
+- **Inbound channels beyond the SDK**: manual tickets and an inbound webhook.
 - **Customer-service widget**: an embeddable chat widget (`/widget.js`) that
   answers from your docs via RAG and can open tickets from user reports.
   Multiple widgets per project, per-widget keys, path filters and daily caps.
@@ -115,7 +113,7 @@ Stubwise still works as a complete self-hosted issue tracker.
 ### Platform
 
 - **Team management**: invites, admin/member roles, and per-member linking of
-  git, Bitbucket and Slack identities (used by activity reports and Slack).
+  git and Bitbucket identities (used by activity reports).
 - **Pluggable git providers**: GitHub and Bitbucket Cloud included; merged-PR
   webhooks close the ticket.
 - **Fully self-hostable**: one Docker Compose stack, automatic HTTPS via Caddy,

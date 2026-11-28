@@ -15,7 +15,6 @@ beforeAll(async () => {
       email: "Reporter@Example.com",
       passwordHash: "x",
       role: "member",
-      slackUserId: "Ureporter1",
     })
     .returning({ id: users.id });
   if (!user) throw new Error("insert utente fallita");

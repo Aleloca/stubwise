@@ -13,7 +13,7 @@ const session = {
   baseUrl: "https://stubwise.example",
   token: "stw_pat_abc123",
   patId: "pat-1",
-  user: { id: "u1", email: "a@b.it", role: "member", language: "it", avatarUrl: null, slackUserId: null },
+  user: { id: "u1", email: "a@b.it", role: "member", language: "it", avatarUrl: null },
 };
 
 function jsonResponse(status: number, body: unknown): Response {

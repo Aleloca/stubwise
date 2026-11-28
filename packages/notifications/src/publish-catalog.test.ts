@@ -30,7 +30,7 @@ beforeEach(async () => {
   await db.delete(notificationDeliveries);
 });
 
-async function person(opts: { role?: "admin" | "member"; notifyPush?: boolean; slack?: boolean; device?: boolean } = {}) {
+async function person(opts: { role?: "admin" | "member"; notifyPush?: boolean; device?: boolean } = {}) {
   const [u] = await db
     .insert(users)
     .values({
@@ -38,8 +38,6 @@ async function person(opts: { role?: "admin" | "member"; notifyPush?: boolean; s
       passwordHash: "x",
       role: opts.role ?? "member",
       notifyPush: opts.notifyPush ?? true,
-      slackUserId: opts.slack ? `U${randomUUID().slice(0, 8)}` : null,
-      notifySlackDm: true,
     })
     .returning();
   if (opts.device) await db.insert(deviceTokens).values({ userId: u!.id, platform: "ios", token: `tok-${randomUUID()}` });
@@ -65,8 +63,8 @@ const deliveriesOf = async (channel: "push" | "slack_dm" | "webhook") =>
 
 async function scenario() {
   const { projectId } = await seedRepository(db);
-  const admin = await person({ role: "admin", slack: true, device: true });
-  const lead = await person({ slack: true, device: true });
+  const admin = await person({ role: "admin", device: true });
+  const lead = await person({ device: true });
   const dev = await person({ device: true });
   const viewer = await person({ device: true });
   await join(lead, projectId, "project_lead");

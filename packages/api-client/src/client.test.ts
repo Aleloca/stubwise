@@ -612,7 +612,7 @@ describe("login del desktop dal browser", () => {
         : jsonResponse(200, {
             token: "stw_pat_x",
             patId: "0b1e6f3a-1111-4222-8333-444455556666",
-            user: { id: "0b1e6f3a-1111-4222-8333-444455556666", email: "a@b.it", role: "member", language: "it", avatarUrl: null, slackUserId: null },
+            user: { id: "0b1e6f3a-1111-4222-8333-444455556666", email: "a@b.it", role: "member", language: "it", avatarUrl: null },
           });
     });
     const c = clientWith(fetchImpl);

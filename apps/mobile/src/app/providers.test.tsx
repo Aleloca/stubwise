@@ -43,7 +43,7 @@ const session = {
   baseUrl: "https://stubwise.example",
   token: "stw_pat_x",
   patId: "pat-1",
-  user: { id: "u1", email: "giulia@farmakom.it", role: "member", language: "it", avatarUrl: null, slackUserId: null },
+  user: { id: "u1", email: "giulia@farmakom.it", role: "member", language: "it", avatarUrl: null },
 };
 
 function fakeClient(unreadCount = 0) {

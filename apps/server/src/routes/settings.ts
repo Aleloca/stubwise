@@ -75,11 +75,6 @@ async function loadInstanceSettings(
     s3SecretKeyLast4: row?.s3SecretKeyEncrypted != null ? (row.s3SecretKeyLast4 ?? null) : null,
     attachmentsEnabled,
     attachmentsSwitch,
-    // Mai i segreti Slack: solo se c'è un blob cifrato salvato. slackEnabled =
-    // entrambi presenti (integrazione completa).
-    slackSigningSecretSet: row?.slackSigningSecretEncrypted != null,
-    slackBotTokenSet: row?.slackBotTokenEncrypted != null,
-    slackEnabled: row?.slackSigningSecretEncrypted != null && row?.slackBotTokenEncrypted != null,
     // Il budget con la regola del worker (`aiBudgetState`): una sola definizione di «raggiunto».
     spentUsd: await monthlyCostUsd(db),
     budgetReached: (await aiBudgetState(db)).exhausted,
@@ -196,7 +191,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/instance",
     {
-      config: { mcp: { action: "settings.instance", summary: "Le impostazioni dell'istanza (lingua dei contenuti, budget mensile, storage S3, Slack), senza segreti.", effect: "read" }, access: { kind: "instance", permission: "settings.manage" } },
+      config: { mcp: { action: "settings.instance", summary: "Le impostazioni dell'istanza (lingua dei contenuti, budget mensile, storage S3), senza segreti.", effect: "read" }, access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         response: { 200: instanceSettingsViewSchema, ...authErrorResponses },
       },
@@ -209,7 +204,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/instance",
     {
-      config: { mcp: { action: "settings.updateInstance", summary: "Modifica le impostazioni dell'istanza: lingua dei contenuti, budget mensile, storage S3, Slack.", effect: "write", note: "Un segreto nuovo (chiave S3, segreti Slack) e un cambio di endpoint o bucket dello storage (decidono dove vanno gli allegati di tutti) chiedono la riconferma: da qui session_required. Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "settings.manage" }, partialReauth: true },
+      config: { mcp: { action: "settings.updateInstance", summary: "Modifica le impostazioni dell'istanza: lingua dei contenuti, budget mensile, storage S3.", effect: "write", note: "Un segreto nuovo (chiave S3) e un cambio di endpoint o bucket dello storage (decidono dove vanno gli allegati di tutti) chiedono la riconferma: da qui session_required. Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "settings.manage" }, partialReauth: true },
       schema: {
         body: updateInstanceSettingsSchema,
         response: {

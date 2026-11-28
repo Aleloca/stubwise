@@ -7732,66 +7732,6 @@ deploy o di un rollback che la tocca.
   file d'ambiente saltava), e senza `replaced`/`skipped` l'esito dell'import
   conta tutto come nuovo, nessuna riga saltata.
 
-- **«Stati senza enum», R3 del ritiro del web vecchio: le migrazioni (28 nov
-  2026, PRONTO MA DA NON DEPLOYARE PRIMA DELLA CONDIZIONE QUI SOTTO)**: ramo
-  `feat/taglio-r3-stati`, sopra `feat/stati-senza-enum` (R0, #146). Piano
-  `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md` §1.1 («R3») e §1.2; le
-  regole in `docs/invariants/tasks.md` («L'enum non c'è più»).
-  - **Migrazione `0245_tickets_senza_enum`** (DISTRUTTIVA): via i trigger
-    `tickets_status_sync` e `tickets_triaged_reset` e le loro funzioni, via
-    la colonna `tickets.status` (e con lei l'indice
-    `tickets_project_id_status_idx`), `project_statuses.legacy_status` da
-    enum a `text` con un CHECK sui sei valori di prima, le funzioni
-    `stubwise_legacy_family`, `stubwise_status_for_legacy` e
-    `stubwise_ticket_status` ricreate con `text`, il trigger nuovo
-    `tickets_state` (INSERT senza stato → il primo todo; cambio di progetto →
-    lo stato dal ruolo dello stato di prima; `closed_at` dalla famiglia; il
-    segno dello smistamento solo in todo), e infine `DROP TYPE
-    ticket_status`. Ogni DROP in uno statement a sé, nessun `ADD VALUE`. I
-    dati dei ticket non si muovono (stato, `closed_at`, `triaged_at`, status
-    derivato: il test lo prova riga per riga).
-  - **Server**: l'ultimo scrittore dichiarato dell'enum (il riallineamento
-    in `routes/project-statuses.ts` quando uno stato cambia famiglia) non
-    scrive più la colonna; tiene `closed_at` e `triaged_at` delle task di uno
-    stato che cambia famiglia. La guardia sul sorgente dell'SQL grezzo
-    diventa «la colonna non esiste» (un lettore o uno scrittore nuovo fallisce
-    con 42703); resta quella sulle scritture drizzle con una chiave `status`.
-  ⚠️ **Condizioni**, tutte e due:
-  - in produzione c'è almeno `fix/ruoli-senza-cast-enum` (i frammenti dei
-    ruoli senza il cast al tipo `ticket_status`): senza, un'immagine di prima
-    sul DB di dopo fallisce a ogni scrittura di un ruolo, e il rollback a R2
-    non regge;
-  - R3 parte **due settimane dopo R2** (decisione D8 del maintainer), cioè
-    quando per due settimane nessuno ha avuto bisogno di scendere sotto R2.
-    Prima, un rollback deve poter tornare a un'immagine che nomina ancora la
-    colonna.
-  ⚠️ **La migrazione dev'essere l'ULTIMA del journal al merge**, di numero e
-  di `when`: drizzle applica per `when`, e una migrazione con un `when` più
-  piccolo arrivata dopo si salterebbe in silenzio.
-  `migration-0245.test.ts` («il journal delle migrazioni») lo controlla su
-  tutto il journal: se nel frattempo ne sono arrivate altre, si rinumera e
-  si sposta `when` dopo l'ultima.
-  **Deploy**: **backup del DB prima** (la migrazione toglie una colonna e un
-  tipo). Poi ribuildare **`server`** (applica la migrazione all'avvio),
-  healthy e migrazione applicata, poi `worker` e `caddy`. Nessuna env, nessun
-  `notification_kind` nuovo. Il worker di R0/R2 non nomina la colonna, quindi
-  la finestra fra i due rebuild è sicura.
-  **Controllo dopo il deploy**:
-  ```sql
-  select count(*) from information_schema.columns where table_name = 'tickets' and column_name = 'status';  -- 0
-  select count(*) from pg_type where typname = 'ticket_status';                                            -- 0
-  select tgname from pg_trigger where tgrelid = 'tickets'::regclass and not tgisinternal and tgname like 'tickets_st%';  -- tickets_state
-  ```
-  Poi, nella nuova app, una task che si chiude e si riapre (la data di
-  chiusura), una spostata di progetto, e uno stato che cambia famiglia in
-  Impostazioni → Stati.
-  **Rollback**: si scende **AL MASSIMO a R2**, e solo a un'immagine che ha già
-  `fix/ruoli-senza-cast-enum`: il codice di prima di R0 nomina la colonna, e
-  quello fra R0 e quel fix nomina il tipo, che non ci sono più. Su
-  un'immagine così scendere è sicuro (non legge né scrive l'enum, e il
-  trigger nuovo fa ciò che facevano quelli vecchi senza la colonna). Per tornare a un'immagine di prima di R0 serve il
-  backup fatto prima di R3, con i dati di dopo persi: per questo R3 aspetta.
-
 - **«Stati senza enum», R0 del ritiro del web vecchio (28 nov 2026)**: ramo
   `feat/stati-senza-enum`, blocco T del piano
   `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md`. Nessuno legge o
@@ -8059,3 +7999,109 @@ deploy o di un rollback che la tocca.
   scelte fatte nel frattempo (inviti, preferenze) valgono anche per il
   codice di prima. R3 (le colonne) parte solo con R2 stabile, perché dopo
   R3 si scende al massimo a R2.
+- **«Il taglio del web vecchio, R3»: le migrazioni (28 nov 2026)**: UN
+  rilascio e UNA PR, ramo `feat/taglio-r3-pulizia` (sopra `feat/taglio-r2`,
+  con dentro `feat/taglio-r3-stati` di 79). Piano
+  `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md` §1.1 («R3»), §1.2 e §3;
+  le regole in `docs/invariants/tasks.md` («L'enum non c'è più»). Il passo
+  finale, i DROP delle colonne Slack, è **R3b** (la 0247, col suo ramo
+  `feat/taglio-r3b` e la sua voce), lo stesso
+  giorno ma DOPO la verifica di R3 in produzione: così R3 si può ancora
+  annullare scendendo a R2.
+  - **Migrazione `0245_tickets_senza_enum`** (DISTRUTTIVA): via i trigger
+    `tickets_status_sync` e `tickets_triaged_reset` e le loro funzioni, via
+    la colonna `tickets.status` (e con lei l'indice
+    `tickets_project_id_status_idx`), `project_statuses.legacy_status` da
+    enum a `text` con un CHECK sui sei valori di prima, le funzioni
+    `stubwise_legacy_family`, `stubwise_status_for_legacy` e
+    `stubwise_ticket_status` ricreate con `text`, il trigger nuovo
+    `tickets_state` (INSERT senza stato → il primo todo; cambio di progetto →
+    lo stato dal ruolo dello stato di prima; `closed_at` dalla famiglia; il
+    segno dello smistamento solo in todo), e infine `DROP TYPE
+    ticket_status`. Ogni DROP in uno statement a sé, nessun `ADD VALUE`. I
+    dati dei ticket non si muovono (stato, `closed_at`, `triaged_at`, status
+    derivato: il test lo prova riga per riga).
+  - **Server**: l'ultimo scrittore dichiarato dell'enum (il riallineamento
+    in `routes/project-statuses.ts` quando uno stato cambia famiglia) non
+    scrive più la colonna; tiene `closed_at` e `triaged_at` delle task di uno
+    stato che cambia famiglia. La guardia sul sorgente dell'SQL grezzo
+    diventa «la colonna non esiste» (un lettore o uno scrittore nuovo fallisce
+    con 42703); resta quella sulle scritture drizzle con una chiave `status`.
+  - **Migrazione `0246_slack_saved_views_inviti`** (distruttiva per i dati
+    che toglie, non per lo schema che R2 legge):
+    - via le consegne `slack_dm`/`slack_update` (da R2 il poller le chiudeva
+      `skipped`, nessuno le legge);
+    - `DROP TABLE saved_views` (le viste salvate del web vecchio; R2 dichiara
+      la tabella ma non la interroga);
+    - **il token degli inviti come hash**, calcolato sul posto:
+      `encode(sha256(convert_to(token, 'UTF8')), 'hex')` su `invites.token`
+      e sulle due tabelle figlie (`invite_projects`, `invite_workspaces`),
+      togliendo e rimettendo identiche le loro chiavi esterne. I link già
+      spediti funzionano ancora: il server ora cerca l'hash del token che
+      riceve (`apps/server/src/services/invite-token.ts`), e il token in
+      chiaro esiste solo nella risposta che crea l'invito.
+    Le colonne Slack ed `external_ref` RESTANO (le toglie la 0247): il codice
+    di R2 le nomina, a ogni richiesta autenticata.
+  - **Codice**: niente più Slack nelle risposte e negli schemi (il campo
+    `slackUserId` della sessione e degli utenti, `slackDm`/`slackLinked`
+    delle preferenze di notifica, i flag `slack*` dell'istanza); un body con
+    `slackDm` ora è un 400 (lo schema è `strict`). L'avatar è solo la foto
+    caricata (`/api/users/:id/avatar`), mai più quello di Slack. Il
+    riallineamento degli stati che cambiano famiglia non scrive più la
+    colonna enum (79).
+  ⚠️ **Il journal**: 0245 e 0246 viaggiano insieme, nell'ordine di numero e
+  di `when` (drizzle applica per `when`, e una migrazione con un `when` più
+  piccolo arrivata dopo si salterebbe in silenzio). `migration-0245.test.ts`
+  («il journal delle migrazioni») controlla l'ordine su tutto il journal, e
+  che il journal elenchi esattamente i file `.sql` della cartella.
+  ⚠️ **Condizioni**: in produzione c'è già R2, e con lui
+  `fix/ruoli-senza-cast-enum` (#149, i frammenti dei ruoli senza il cast al
+  tipo `ticket_status`): senza, un'immagine di prima sul DB di dopo fallisce
+  a ogni scrittura di un ruolo, e il rollback a R2 non regge. Le «due
+  settimane dopo R2» di D8 non valgono più: il maintainer ha deciso di
+  rilasciare R1, R2 e R3 lo stesso giorno, col backup prima di R3.
+  **Chi si rompe, accettato**:
+  - **l'app mobile** (D5): legge `slackUserId` e le preferenze di prima, e
+    il parse fallisce;
+  - **il Mac installato smette di funzionare dal deploy di R3** (se non si
+    era già fermato con R1) **fino all'installazione nuova**: il suo parse
+    di `/api/auth/me` pretende `slackUserId`. Il pacchetto FIRMATO lo
+    costruisce il maintainer una volta, da questo stato finale;
+  - una scheda del browser aperta col JS di prima, fino al ricaricamento
+    (l'`index.html` non va in cache: basta un reload).
+  **Deploy**:
+  1. **backup del DB prima** (la 0245 toglie una colonna e un tipo, la 0246
+     cancella righe e una tabella e riscrive i token degli inviti);
+  2. `server` (applica 0245 e 0246 all'avvio), healthy e migrazioni
+     applicate;
+  3. `worker` (senza lavoro dell'agente in corso) e `caddy`, nello stesso
+     giro: il renderer nuovo legge la sessione senza `slackUserId`. Fra
+     server e caddy, una scheda aperta può dare errore sulla sessione per
+     qualche minuto.
+  Nessuna env, nessun `notification_kind` nuovo.
+  **Controllo dopo il deploy**:
+```sql
+  select count(*) from information_schema.columns where table_name = 'tickets' and column_name = 'status';  -- 0
+  select count(*) from pg_type where typname = 'ticket_status';                                            -- 0
+  select tgname from pg_trigger where tgrelid = 'tickets'::regclass and not tgisinternal and tgname like 'tickets_st%';  -- tickets_state
+  ```
+  ```sql
+  select count(*) from information_schema.tables where table_name = 'saved_views';   -- 0
+  select count(*) from notification_deliveries where channel::text like 'slack%';    -- 0
+  select count(*) from invites where token !~ '^[0-9a-f]{64}$';                       -- 0 (tutti hash)
+  ```
+  Poi, nella nuova app: una task che si chiude e si riapre (la data di
+  chiusura), una spostata di progetto, uno stato che cambia famiglia in
+  Impostazioni → Stati; un invito nuovo aperto dal suo link fino alla
+  registrazione, e un invito spedito PRIMA del deploy che si apre ancora.
+  **Rollback**: si scende **AL MASSIMO a R2**, sull'immagine R2 (che ha già
+  #149). È sicuro per lo schema: R2 non legge l'enum né `saved_views`, e le
+  colonne Slack ci sono ancora. Due limiti, accettati:
+  - gli **inviti in sospeso non si aprono** finché si resta su R2 (R2 li
+    cerca col token in chiaro, nel DB c'è l'hash); un invito creato durante
+    il rollback funziona su R2, ma tornando su R3 non si apre più (R3 cerca
+    l'hash di un token salvato in chiaro): va rifatto;
+  - i DM Slack di prima non ci sono più (le righe le ha tolte la 0246), ma
+    da R2 non partivano comunque.
+  Per tornare sotto R2 serve il backup fatto prima di R3, coi dati di dopo
+  persi.

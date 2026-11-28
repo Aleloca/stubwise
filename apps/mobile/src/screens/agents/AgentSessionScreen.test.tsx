@@ -226,7 +226,7 @@ async function renderScreen(
   const authValue: AuthContextValue = {
     status: "authenticated",
     client,
-    user: { id: "viewer-1", email: "op@example.com", role: options.role ?? "admin", language: "it", avatarUrl: null, slackUserId: null },
+    user: { id: "viewer-1", email: "op@example.com", role: options.role ?? "admin", language: "it", avatarUrl: null },
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
@@ -511,7 +511,7 @@ describe("AgentSessionScreen", () => {
     const authValue = {
       status: "authenticated",
       client,
-      user: { id: "viewer-1", email: "op@example.com", role: "admin", language: "it", avatarUrl: null, slackUserId: null },
+      user: { id: "viewer-1", email: "op@example.com", role: "admin", language: "it", avatarUrl: null },
       justLoggedIn: false,
       login: jest.fn(),
       completeOnboarding: jest.fn(),

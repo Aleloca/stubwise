@@ -1045,8 +1045,8 @@ export type ProjectFollows = z.infer<typeof projectFollowsSchema>;
 
 /**
  * Preferenze di notifica dell'utente: i canali OPZIONALI su cui recapitare —
- * il DM Slack (`users.notify_slack_dm`) e la push sui device mobili
- * (`users.notify_push`). L'inbox in-app non è disattivabile: è la superficie
+ * oggi la sola push sui device mobili (`users.notify_push`; il DM Slack è
+ * andato via con R2, la sua colonna con R3). L'inbox in-app non è disattivabile: è la superficie
  * primaria, non un canale.
  *
  * Questa è la forma in LETTURA: i canali ci sono tutti, sempre. Un client deve
@@ -1055,7 +1055,6 @@ export type ProjectFollows = z.infer<typeof projectFollowsSchema>;
  * patch (vedi {@link notificationPrefsUpdateSchema}).
  */
 export const notificationPrefsSchema = z.object({
-  slackDm: z.boolean(),
   push: z.boolean(),
 });
 /**
@@ -1082,14 +1081,14 @@ export type NotificationPrefs = z.infer<typeof notificationPrefsSchema>;
  * Resta invece 400 un campo presente col tipo sbagliato.
  *
  * `.strict()` non è un'eccezione ma il precedente del repo per questa forma:
- * `apps/server/src/routes/saved-views.ts` fa la stessa cosa (tutti i campi
- * opzionali + strict) per la stessa ragione, e `backlog.ts` ne ha altri sei.
+ * `backlog.ts` fa la stessa cosa (tutti i campi opzionali + strict) per la
+ * stessa ragione. Dal R3 una `slackDm` di un client vecchio è un 400.
  * Su una patch lo strip è pericoloso in un modo che su un body a campi
  * obbligatori non è: con tutti i campi opzionali, `{ pussh: false }` sarebbe
  * ripulito a
  * `{}` e risponderebbe 204, cioè un typo indistinguibile da un successo.
  * Finché i campi erano obbligatori quel caso dava 400 per un effetto
- * collaterale (mancava `slackDm`); rendendo il body una patch quella
+ * collaterale (mancava un campo); rendendo il body una patch quella
  * protezione è sparita, e `.strict()` la rimette di proposito. La chiave
  * sconosciuta diventa un 400 con dentro il nome che non conosciamo, che è
  * l'informazione che serve a chi ha sbagliato a scrivere.
@@ -1098,13 +1097,11 @@ export const notificationPrefsUpdateSchema = notificationPrefsSchema.partial().s
 export type NotificationPrefsUpdate = z.infer<typeof notificationPrefsUpdateSchema>;
 
 /**
- * Le preferenze più il contesto che serve alla UI per renderle: senza identità
- * Slack collegata (`users.slack_user_id`) il toggle del DM va mostrato
- * disabilitato, perché anche acceso il canale resterebbe muto.
+ * La forma in lettura di `GET /api/me/notification-prefs`: le preferenze, e
+ * basta (il contesto `slackLinked` è andato via con Slack, R3). Un nome a sé
+ * perché è la vista che i client leggono, distinta dal body di scrittura.
  */
-export const notificationPrefsViewSchema = notificationPrefsSchema.extend({
-  slackLinked: z.boolean(),
-});
+export const notificationPrefsViewSchema = notificationPrefsSchema;
 export type NotificationPrefsView = z.infer<typeof notificationPrefsViewSchema>;
 
 /**

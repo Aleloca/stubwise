@@ -84,7 +84,7 @@ function authValue(client: StubwiseClient): AuthContextValue {
   return {
     status: "authenticated",
     client,
-    user: { id: "u1", email: "giulia@acme.test", role: "member", language: "it", avatarUrl: null, slackUserId: null },
+    user: { id: "u1", email: "giulia@acme.test", role: "member", language: "it", avatarUrl: null },
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),

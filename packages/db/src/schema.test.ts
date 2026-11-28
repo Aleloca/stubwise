@@ -22,7 +22,6 @@ import {
   gitAuthorsSeen,
   gitIdentities,
   instanceSettings,
-  invites,
   milestones,
   notificationSettings,
   personalAccessTokens,
@@ -31,7 +30,6 @@ import {
   projectEnvironments,
   projects,
   repositories,
-  savedViews,
   servers,
   ticketEvents,
   ticketLinks,
@@ -136,12 +134,11 @@ describe("schema: loop di feedback AI", () => {
 });
 
 /**
- * Verifica l'ingestion esterna lato schema: i nuovi valori 'slack' e 'webhook'
- * dell'enum ticket_source sono inseribili/rileggibili e il singleton
- * instance_settings espone le colonne cifrate slack_signing_secret_encrypted e
- * slack_bot_token_encrypted (round-trip; default null quando non impostate).
+ * Verifica l'ingestion esterna lato schema: i valori 'slack' e 'webhook'
+ * dell'enum ticket_source sono inseribili/rileggibili ('slack' resta per i
+ * ticket di prima: le colonne Slack dell'istanza sono andate via con R3).
  */
-describe("schema: ingestion esterna (source slack/webhook + colonne Slack)", () => {
+describe("schema: ingestion esterna (source slack/webhook)", () => {
   let testDb: TestDb;
   let db: Db;
 
@@ -197,26 +194,6 @@ describe("schema: ingestion esterna (source slack/webhook + colonne Slack)", () 
     expect(read?.source).toBe("webhook");
   });
 
-  it("scrive e rilegge le colonne Slack cifrate del singleton instance_settings (id=1)", async () => {
-    await db
-      .update(instanceSettings)
-      .set({
-        slackSigningSecretEncrypted: "signing-blob-cifrato",
-        slackBotTokenEncrypted: "token-blob-cifrato",
-      })
-      .where(eq(instanceSettings.id, 1));
-
-    const [updated] = await db.select().from(instanceSettings).where(eq(instanceSettings.id, 1));
-    expect(updated?.slackSigningSecretEncrypted).toBe("signing-blob-cifrato");
-    expect(updated?.slackBotTokenEncrypted).toBe("token-blob-cifrato");
-  });
-
-  it("lascia le colonne Slack null di default su una riga effimera", async () => {
-    // Riga effimera id=3 per non dipendere dallo stato di id=1.
-    const [row] = await db.insert(instanceSettings).values({ id: 3 }).returning();
-    expect(row?.slackSigningSecretEncrypted).toBeNull();
-    expect(row?.slackBotTokenEncrypted).toBeNull();
-  });
 });
 
 /**
@@ -1000,91 +977,6 @@ describe("schema: milestones + tickets.milestoneId", () => {
 });
 
 /**
- * Verifica la tabella saved_views: round-trip dell'oggetto jsonb `filters`;
- * il default false di `shared`; l'unique (owner_id, name); e la cancellazione
- * in cascata dall'utente proprietario.
- */
-describe("schema: saved_views", () => {
-  let testDb: TestDb;
-  let db: Db;
-
-  beforeAll(async () => {
-    testDb = await startTestDb();
-    db = testDb.db;
-  });
-
-  afterAll(async () => {
-    await testDb.stop();
-  });
-
-  async function seedUser(): Promise<string> {
-    const [user] = await db
-      .insert(users)
-      .values({
-        email: `owner-${randomUUID()}@example.com`,
-        passwordHash: "x",
-        role: "member",
-      })
-      .returning();
-    if (!user) throw new Error("insert dell'utente non ha restituito la riga");
-    return user.id;
-  }
-
-  it("persiste e rilegge una saved_view con filters jsonb non banale (shared default false)", async () => {
-    const ownerId = await seedUser();
-    const filters = {
-      status: "open",
-      type: "bug",
-      priority: "high",
-      assigneeId: randomUUID(),
-      milestoneId: randomUUID(),
-      q: "checkout crash",
-    };
-    const [inserted] = await db
-      .insert(savedViews)
-      .values({ ownerId, name: "I miei bug aperti", filters })
-      .returning();
-    if (!inserted) throw new Error("insert della saved_view non ha restituito la riga");
-
-    const [read] = await db.select().from(savedViews).where(eq(savedViews.id, inserted.id));
-    expect(read?.ownerId).toBe(ownerId);
-    expect(read?.name).toBe("I miei bug aperti");
-    expect(read?.shared).toBe(false);
-    expect(read?.filters).toEqual(filters);
-    expect(read?.createdAt).toBeInstanceOf(Date);
-  });
-
-  it("vieta due saved_view omonime per lo stesso owner, ammette omonime per owner diversi", async () => {
-    const ownerA = await seedUser();
-    const ownerB = await seedUser();
-    await db.insert(savedViews).values({ ownerId: ownerA, name: "Vista", filters: {} });
-
-    await expect(
-      db.insert(savedViews).values({ ownerId: ownerA, name: "Vista", filters: {} }),
-    ).rejects.toThrow();
-
-    const [other] = await db
-      .insert(savedViews)
-      .values({ ownerId: ownerB, name: "Vista", filters: {} })
-      .returning();
-    expect(other?.ownerId).toBe(ownerB);
-  });
-
-  it("cancella in cascata le saved_view quando l'utente proprietario viene eliminato", async () => {
-    const ownerId = await seedUser();
-    await db.insert(savedViews).values({ ownerId, name: "da-cancellare", filters: {} });
-
-    const before = await db.select().from(savedViews).where(eq(savedViews.ownerId, ownerId));
-    expect(before.length).toBe(1);
-
-    await db.delete(users).where(eq(users.id, ownerId));
-
-    const after = await db.select().from(savedViews).where(eq(savedViews.ownerId, ownerId));
-    expect(after.length).toBe(0);
-  });
-});
-
-/**
  * Verifica la tabella personal_access_tokens: persistenza di un token per un
  * utente (round-trip del tokenHash, default null di lastUsedAt/expiresAt).
  */
@@ -1315,148 +1207,6 @@ describe("schema: implementation_plan + origin_content (backlog_items + tickets)
     const [read] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
     expect(read?.implementationPlan).toBe("## Piano di implementazione\n- Modifica A\n- Modifica B");
     expect(read?.originContent).toBe("Testo originale del ticket prima del design doc");
-  });
-});
-
-/**
- * Verifica le colonne di identità Slack: users.slack_user_id (unique, nullable)
- * + users.slack_avatar_url, e invites.slack_user_id (NON unique) +
- * invites.slack_avatar_url. In particolare l'unique su users.slack_user_id
- * vieta due membri con lo stesso id Slack non-null ma ammette più membri con
- * id Slack null (semantica NULL di Postgres), mentre gli inviti possono
- * condividere lo stesso id Slack.
- */
-describe("schema: identità Slack (users + invites)", () => {
-  let testDb: TestDb;
-  let db: Db;
-
-  beforeAll(async () => {
-    testDb = await startTestDb();
-    db = testDb.db;
-  });
-
-  afterAll(async () => {
-    await testDb.stop();
-  });
-
-  it("persiste e rilegge un utente con slackUserId e slackAvatarUrl", async () => {
-    const slackUserId = `U${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
-    const [inserted] = await db
-      .insert(users)
-      .values({
-        email: `slack-${randomUUID()}@example.com`,
-        passwordHash: "x",
-        role: "member",
-        slackUserId,
-        slackAvatarUrl: "https://avatars.slack-edge.com/abc.png",
-      })
-      .returning();
-    if (!inserted) throw new Error("insert dell'utente non ha restituito la riga");
-
-    const [read] = await db.select().from(users).where(eq(users.id, inserted.id));
-    expect(read?.slackUserId).toBe(slackUserId);
-    expect(read?.slackAvatarUrl).toBe("https://avatars.slack-edge.com/abc.png");
-  });
-
-  it("lascia slackUserId e slackAvatarUrl null di default", async () => {
-    const [inserted] = await db
-      .insert(users)
-      .values({
-        email: `noslack-${randomUUID()}@example.com`,
-        passwordHash: "x",
-        role: "member",
-      })
-      .returning();
-    expect(inserted?.slackUserId).toBeNull();
-    expect(inserted?.slackAvatarUrl).toBeNull();
-  });
-
-  it("vieta due utenti con lo stesso slackUserId non-null (unique)", async () => {
-    const slackUserId = `U${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
-    await db.insert(users).values({
-      email: `dup1-${randomUUID()}@example.com`,
-      passwordHash: "x",
-      role: "member",
-      slackUserId,
-    });
-
-    await expect(
-      db.insert(users).values({
-        email: `dup2-${randomUUID()}@example.com`,
-        passwordHash: "x",
-        role: "member",
-        slackUserId,
-      }),
-    ).rejects.toThrow();
-  });
-
-  it("ammette più utenti con slackUserId null (NULL non viola l'unique in Postgres)", async () => {
-    const [a] = await db
-      .insert(users)
-      .values({
-        email: `null1-${randomUUID()}@example.com`,
-        passwordHash: "x",
-        role: "member",
-        slackUserId: null,
-      })
-      .returning();
-    const [b] = await db
-      .insert(users)
-      .values({
-        email: `null2-${randomUUID()}@example.com`,
-        passwordHash: "x",
-        role: "member",
-        slackUserId: null,
-      })
-      .returning();
-    expect(a?.slackUserId).toBeNull();
-    expect(b?.slackUserId).toBeNull();
-    expect(a?.id).not.toBe(b?.id);
-  });
-
-  it("persiste e rilegge un invito con slackUserId e slackAvatarUrl", async () => {
-    const slackUserId = `U${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
-    const token = randomUUID();
-    const [inserted] = await db
-      .insert(invites)
-      .values({
-        token,
-        email: `invite-${randomUUID()}@example.com`,
-        expiresAt: new Date(Date.now() + 86_400_000),
-        slackUserId,
-        slackAvatarUrl: "https://avatars.slack-edge.com/def.png",
-      })
-      .returning();
-    if (!inserted) throw new Error("insert dell'invito non ha restituito la riga");
-
-    const [read] = await db.select().from(invites).where(eq(invites.token, token));
-    expect(read?.slackUserId).toBe(slackUserId);
-    expect(read?.slackAvatarUrl).toBe("https://avatars.slack-edge.com/def.png");
-  });
-
-  it("ammette due inviti con lo stesso slackUserId (invites NON ha unique)", async () => {
-    const slackUserId = `U${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
-    const [a] = await db
-      .insert(invites)
-      .values({
-        token: randomUUID(),
-        email: `inv-a-${randomUUID()}@example.com`,
-        expiresAt: new Date(Date.now() + 86_400_000),
-        slackUserId,
-      })
-      .returning();
-    const [b] = await db
-      .insert(invites)
-      .values({
-        token: randomUUID(),
-        email: `inv-b-${randomUUID()}@example.com`,
-        expiresAt: new Date(Date.now() + 86_400_000),
-        slackUserId,
-      })
-      .returning();
-    expect(a?.slackUserId).toBe(slackUserId);
-    expect(b?.slackUserId).toBe(slackUserId);
-    expect(a?.token).not.toBe(b?.token);
   });
 });
 

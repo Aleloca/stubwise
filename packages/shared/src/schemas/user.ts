@@ -20,13 +20,11 @@ export type PublicUser = z.infer<typeof publicUserSchema>;
 /**
  * L'utente della SESSIONE corrente, esposto da `/me`: la proiezione pubblica
  * più la preferenza di lingua (con cui la UI allinea i18n dopo il login) e
- * l'identità Slack — avatar e Slack user id, entrambi null finché un admin non
- * linka l'utente (o finché non scatta l'auto-link per attribuzione).
+ * l'avatar (la foto caricata, o null). L'identità Slack non c'è più (R3).
  */
 export const sessionUserSchema = publicUserSchema.extend({
   language: languageSchema,
   avatarUrl: z.string().nullable(),
-  slackUserId: z.string().nullable(),
   // Integrazione area 2: il nome visualizzato; null = la parte locale
   // dell'email. `.optional()` (e non `.default`): un server più vecchio non
   // lo manda, e le fixture dei client che non lo conoscono restano valide.

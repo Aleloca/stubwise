@@ -70,11 +70,7 @@ export function createMeEndpoints(request: ApiRequest) {
       return request("PUT", "/api/me/follows", { projectIds });
     },
 
-    /**
-     * Preferenze di notifica più il contesto per renderle: senza `slackLinked`
-     * il toggle del DM va mostrato disabilitato (acceso, il canale resterebbe
-     * muto).
-     */
+    /** Preferenze di notifica: oggi la sola push (Slack è andato via con R3). */
     notificationPrefs(): Promise<Reader<NotificationPrefsView>> {
       return request("GET", "/api/me/notification-prefs", undefined, notificationPrefsViewSchema);
     },

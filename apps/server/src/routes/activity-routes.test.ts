@@ -1,15 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import {
-  activityCommits,
-  activityDayRollups,
-  activityDevSummaries,
-  activityReports,
-  gitIdentities,
-  projects,
-  users,
-} from "@stubwise/db";
+import { activityCommits, activityDayRollups, activityDevSummaries, activityReports, gitIdentities, projects, userAvatars } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { deleteAllProjects, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
@@ -38,11 +30,13 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example.com",
   });
   ({ adminCookie, memberCookie, memberId } = await seedUsers(app));
-  // L'avatar del membro entra nel resolvedUser: lo valorizziamo per verificarlo.
-  await testDb.db
-    .update(users)
-    .set({ slackAvatarUrl: "https://avatars.example/member.png" })
-    .where(eq(users.id, memberId));
+  // L'avatar del membro (la foto caricata) entra nel resolvedUser: lo
+  // valorizziamo per verificarlo.
+  await testDb.db.insert(userAvatars).values({
+    userId: memberId,
+    contentType: "image/png",
+    bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  });
 }, 120_000);
 
 afterAll(async () => {
@@ -224,7 +218,7 @@ describe("GET /api/activity", () => {
     expect(resolved.resolvedUser).not.toBeNull();
     expect(resolved.resolvedUser!.id).toBe(memberId);
     expect(resolved.resolvedUser!.email).toBe("member@example.com");
-    expect(resolved.resolvedUser!.avatarUrl).toBe("https://avatars.example/member.png");
+    expect(resolved.resolvedUser!.avatarUrl).toMatch(new RegExp(`^/api/users/${memberId}/avatar\\?v=\\d+$`));
     expect(resolved.aiDescription).toBe("Ha aggiunto la feature uno.");
     expect(resolved.committedAt).toBe("2026-07-14T08:00:00.000Z");
 

@@ -12,6 +12,7 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { fullSessionCookie } from "../test/fixtures.js";
+import { hashInviteToken } from "../services/invite-token.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const APP_ENCRYPTION_KEY = randomBytes(32).toString("base64");
@@ -177,7 +178,6 @@ describe("login e sessioni", () => {
       role: "admin",
       language: "en",
       avatarUrl: null,
-      slackUserId: null,
       displayName: null,
     });
     expect(body.user).not.toHaveProperty("passwordHash");
@@ -492,6 +492,8 @@ describe("lista e revoca inviti", () => {
 
   it("DELETE /api/auth/invites/:token revoca un invito in sospeso (204) e lo rimuove", async () => {
     const token = await createInvite("da-revocare@example.com");
+    // Prima c'è (come hash, R3): senza, il controllo finale passerebbe da sé.
+    expect(await testDb.db.select().from(invites).where(eq(invites.token, hashInviteToken(token)))).toHaveLength(1);
 
     const del = await app.inject({
       method: "DELETE",
@@ -500,7 +502,7 @@ describe("lista e revoca inviti", () => {
     });
     expect(del.statusCode).toBe(204);
 
-    const remaining = await testDb.db.select().from(invites).where(eq(invites.token, token));
+    const remaining = await testDb.db.select().from(invites).where(eq(invites.token, hashInviteToken(token)));
     expect(remaining).toHaveLength(0);
   });
 

@@ -15,7 +15,7 @@ function authValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue 
   return {
     status: "authenticated",
     client: null,
-    user: { id: "u1", email: "giulia@farmakom.it", role: "member", language: "it", avatarUrl: null, slackUserId: null },
+    user: { id: "u1", email: "giulia@farmakom.it", role: "member", language: "it", avatarUrl: null },
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
@@ -60,7 +60,7 @@ test("nessun sottotitolo passato: nessun testo extra reso", async () => {
 });
 
 test("l'avatar mostra l'iniziale maiuscola dell'email", async () => {
-  await renderHeader(authValue({ user: { id: "u1", email: "giulia@farmakom.it", role: "member", language: "it", avatarUrl: null, slackUserId: null } }));
+  await renderHeader(authValue({ user: { id: "u1", email: "giulia@farmakom.it", role: "member", language: "it", avatarUrl: null } }));
   expect(screen.getByText("G")).toBeTruthy();
 });
 

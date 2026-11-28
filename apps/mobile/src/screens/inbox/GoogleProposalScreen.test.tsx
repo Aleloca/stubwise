@@ -175,7 +175,7 @@ function multiProposal(): Reader<InboxItem> {
  */
 const ME = { id: "11111111-1111-4111-8111-111111111111", email: "io@acme.test" };
 const COLLEAGUE = { id: "22222222-2222-4222-8222-222222222222", email: "maria@acme.test" };
-const SESSION_USER = { ...ME, role: "admin", language: "it", avatarUrl: null, slackUserId: null } as NonNullable<
+const SESSION_USER = { ...ME, role: "admin", language: "it", avatarUrl: null } as NonNullable<
   AuthContextValue["user"]
 >;
 

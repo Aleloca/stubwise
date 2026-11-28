@@ -22,7 +22,6 @@ const session = {
     role: "member" as const,
     language: "it" as const,
     avatarUrl: null,
-    slackUserId: null,
   },
 };
 

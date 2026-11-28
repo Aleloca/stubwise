@@ -1,5 +1,5 @@
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -51,8 +51,20 @@ describe("il journal delle migrazioni", () => {
       if (!(b.idx > a.idx && b.when > a.when)) out.push(`${a.tag} → ${b.tag}`);
     }
     expect(out).toEqual([]);
-    // La 0245 è l'ultima: lascia un margine dopo la 0240 della #146, e chi arriva dopo la segue.
-    expect(journal.entries.at(-1)!.tag).toBe("0245_tickets_senza_enum");
+  });
+
+  it("il journal elenca ESATTAMENTE i file .sql della cartella, nello stesso ordine: l'ultima voce è l'ultima migrazione", () => {
+    const journal = JSON.parse(readFileSync(path.join(DRIZZLE_DIR, "meta", "_journal.json"), "utf8")) as Journal;
+    // Un file senza voce non gira mai; una voce senza file fa fallire il
+    // migratore. L'ordine dei nomi (numero in testa) è quello delle voci, e
+    // con il test qui sopra anche quello dei `when`: chi aggiunge una
+    // migrazione la mette in fondo, con un `when` più grande dell'ultimo.
+    const files = readdirSync(DRIZZLE_DIR)
+      .filter((f) => f.endsWith(".sql"))
+      .map((f) => f.slice(0, -".sql".length))
+      .sort();
+    expect(journal.entries.map((e) => e.tag)).toEqual(files);
+    expect(journal.entries.map((e) => e.tag)).toContain("0245_tickets_senza_enum");
   });
 });
 

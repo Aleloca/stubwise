@@ -25,7 +25,7 @@ async function newUser(role: "admin" | "member") {
   const email = `v-${randomBytes(4).toString("hex")}@example.com`;
   const [row] = await db
     .insert(users)
-    .values({ email, passwordHash: "x", role, notifySlackDm: false })
+    .values({ email, passwordHash: "x", role })
     .returning({ id: users.id });
   return { id: row!.id, email };
 }

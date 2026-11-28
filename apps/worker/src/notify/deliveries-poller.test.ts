@@ -97,15 +97,12 @@ interface SlackDeliveryOpts {
   projectRole?: string | null;
   /** `false` = card vecchia con `project_id` NULL (R34): il progetto è quello del ticket. */
   cardWithProject?: boolean;
-  /** Identità Slack del destinatario. `null` = utente non linkato. */
-  slackUserId?: string | null;
   language?: "en" | "it";
   event?: NotificationEvent;
   /** Se dato, ancora la notifica a un ticket con un job in questo stato. */
   jobStatus?: "queued" | "awaiting_plan_approval" | "awaiting_input";
   /** Payload della riga (usato dal canale `slack_update`: `{ note }`). */
   deliveryEvent?: Record<string, unknown>;
-  externalRef?: string;
   status?: "pending" | "sent";
 }
 
@@ -121,7 +118,6 @@ async function insertSlackDelivery(
       passwordHash: "hash",
       role: opts.role ?? "admin",
       language: opts.language ?? "it",
-      slackUserId: opts.slackUserId === undefined ? `U${randomUUID().slice(0, 8)}` : opts.slackUserId,
     })
     .returning({ id: users.id });
 
@@ -165,7 +161,6 @@ async function insertSlackDelivery(
       channel,
       notificationId: notification!.id,
       ...(opts.deliveryEvent ? { event: opts.deliveryEvent } : {}),
-      ...(opts.externalRef ? { externalRef: opts.externalRef } : {}),
       ...(opts.status ? { status: opts.status } : {}),
     })
     .returning({ id: notificationDeliveries.id });

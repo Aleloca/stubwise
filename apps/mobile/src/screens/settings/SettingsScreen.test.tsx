@@ -28,7 +28,6 @@ const USER: Reader<SessionUser> = {
   role: "member",
   language: "it",
   avatarUrl: null,
-  slackUserId: null,
 };
 
 
@@ -50,7 +49,7 @@ function makeClient(overrides: ClientOverrides = {}): StubwiseClient {
   return {
     me: {
       notificationPrefs:
-        overrides.notificationPrefs ?? jest.fn().mockResolvedValue({ push: true, slackDm: false, slackLinked: false }),
+        overrides.notificationPrefs ?? jest.fn().mockResolvedValue({ push: true }),
       setNotificationPrefs: overrides.setNotificationPrefs ?? jest.fn().mockResolvedValue(undefined),
       follows: overrides.follows ?? jest.fn().mockResolvedValue({ projectIds: [PROJECT_A.id] }),
       setFollows: overrides.setFollows ?? jest.fn().mockResolvedValue(undefined),

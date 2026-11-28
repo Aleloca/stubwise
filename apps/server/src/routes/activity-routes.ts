@@ -1,3 +1,4 @@
+import { avatarUrlsFor } from "../services/avatars.js";
 import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -226,15 +227,16 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
             email: gitIdentities.email,
             id: users.id,
             userEmail: users.email,
-            avatarUrl: users.slackAvatarUrl,
           })
           .from(gitIdentities)
           .innerJoin(users, eq(gitIdentities.userId, users.id));
+        // La foto caricata (l'avatar di Slack è andato via con R3).
+        const avatars = await avatarUrlsFor(app.db, identityRows.map((r) => r.id));
         for (const row of identityRows) {
           userByEmail.set(row.email.toLowerCase(), {
             id: row.id,
             email: row.userEmail,
-            avatarUrl: row.avatarUrl,
+            avatarUrl: avatars.get(row.id) ?? null,
           });
         }
       }

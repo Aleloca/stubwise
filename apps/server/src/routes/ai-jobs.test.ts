@@ -393,7 +393,6 @@ describe("GET /api/users", () => {
         instanceRoleId: expect.any(String),
         createdAt: expect.any(String),
         avatarUrl: null,
-        slackUserId: null,
         bitbucketUsername: null,
         gitIdentities: [],
         // Area 9, F1 (Task 4): lo stato della persona.
@@ -406,7 +405,6 @@ describe("GET /api/users", () => {
         instanceRoleId: expect.any(String),
         createdAt: expect.any(String),
         avatarUrl: null,
-        slackUserId: null,
         bitbucketUsername: null,
         gitIdentities: [],
         // Area 9, F1 (Task 4): lo stato della persona.

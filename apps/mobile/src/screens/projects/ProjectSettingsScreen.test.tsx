@@ -47,7 +47,7 @@ async function renderScreen(rawClient: StubwiseClient, role: "admin" | "member")
   const authValue: AuthContextValue = {
     status: "authenticated",
     client,
-    user: { id: "viewer-1", email: "op@example.com", role, language: "it", avatarUrl: null, slackUserId: null },
+    user: { id: "viewer-1", email: "op@example.com", role, language: "it", avatarUrl: null },
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),

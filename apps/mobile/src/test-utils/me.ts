@@ -35,7 +35,7 @@ export function withMe(
     ...client,
     auth: {
       me: jest.fn().mockResolvedValue({
-        user: { id: "viewer-1", email: "op@example.com", role, language: "it", avatarUrl: null, slackUserId: null },
+        user: { id: "viewer-1", email: "op@example.com", role, language: "it", avatarUrl: null },
         ...permissions,
       }),
     },

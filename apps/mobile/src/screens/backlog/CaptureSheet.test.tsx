@@ -34,7 +34,7 @@ async function renderSheet(
   const authValue: AuthContextValue = {
     status: "authenticated",
     client,
-    user: { id: "viewer-1", email: "op@example.com", role: "member", language: "it", avatarUrl: null, slackUserId: null },
+    user: { id: "viewer-1", email: "op@example.com", role: "member", language: "it", avatarUrl: null },
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
@@ -98,7 +98,7 @@ describe("CaptureSheet — visibilità e copy", () => {
           value={{
             status: "authenticated",
             client,
-            user: { id: "viewer-1", email: "a@b.c", role: "member", language: "it", avatarUrl: null, slackUserId: null },
+            user: { id: "viewer-1", email: "a@b.c", role: "member", language: "it", avatarUrl: null },
             justLoggedIn: false,
             login: jest.fn(),
             completeOnboarding: jest.fn(),

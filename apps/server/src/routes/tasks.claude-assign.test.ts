@@ -298,8 +298,6 @@ describe("Claude non riceve mai notifiche", () => {
     expect(git.statusCode, git.body).toBe(404);
     const bitbucket = await call("PUT", `/api/users/${claudeId}/bitbucket`, { username: "claude-bot" });
     expect(bitbucket.statusCode, bitbucket.body).toBe(404);
-    const slack = await call("PUT", `/api/users/${claudeId}/slack`, { slackUserId: "U123" });
-    expect(slack.statusCode, slack.body).toBe(404);
   });
 
   it("non si aggiunge come membro di un progetto (404, come un utente che non c'è)", async () => {

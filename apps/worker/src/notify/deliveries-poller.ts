@@ -42,24 +42,13 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
  * CANALI:
  *  - `webhook` — il webhook d'istanza, per EVENTO: nessuna notifica dietro,
  *    payload nella colonna `event`;
- *  - `slack_dm` — il DM personale al destinatario, con i bottoni Block Kit
- *    delle azioni che QUELL'utente può compiere (`actionsFor` coi suoi permessi nel progetto e
- *    con lo stato attuale dell'ultimo job del ticket). Il riferimento del
- *    messaggio postato finisce in `external_ref` (vedi sotto);
- *  - `slack_update` — riscrive il DM già inviato della STESSA notifica (la sua
- *    consegna `slack_dm` sorella) togliendo i bottoni e aggiungendo una riga di
- *    stato. Il testo da aggiungere sta nel jsonb `event` della riga, nella
- *    forma `{ "note": "✅ Gestita da …" }` (`event` è nullable per i canali
- *    diversi da `webhook`: senza nota si limita a togliere i bottoni, che è
- *    esattamente ciò che serve dopo uno snooze);
  *  - `push` — la notifica sui telefoni del destinatario, spedita al RELAY
  *    (nessuna istanza parla con APNs o FCM). Una consegna per destinatario,
  *    non per device: i device attivi si leggono al momento dell'invio.
  *
- * FORMATO DI `external_ref` (canali Slack): `"<channel>|<ts>"`, dove `channel`
- * è quello RISOLTO da Slack (postando su uno user id è il DM `D…`) e `ts` la
- * chiave del messaggio. Sono i due argomenti che `chat.update` pretende, e
- * tenerli insieme evita una colonna in più. Vedi {@link parseExternalRef}.
+ * `slack_dm` e `slack_update` (i DM Slack) sono andati via con R2, le loro
+ * righe con la 0246 (R3): un canale che il poller non conosce lo chiude
+ * `skipped`.
  *
  * SCELTA TRANSAZIONALE (il claim PRE-SCHEDULA il ritentativo, l'invio sta fuori
  * dalla transazione): {@link claimDue} è un UPDATE unico che, nello stesso atto
@@ -189,7 +178,6 @@ async function finish(
   id: string,
   status: "sent" | "failed" | "skipped",
   error: string | null,
-  externalRef?: string,
 ): Promise<void> {
   await db
     .update(notificationDeliveries)
@@ -197,7 +185,6 @@ async function finish(
       status,
       error,
       ...(status === "sent" ? { sentAt: sql`now()` } : {}),
-      ...(externalRef ? { externalRef } : {}),
     })
     .where(and(eq(notificationDeliveries.id, id), eq(notificationDeliveries.status, "pending")));
 }
@@ -314,7 +301,7 @@ async function processDelivery(
 
 /**
  * Esito di un invio fallito RITENTABILE: resta `pending` finché ci sono
- * tentativi, poi `failed`. Condiviso da webhook e canali Slack.
+ * tentativi, poi `failed`. Condiviso dai canali.
  */
 async function retryOrFail(
   deps: DeliveriesPollerDeps,
@@ -341,17 +328,9 @@ async function retryOrFail(
   await keepPending(db, row.id, error);
 }
 
-// --- Canali Slack ---------------------------------------------------------
+// --- Consegne per destinatario --------------------------------------------
 
-/**
- * Stato condiviso da tutte le consegne di UN tick. Il bot token si carica (e si
- * decifra) UNA volta per giro, non una per riga: sono N query e N decifrature
- * identiche su una coda arretrata.
- *
- * La memoizzazione è per TICK e non per processo di proposito: se un admin
- * ricollega Slack, il tick successivo vede il token nuovo senza riavviare il
- * worker.
- */
+/** Stato condiviso da tutte le consegne di UN tick. */
 interface TickContext {
   /**
    * Vero la PRIMA volta che lo si chiama in questo tick: serve a loggare UNA
@@ -394,7 +373,6 @@ interface DeliveryRecipient {
    * dell'agente, che non è solo un permesso di progetto.
    */
   requestedByUserId: string | null;
-  slackUserId: string | null;
   language: Language;
 }
 
@@ -414,7 +392,6 @@ async function loadRecipient(db: Db, notificationId: string): Promise<DeliveryRe
       // LEFT JOIN sul job della notifica (nullo sugli eventi d'istanza): una
       // colonna in più nella query che c'era già, non una query in più.
       requestedByUserId: aiJobs.requestedByUserId,
-      slackUserId: users.slackUserId,
       language: users.language,
     })
     .from(notifications)
@@ -449,8 +426,8 @@ async function recipientStillSees(db: Db, notificationId: string): Promise<boole
  * Non è un'ottimizzazione della latenza della push: è la protezione di TUTTE le
  * altre consegne. Il poller processa fino a 20 righe per tick IN SEQUENZA e con
  * una guardia anti-rientro, quindi col default un relay morto allungherebbe il
- * tick a 200 s — e in quel tick non partirebbero nemmeno i DM Slack e i
- * webhook, che stanno nella stessa coda. Il backoff non aiuta: agisce dopo.
+ * tick a 200 s — e in quel tick non partirebbero nemmeno i webhook, che
+ * stanno nella stessa coda. Il backoff non aiuta: agisce dopo.
  * Il relay è un hop che gestiamo noi e in salute risponde in decine di ms;
  * 3 secondi sono già due ordini di grandezza di margine, e una push tardata di
  * un tick è invisibile mentre un tick fermo non lo è.
@@ -653,7 +630,7 @@ async function processPushDelivery(
   if (devices.length === 0) {
     // Al publish ne aveva almeno uno: nel frattempo li ha persi (revoca del
     // PAT, o l'ultima push aveva già disabilitato l'ultimo token). Non è un
-    // errore e non c'è dove consegnare: `skipped`, come l'utente senza Slack.
+    // errore e non c'è dove consegnare: `skipped`.
     await finish(db, row.id, "skipped", "no_active_device");
     return;
   }
@@ -691,10 +668,9 @@ async function processPushDelivery(
       ...(typeof pushGroup === "string" ? { group: pushGroup } : {}),
     });
   } catch (err) {
-    // RECINTO attorno alla resa dal jsonb, cugino di quello di `renderSlack`:
-    // `notifications.event` può essere stato scritto mesi fa da una versione
-    // precedente. Qui però NON si degrada come fa `renderSlack`, che consegna
-    // comunque col solo `kind`: una push con titolo `push.title.qualcosa` sul
+    // RECINTO attorno alla resa dal jsonb: `notifications.event` può essere
+    // stato scritto mesi fa da una versione precedente. Qui NON si degrada
+    // consegnando col solo `kind`: una push con titolo `push.title.qualcosa` sul
     // telefono è peggio di una push che non arriva, e l'inbox la notifica ce
     // l'ha comunque. Senza questo catch l'eccezione uscirebbe da
     // `processDelivery` e la riga resterebbe `pending` PER SEMPRE:
@@ -769,8 +745,7 @@ export async function processDeliveriesOnce(deps: DeliveriesPollerDeps): Promise
     return 0;
   }
 
-  // Contesto del giro: il bot token si carica al massimo una volta (e solo se
-  // c'è davvero una consegna Slack da fare).
+  // Contesto del giro (il log delle push spente, una volta sola).
   const tick = createTickContext();
   let processed = 0;
   for (const row of rows) {

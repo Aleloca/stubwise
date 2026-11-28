@@ -37,7 +37,7 @@ function makeWrapper(client: StubwiseClient, queryClient: QueryClient) {
   const authValue: AuthContextValue = {
     status: "authenticated",
     client,
-    user: { id: "u1", email: "a@example.com", role: "member", language: "it", avatarUrl: null, slackUserId: null },
+    user: { id: "u1", email: "a@example.com", role: "member", language: "it", avatarUrl: null },
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),

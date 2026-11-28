@@ -29,6 +29,7 @@ import {
 import { projectPermissionsByProject, publishNotification } from "@stubwise/notifications";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
+import { avatarUrlsFor } from "./avatars.js";
 import { personObject, recordChange } from "./change-log.js";
 import { isForeignKeyViolation, isUniqueViolation } from "../routes/shared.js";
 
@@ -644,7 +645,6 @@ export interface MemberRow {
 const memberSelection = {
   userId: projectMembers.userId,
   email: users.email,
-  avatarUrl: users.slackAvatarUrl,
   roleId: projectMembers.roleId,
   roleName: roles.name,
   rolePermissions: roles.permissions,
@@ -669,7 +669,6 @@ async function membersWithPermissions(db: DbOrTx, projectId: string, onlyUserId?
       workspaceId: workspaceMembers.workspaceId,
       userId: workspaceMembers.userId,
       email: users.email,
-      avatarUrl: users.slackAvatarUrl,
       roleId: workspaceMembers.roleId,
       roleName: roles.name,
       rolePermissions: roles.permissions,
@@ -682,9 +681,13 @@ async function membersWithPermissions(db: DbOrTx, projectId: string, onlyUserId?
     .where(and(eq(workspaceProjects.projectId, projectId), eq(users.isAgent, false), ...(onlyUserId ? [eq(workspaceMembers.userId, onlyUserId)] : [])));
   const wsByUser = new Map(viaWorkspace.map((r) => [r.userId, r]));
   const explicitIds = new Set(explicitRows.map((r) => r.userId));
+  // La foto caricata, nello stesso formato di ogni altra risposta (l'avatar di
+  // Slack è andato via con R3). `DbOrTx`: la stessa lettura in transazione.
+  const avatars = await avatarUrlsFor(db as Db, [...explicitRows, ...viaWorkspace].map((r) => r.userId));
+  const avatarOf = (userId: string) => avatars.get(userId) ?? null;
   const rows = [
-    ...explicitRows.map((r) => ({ ...r, explicit: true, workspace: wsByUser.get(r.userId) ?? null })),
-    ...(opts.includeWorkspace ? viaWorkspace.filter((r) => !explicitIds.has(r.userId)).map((r) => ({ userId: r.userId, email: r.email, avatarUrl: r.avatarUrl, roleId: r.roleId, roleName: r.roleName, rolePermissions: r.rolePermissions, createdAt: r.createdAt, explicit: false, workspace: r })) : []),
+    ...explicitRows.map((r) => ({ ...r, avatarUrl: avatarOf(r.userId), explicit: true, workspace: wsByUser.get(r.userId) ?? null })),
+    ...(opts.includeWorkspace ? viaWorkspace.filter((r) => !explicitIds.has(r.userId)).map((r) => ({ userId: r.userId, email: r.email, avatarUrl: avatarOf(r.userId), roleId: r.roleId, roleName: r.roleName, rolePermissions: r.rolePermissions, createdAt: r.createdAt, explicit: false, workspace: r })) : []),
   ].sort((x, y) => (x.email < y.email ? -1 : x.email > y.email ? 1 : 0));
   const grants = await db
     .select()

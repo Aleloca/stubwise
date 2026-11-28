@@ -83,10 +83,11 @@ export interface SessionUser {
    */
   instancePermissions: ReadonlySet<InstancePermission>;
   language: Language;
-  /** Avatar Slack derivato al link (URL), o null se l'utente non è linkato. */
+  /**
+   * L'avatar: null qui. Era quello di Slack (tolto con R3); la foto caricata
+   * la aggiungono le risposte che la mostrano (`avatarUrlsFor`).
+   */
   avatarUrl: string | null;
-  /** Slack user id linkato a questo utente, o null se non linkato. */
-  slackUserId: string | null;
   /** Nome visualizzato (0107); null = la parte locale dell'email. Assente nei doppi dei test. */
   displayName?: string | null;
   /**
@@ -157,7 +158,7 @@ declare module "fastify" {
  */
 export type SessionUserColumns = Pick<
   typeof users.$inferSelect,
-  "id" | "email" | "role" | "language" | "slackAvatarUrl" | "slackUserId" | "displayName"
+  "id" | "email" | "role" | "language" | "displayName"
 > & {
   /** `roles.permissions` del ruolo d'istanza (`users.instance_role_id`). */
   instanceRolePermissions: string[];
@@ -173,20 +174,13 @@ export const sessionUserSelection = {
   email: users.email,
   role: users.role,
   language: users.language,
-  slackAvatarUrl: users.slackAvatarUrl,
-  slackUserId: users.slackUserId,
   displayName: users.displayName,
   instanceRolePermissions: roles.permissions,
 } as const;
 
 /**
- * Proiezione riga-utente -> {@link SessionUser}, in un punto solo.
- *
- * Esiste perche' la mappatura ha un dettaglio che il typecheck NON protegge:
- * la colonna si chiama `slackAvatarUrl` e il campo `avatarUrl`. Un campo
- * dimenticato lo vedrebbe il compilatore; un campo mappato dalla COLONNA
- * SBAGLIATA no — e con tre copie della stessa proiezione (sessione, PAT,
- * mobile-login) era questione di tempo.
+ * Proiezione riga-utente -> {@link SessionUser}, in un punto solo (sessione e
+ * PAT): un campo mappato dalla colonna sbagliata il compilatore non lo vede.
  */
 export function toSessionUser(row: SessionUserColumns): SessionUser {
   return {
@@ -195,8 +189,7 @@ export function toSessionUser(row: SessionUserColumns): SessionUser {
     role: row.role,
     instancePermissions: effectiveInstancePermissions(row.instanceRolePermissions),
     language: row.language,
-    avatarUrl: row.slackAvatarUrl,
-    slackUserId: row.slackUserId,
+    avatarUrl: null,
     displayName: row.displayName,
   };
 }

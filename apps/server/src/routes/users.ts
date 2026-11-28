@@ -35,11 +35,8 @@ export const publicUserSchema = z.object({
   instanceRoleId: z.uuid().optional(),
   // Istante di registrazione: la pagina Team mostra "membro dal …".
   createdAt: z.iso.datetime(),
-  // Avatar Slack (image URL) derivato dal profilo Slack al momento del link;
-  // null se l'utente non è linkato. Sempre lato server, mai dal client.
+  // La foto caricata (`avatarUrlsFor`), o null. Sempre lato server.
   avatarUrl: z.string().nullable(),
-  // Slack user id linkato a questo utente; null se non linkato.
-  slackUserId: z.string().nullable(),
 });
 
 /**
@@ -99,8 +96,6 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           role: users.role,
           instanceRoleId: users.instanceRoleId,
           createdAt: users.createdAt,
-          avatarUrl: users.slackAvatarUrl,
-          slackUserId: users.slackUserId,
           bitbucketUsername: users.bitbucketUsername,
           deactivatedAt: users.deactivatedAt,
         })
@@ -136,8 +131,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       const avatars = await avatarUrlsFor(app.db, rows.map((r) => r.id));
       return rows.map(({ deactivatedAt, ...row }) => ({
         ...row,
-        // Area 9, F1: la foto caricata vince sull'avatar di Slack.
-        avatarUrl: avatars.get(row.id) ?? row.avatarUrl,
+        avatarUrl: avatars.get(row.id) ?? null,
         createdAt: row.createdAt.toISOString(),
         gitIdentities: identitiesByUser.get(row.id) ?? [],
         status: deactivatedAt ? ("deactivated" as const) : ("active" as const),
@@ -154,12 +148,12 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
         role: users.role,
         instanceRoleId: users.instanceRoleId,
         createdAt: users.createdAt,
-        avatarUrl: users.slackAvatarUrl,
-        slackUserId: users.slackUserId,
       })
       .from(users)
       .where(eq(users.id, id));
-    return row ? { ...row, createdAt: row.createdAt.toISOString() } : null;
+    if (!row) return null;
+    const avatars = await avatarUrlsFor(app.db, [row.id]);
+    return { ...row, avatarUrl: avatars.get(row.id) ?? null, createdAt: row.createdAt.toISOString() };
   }
 
   /** Id ed email di un utente: chi subisce, per il registro di sicurezza. */
