@@ -8,6 +8,12 @@ import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runn
 import { FIRST_VERSION_CITATION_PREFIX, FIRST_VERSION_FALLBACK } from "./first-version.js";
 import { claimProductDocJob, runProductDocJob } from "./job.js";
 
+// Il codice del progetto da un contatore, non a caso: 4 cifre esadecimali a caso
+// su un test per `beforeEach` collidevano su `projects_code_unique` (CI di #150).
+// Il vincolo è `^[A-Z][A-Z0-9]{1,5}$`: lettera più 5 cifre.
+let codeSeq = 0;
+const projectCode = () => String(codeSeq++).padStart(5, "0");
+
 /**
  * Area 11, F6 — il lavoro della prima versione col runner finto: la bozza del
  * modello UNA volta, le fonti con la visibilità di chi l'ha chiesta, le pagine
@@ -46,7 +52,7 @@ const DRAFT = JSON.stringify({
 
 async function setup() {
   const { projectId } = await seedRepository(t.db);
-  await t.db.update(projects).set({ code: `F${randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}` }).where(eq(projects.id, projectId));
+  await t.db.update(projects).set({ code: `F${projectCode()}` }).where(eq(projects.id, projectId));
   const ada = await member(projectId, "Ada");
   const bea = await member(projectId, "Bea");
   const mine = await seedEmailMessage(t.db, { userId: ada, subject: "Oggetto di Ada" });

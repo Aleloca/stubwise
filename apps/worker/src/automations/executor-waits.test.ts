@@ -24,6 +24,12 @@ import { effectKey, executeEffect } from "./effects.js";
 import { executeDueRuns } from "./executor.js";
 import { wakeReplyWaits } from "./waits.js";
 
+// Il codice del progetto da un contatore, non a caso: 4 cifre esadecimali a caso
+// su un test per `beforeEach` collidevano su `projects_code_unique` (CI di #150).
+// Il vincolo è `^[A-Z][A-Z0-9]{1,5}$`: lettera più 5 cifre.
+let codeSeq = 0;
+const projectCode = () => String(codeSeq++).padStart(5, "0");
+
 /**
  * LE ATTESE (area 7, F2, S5): un tempo (`due_at`), la risposta a un'email del
  * flusso (SOLO nella stessa conversazione e nella stessa casella) e una task
@@ -47,7 +53,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   ({ projectId } = await seedRepository(t.db));
-  await t.db.update(projects).set({ code: `W${randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}` }).where(eq(projects.id, projectId));
+  await t.db.update(projects).set({ code: `W${projectCode()}` }).where(eq(projects.id, projectId));
   ownerId = (await t.db.insert(users).values({ email: `${randomUUID()}@x.it`, passwordHash: "x", role: "member", displayName: "Olga" }).returning())[0]!.id;
   const [role] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "project_lead"));
   await t.db.insert(projectMembers).values({ projectId, userId: ownerId, roleId: role!.id });
