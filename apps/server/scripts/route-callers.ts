@@ -43,6 +43,8 @@ interface Route {
   norm: string;
   mcp: string;
   exclude: string | null;
+  /** `config.mcp.owner`: `mcp` = superficie propria dell'MCP per scelta (D10). */
+  owner: string | null;
 }
 
 /** `:id`, `${seg(id)}` e simili diventano `:`; via lo slash finale e la query. */
@@ -100,7 +102,7 @@ async function routes(): Promise<Route[]> {
     onRoute: (route: RouteOptions) => {
       const methods = Array.isArray(route.method) ? route.method : [route.method];
       const url = route.url.length > 1 ? route.url.replace(/\/$/, "") : route.url;
-      const mcp = (route.config as { mcp?: { action?: string; exclude?: string } } | undefined)?.mcp;
+      const mcp = (route.config as { mcp?: { action?: string; exclude?: string; owner?: string } } | undefined)?.mcp;
       for (const method of methods) {
         if (method === "HEAD" || method === "OPTIONS") continue;
         seen.set(`${method} ${url}`, {
@@ -109,6 +111,7 @@ async function routes(): Promise<Route[]> {
           norm: normalize(url),
           mcp: mcp?.action ?? (mcp?.exclude ? `(exclude: ${mcp.exclude})` : "—"),
           exclude: mcp?.exclude ?? null,
+          owner: mcp?.owner ?? null,
         });
       }
     },
@@ -381,7 +384,15 @@ export async function classifyRoutes() {
     const literalWithVerb = used.literals.some((c) => c.method === r.method && pathMatch(c.norm, r.norm, c.method));
     const external = r.exclude !== null && EXTERNAL.has(r.exclude);
     const status =
-      client.length > 0 || literalWithVerb ? "usata" : external ? "esterna" : literal.length > 0 || byServerData(r) ? "dubbio" : "senza chiamanti";
+      client.length > 0 || literalWithVerb
+        ? "usata"
+        : external
+          ? "esterna"
+          : r.owner === "mcp"
+            ? "dell'MCP"
+            : literal.length > 0 || byServerData(r)
+              ? "dubbio"
+              : "senza chiamanti";
     const onlyWild = status === "usata" && wild.has(k) && !exact.has(k);
     return { ...r, key: k, client, literal, status, onlyWild, mcpTool: byMcpTools(r), mobile: byMobile(r) };
   });
@@ -398,10 +409,11 @@ async function main() {
   const unused = by("senza chiamanti");
   const doubt = by("dubbio");
   const external = by("esterna");
+  const mcpOwned = by("dell'MCP");
   const lines: string[] = [];
   lines.push("# Rotte del server contro i chiamanti dell'app");
   lines.push("");
-  lines.push(`Generato da \`apps/server/scripts/route-callers.ts\`. Rotte: ${rows.length}; usate dall'app: ${by("usata").length}; esterne per dichiarazione: ${external.length}; dubbi: ${doubt.length}; **senza chiamanti: ${unused.length}**.`);
+  lines.push(`Generato da \`apps/server/scripts/route-callers.ts\`. Rotte: ${rows.length}; usate dall'app: ${by("usata").length}; esterne per dichiarazione: ${external.length}; dell'MCP per scelta: ${mcpOwned.length}; dubbi: ${doubt.length}; **senza chiamanti: ${unused.length}**.`);
   lines.push("");
   const base = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: repo }).toString().trim();
   lines.push(`Base: \`${base}\`. Un ramo non ancora unito che chiama una rotta (la cassaforte nel browser, il grafo, le PR aperte) qui non si vede: lo script si rilancia sulla base del taglio.`);
@@ -423,11 +435,12 @@ async function main() {
     [...r.client.map((m) => `\`${m}\``), ...r.literal.map((f) => `\`${f}\``)].join(", "),
   );
   table("Esterne per dichiarazione (restano, salvo decisione)", external, (r) => `exclude: ${r.exclude}`);
+  table("Dell'MCP per scelta (`owner: \"mcp\"`, D10: restano)", mcpOwned, (r) => (r.mcpTool ? "tool dedicati dell'MCP" : "⚠️ nessun tool dell'MCP la chiama"));
   const report = lines.join("\n") + "\n";
   if (outIdx >= 0) writeFileSync(args[outIdx + 1]!, report);
   else process.stdout.write(report);
   if (jsonIdx >= 0) writeFileSync(args[jsonIdx + 1]!, JSON.stringify(rows, null, 2));
-  process.stderr.write(`rotte ${rows.length}, usate ${by("usata").length}, esterne ${external.length}, dubbi ${doubt.length}, senza chiamanti ${unused.length}\n`);
+  process.stderr.write(`rotte ${rows.length}, usate ${by("usata").length}, esterne ${external.length}, dell'MCP ${mcpOwned.length}, dubbi ${doubt.length}, senza chiamanti ${unused.length}\n`);
   process.exit(0);
 }
 
