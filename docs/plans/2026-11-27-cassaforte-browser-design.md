@@ -386,6 +386,16 @@ build e non serve sbloccare: sono metadati.
   dallo sblocco, 30 reveal) ne limitano la durata e il numero, non la
   possibilità: dentro quei limiti uno script iniettato legge ciò che legge la
   persona.
+- **Conferma, rifiuto e rimozione di un lettore vogliono un tocco nuovo
+  della passkey** (revisione finale, punto 3): danno o tolgono l'accesso a
+  un'altra persona, e una pagina ostile, a cassaforte aperta, potrebbe
+  altrimenti confermare ogni chiave in attesa per 60 minuti. Come il Touch
+  ID di M5 sul desktop: la pagina rifà la cerimonia e il worker accetta
+  l'operazione solo con quell'asserzione (verificata dal server) e con la
+  PRF appena ricevuta, che deve aprire un sigillo della propria chiave e
+  vale per quell'operazione sola. Resta vero che uno script nella pagina
+  può chiedere quel tocco da sé: la persona lo vede come una richiesta
+  della passkey che non ha chiesto.
 - **Lo stato nella barra non è un segnale fidato** (m-B4, terza revisione).
   Lo specchio della pagina (`key.ts`) si aggiorna dagli eventi del worker,
   e quel canale di ritorno lo può falsificare uno script nella pagina: la
