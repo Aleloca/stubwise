@@ -15,9 +15,9 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 /**
  * Stati e soglie «ferma» del progetto (integrazione area 2, fetta 1):
  * Impostazioni del progetto → Stati, come nel prototipo. Lo stato vero di una
- * task è `tickets.status_id`; l'enum `tickets.status` lo deriva il trigger
- * `tickets_status_sync` (`docs/invariants/tasks.md`), e qui si calcola solo il
- * `legacy_status` di ogni stato, con la regola del Task 2.
+ * task è `tickets.status_id` (`docs/invariants/tasks.md`; l'enum
+ * `tickets.status` non c'è più dalla 0245, R3), e qui si calcola il
+ * `legacy_status` (il ruolo) di ogni stato, con la regola del Task 2.
  */
 
 const onProject = (permission: ProjectPermission | "member"): RouteAccess => ({
@@ -194,26 +194,26 @@ export async function projectStatusRoutes(instance: FastifyInstance): Promise<vo
         }
         if (removed.length > 0) await tx.delete(projectStatuses).where(inArray(projectStatuses.id, removed));
 
-        // ⚠️ Blocco T, R0: l'UNICO scrittore della colonna enum rimasto, e
-        // dichiarato (la guardia sul sorgente lo ammette per nome). Non decide
-        // nulla di ciò che si mostra (lo status è derivato): tiene la colonna
-        // coerente finché esiste, per un rollback del server. Va via con R3.
-        // Riallineare l'enum SOLO per gli stati la cui famiglia o il cui
-        // `legacy_status` sono cambiati davvero: una rinomina non tocca le
-        // task. Un `triaged` dentro un todo resta `triaged`.
-        const changed = statuses.flatMap((st, position) => {
+        // Uno stato che cambia FAMIGLIA porta con sé le sue task: il trigger
+        // `tickets_state` (0245, R3) scatta quando una task cambia stato, non
+        // quando cambia lo stato stesso. Qui, solo per gli stati la cui
+        // famiglia è cambiata davvero (una rinomina o un riordino non toccano
+        // le task): `closed_at` dalla famiglia nuova (entrando in closed la
+        // data di adesso, uscendone null), e il segno dello smistamento solo
+        // dentro todo. Lo `status` mostrato è derivato e segue da sé.
+        const changed = statuses.flatMap((st) => {
           const before = st.id ? currentById.get(st.id) : undefined;
-          return before && (before.family !== st.family || before.legacy_status !== legacy[position]) ? [st.id!] : [];
+          return before && before.family !== st.family ? [st.id!] : [];
         });
         if (changed.length > 0) {
           await tx.execute(sql`
             update "tickets" t
-            set "status" = s."legacy_status",
-                "closed_at" = case when s."family" = 'closed' then coalesce(t."closed_at", now()) else null end
+            set "closed_at" = case when s."family" = 'closed' then coalesce(t."closed_at", now()) else null end,
+                "triaged_at" = case when s."family" = 'todo' then t."triaged_at" else null end
             from "project_statuses" s
             where t."status_id" = s."id" and ${inArray(sql`s."id"`, changed)}
-              and (stubwise_legacy_family(t."status") <> s."family"
-                or (s."family" <> 'todo' and t."status" <> s."legacy_status"))
+              and ((s."family" = 'closed') <> (t."closed_at" is not null)
+                or (s."family" <> 'todo' and t."triaged_at" is not null))
           `);
         }
         // Area 9, F5: i valori stabili del prototipo — l'elenco dei nomi
