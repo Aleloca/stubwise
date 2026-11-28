@@ -9,6 +9,7 @@ import {
   type CredentialSharePreview,
   type CredentialRevealResponse,
   type PasskeyAuthenticationOptions,
+  type VaultCreateKeyResponse,
   type VaultMyKeyResponse,
   type VaultActorProof,
   type VaultStatusResponse,
@@ -17,9 +18,11 @@ import {
   PRF_INPUT,
   decryptPassword,
   encryptForInsert,
+  generatePersonKeyPair,
   keyFingerprint,
   openActorChallenge,
   openPrivateKey,
+  sealPrivateKey,
   unwrapItemKey,
   wrapItemKey,
 } from "@stubwise/vault-crypto";
@@ -71,7 +74,12 @@ export type LockReason =
   | "reauth";
 
 export type CoreRequest =
-  | { t: "prepare" }
+  /**
+   * Stato e opzioni della passkey. `open` (il default): solo le passkey col
+   * sigillo della chiave viva. `create` (fase 2): la propria chiave da
+   * creare, con TUTTE le passkey; con una chiave viva solo se `recreate`.
+   */
+  | { t: "prepare"; purpose?: "open" | "create"; recreate?: boolean }
   /**
    * I-A: l'uscita PRF, TRASFERITA appena la cerimonia la dà, prima di ogni
    * altra lettura della pagina. Se ne tiene una sola, per {@link STASH_MS};
@@ -85,6 +93,21 @@ export type CoreRequest =
       credentialId: string;
       personId: string;
       sessionTag: string;
+    }
+  /**
+   * Fase 2 (design §10): la propria chiave, creata QUI. La coppia nasce nel
+   * worker, la privata si sigilla con la PRF della passkey appena usata e al
+   * server va solo così, con la pubblica; poi la cassaforte è aperta.
+   * `recreate`: una chiave NUOVA anche se ce n'è una viva (nessuna passkey la
+   * apre più); il server mette la vecchia `superseded`.
+   */
+  | {
+      t: "createKey";
+      assertion: unknown;
+      credentialId: string;
+      personId: string;
+      sessionTag: string;
+      recreate?: boolean;
     }
   | { t: "reveal"; id: string; action: "show" | "copy"; personId: string; sessionTag: string }
   /**
@@ -130,6 +153,16 @@ export interface CoreDeps {
   setTimer: (fn: () => void, ms: number) => unknown;
   clearTimer: (timer: unknown) => void;
   emit: (event: CoreEvent) => void;
+  /** Browser e sistema, per `device` della chiave nuova (lo vede chi la conferma). */
+  device?: () => string;
+}
+
+/** Browser e sistema dal `navigator` del worker, in breve. */
+function deviceOf(): string {
+  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  const browser = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Browser";
+  const os = /Mac OS X/.test(ua) ? "macOS" : /Windows/.test(ua) ? "Windows" : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Linux/.test(ua) ? "Linux" : "";
+  return os ? `${browser} on ${os}` : browser;
 }
 
 class HttpError extends Error {
@@ -270,6 +303,53 @@ export class VaultCore {
         })
         .catch(() => undefined);
     }
+  }
+
+  /** La cassaforte aperta con questa chiave (sblocco o chiave appena creata). */
+  private open(privateKey: CryptoKey, personKeyId: string, personId: string, sessionTag: string, serverTag: string | null): void {
+    this.key = {
+      privateKey,
+      personKeyId,
+      personId,
+      sessionTag,
+      serverTag,
+      lastUseAt: this.deps.now(),
+      openedAt: this.deps.now(),
+      reveals: 0,
+      shares: 0,
+      passwordChanges: 0,
+    };
+    this.arm();
+    this.deps.emit({ t: "state", state: "open", closesAt: this.closesAt() });
+  }
+
+  /**
+   * Fase 2: crea la propria chiave. La pkcs8 in chiaro non esce da qui e si
+   * azzera appena sigillata; resta la `CryptoKey` non estraibile.
+   */
+  private async createKey(req: Extract<CoreRequest, { t: "createKey" }>, prf: ArrayBuffer) {
+    const status = await this.http<VaultStatusResponse>("GET", "/api/vault/status");
+    if (!status.activated) return { ok: false as const, code: "inactive" };
+    if (hasLiveKey(status) && !req.recreate) return { ok: false as const, code: "has_key" };
+    const passkey = (status.passkeys ?? []).find((p) => p.credentialIdB64url === req.credentialId);
+    if (!passkey) return { ok: false as const, code: "passkey_unknown" };
+    await this.http("POST", "/api/me/security/reauth/passkey/verify", { response: req.assertion });
+    const server = await this.whoOnServer();
+    if (server.userId !== req.personId) return { ok: false as const, code: "session" };
+    const pair = await generatePersonKeyPair();
+    let sealedPrivateKey: string;
+    try {
+      sealedPrivateKey = await sealPrivateKey(prf, pair.privateKeyPkcs8, pair.publicKey);
+    } finally {
+      pair.privateKeyPkcs8.fill(0);
+    }
+    const created = await this.http<VaultCreateKeyResponse>("POST", "/api/vault/keys", {
+      publicKey: pair.publicKey,
+      seals: [{ passkeyId: passkey.passkeyId, sealedPrivateKey }],
+      device: (this.deps.device ?? deviceOf)().slice(0, 200),
+    });
+    this.open(pair.privateKey, created.id, req.personId, req.sessionTag, server.serverTag);
+    return { ok: true as const, status: created.status };
   }
 
   /** La chiave per un uso, o `null` (e chiusa) se scaduta o di un'altra persona o sessione. */
@@ -492,7 +572,7 @@ export class VaultCore {
     try {
       return await this.dispatch(req);
     } catch (error) {
-      if (req.t === "unlock" || req.t === "stash") this.dropStash();
+      if (req.t === "unlock" || req.t === "createKey" || req.t === "stash") this.dropStash();
       if (error instanceof HttpError) {
         return error.code === "vault_reveal_rate_limited" && error.retryAfterSeconds !== undefined
           ? { ok: false, code: error.code, retryAfterSeconds: error.retryAfterSeconds }
@@ -509,8 +589,11 @@ export class VaultCore {
       case "prepare": {
         const status = await this.http<VaultStatusResponse>("GET", "/api/vault/status");
         if (!status.activated) return { ok: false, code: "inactive" };
-        if (!hasLiveKey(status)) return { ok: false, code: "no_key" };
-        const sealed = status.seals.map((s) => s.credentialIdB64url);
+        const creating = req.purpose === "create";
+        if (creating && hasLiveKey(status) && !req.recreate) return { ok: false, code: "has_key" };
+        if (!creating && !hasLiveKey(status)) return { ok: false, code: "no_key" };
+        // Da aprire, le passkey col sigillo; da creare, tutte quelle della persona.
+        const sealed = (creating ? (status.passkeys ?? []) : status.seals).map((s) => s.credentialIdB64url);
         const options = await this.http<PasskeyAuthenticationOptions>(
           "POST",
           "/api/me/security/reauth/passkey/options",
@@ -542,21 +625,17 @@ export class VaultCore {
           } catch {
             return { ok: false, code: "open_failed" };
           }
-          this.key = {
-            privateKey,
-            personKeyId: mine.id,
-            personId: req.personId,
-            sessionTag: req.sessionTag,
-            serverTag: server.serverTag,
-            lastUseAt: this.deps.now(),
-            openedAt: this.deps.now(),
-            reveals: 0,
-            shares: 0,
-            passwordChanges: 0,
-          };
-          this.arm();
-          this.deps.emit({ t: "state", state: "open", closesAt: this.closesAt() });
+          this.open(privateKey, mine.id, req.personId, req.sessionTag, server.serverTag);
           return { ok: true };
+        } finally {
+          wipe(prf);
+        }
+      }
+      case "createKey": {
+        const prf = this.takeStash();
+        if (!prf) return { ok: false, code: "no_prf" };
+        try {
+          return await this.createKey(req, prf);
         } finally {
           wipe(prf);
         }
