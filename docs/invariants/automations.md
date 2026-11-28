@@ -16,10 +16,10 @@ motore condiviso (`packages/shared/src/automations/`).
   - `tickets` AFTER INSERT → `task_created`;
   - `tickets` AFTER UPDATE quando `status_id` ENTRA nella famiglia `closed`
     (`project_statuses.family`) → `task_closed`. Fra due stati chiusi no;
-    riaperta e richiusa sì. Vale anche per chi scrive l'enum vecchio
-    `tickets.status`: lo traduce `tickets_status_sync`, e il filtro sta nel
-    WHEN del trigger, non in `UPDATE OF` (un BEFORE trigger non conta per
-    `UPDATE OF`);
+    riaperta e richiusa sì. Vale per ogni scrittore dello stato (un ruolo con
+    `roleUpdate`, o `status_id` scritto: l'enum `tickets.status` non c'è più
+    dalla 0245); il filtro sta nel WHEN del trigger, non in `UPDATE OF` (un
+    BEFORE trigger, che può riscrivere `status_id`, non conta per `UPDATE OF`);
   - `backlog_items` AFTER INSERT con `merged_into_id IS NULL` →
     `request_created` (la fusione dell'intake aggiorna una voce che c'è: non
     pubblica);

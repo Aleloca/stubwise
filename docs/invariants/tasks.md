@@ -1,5 +1,45 @@
 # Task: stati per progetto e enum derivato
 
+## L'enum non c'è più: un trigger solo, `tickets_state` (R3, 0245)
+
+Migrazione: `packages/db/drizzle/0245_tickets_senza_enum.sql`. Test:
+`packages/db/src/migration-0245.test.ts`. Piano:
+`docs/plans/2026-11-28-ritiro-web-vecchio-piano.md` §1.1 (R3) e §1.2.
+
+- **Non esistono più la colonna `tickets.status`, il tipo `ticket_status`,
+  né i trigger `tickets_status_sync` e `tickets_triaged_reset`.** Un lettore
+  o uno scrittore della colonna fallisce con 42703: è la guardia del blocco T
+  (prima era un test sul sorgente). Lo `status` di un ticket si DERIVA
+  (`ticketStatusSql`, `stubwise_ticket_status`) e un ruolo si scrive con
+  `roleUpdate`, come da R0 (sotto).
+- **`project_statuses.legacy_status`** è `text` con un CHECK sui sei valori
+  di prima: è il RUOLO dello stato, quello che pipeline, MCP e mobile
+  conoscono come `status`. `stubwise_legacy_family`,
+  `stubwise_status_for_legacy` e `stubwise_ticket_status` prendono e danno
+  `text`.
+- **`tickets_state`** (BEFORE INSERT, o UPDATE di `status_id`, `project_id`,
+  `triaged_at`) fa ciò che dei due trigger resta, senza l'enum:
+  - un INSERT senza `status_id` va nel primo todo (il ruolo `open`, il
+    default dell'enum di prima); uno stato di un altro progetto è rifiutato
+    (`23503`), all'INSERT e all'UPDATE;
+  - un ticket che cambia progetto senza dire lo stato prende lo stato del
+    nuovo progetto per il RUOLO dello stato di prima
+    (`stubwise_status_for_legacy`); uno smistato resta smistato;
+  - uno `status_id` scritto senza dire `triaged_at` toglie il segno dello
+    smistamento (come lo spostamento fra due todo di prima);
+  - `closed_at`: entrando in `closed` la data di adesso, fra due stati
+    chiusi resta, fuori da `closed` null;
+  - `triaged_at` fuori dalla famiglia todo è sempre null.
+- **Uno stato che cambia FAMIGLIA** (Impostazioni → Stati) porta con sé
+  `closed_at` e `triaged_at` delle sue task: `tickets_state` scatta quando
+  una task cambia stato, non quando cambia lo stato stesso, quindi lo fa la
+  rotta (`routes/project-statuses.ts`), per i soli stati la cui famiglia è
+  cambiata davvero.
+
+Le sezioni qui sotto sono la storia (0108, R0): valgono ancora le regole di
+`stubwise_status_for_legacy`, di `legacy_status` e degli stati di default; ciò
+che dicono della colonna enum e dei due trigger non vale più dalla 0245.
+
 ## Lo stato vero è `status_id`; l'enum lo tiene coerente il trigger (9 nov 2026)
 
 Design: `docs/plans/2026-11-09-integrazione-area2-task-design.md` («Stati per

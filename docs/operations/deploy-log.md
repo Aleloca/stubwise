@@ -7646,6 +7646,66 @@ deploy o di un rollback che la tocca.
   file d'ambiente saltava), e senza `replaced`/`skipped` l'esito dell'import
   conta tutto come nuovo, nessuna riga saltata.
 
+- **«Stati senza enum», R3 del ritiro del web vecchio: le migrazioni (28 nov
+  2026, PRONTO MA DA NON DEPLOYARE PRIMA DELLA CONDIZIONE QUI SOTTO)**: ramo
+  `feat/taglio-r3-stati`, sopra `feat/stati-senza-enum` (R0, #146). Piano
+  `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md` §1.1 («R3») e §1.2; le
+  regole in `docs/invariants/tasks.md` («L'enum non c'è più»).
+  - **Migrazione `0245_tickets_senza_enum`** (DISTRUTTIVA): via i trigger
+    `tickets_status_sync` e `tickets_triaged_reset` e le loro funzioni, via
+    la colonna `tickets.status` (e con lei l'indice
+    `tickets_project_id_status_idx`), `project_statuses.legacy_status` da
+    enum a `text` con un CHECK sui sei valori di prima, le funzioni
+    `stubwise_legacy_family`, `stubwise_status_for_legacy` e
+    `stubwise_ticket_status` ricreate con `text`, il trigger nuovo
+    `tickets_state` (INSERT senza stato → il primo todo; cambio di progetto →
+    lo stato dal ruolo dello stato di prima; `closed_at` dalla famiglia; il
+    segno dello smistamento solo in todo), e infine `DROP TYPE
+    ticket_status`. Ogni DROP in uno statement a sé, nessun `ADD VALUE`. I
+    dati dei ticket non si muovono (stato, `closed_at`, `triaged_at`, status
+    derivato: il test lo prova riga per riga).
+  - **Server**: l'ultimo scrittore dichiarato dell'enum (il riallineamento
+    in `routes/project-statuses.ts` quando uno stato cambia famiglia) non
+    scrive più la colonna; tiene `closed_at` e `triaged_at` delle task di uno
+    stato che cambia famiglia. La guardia sul sorgente dell'SQL grezzo
+    diventa «la colonna non esiste» (un lettore o uno scrittore nuovo fallisce
+    con 42703); resta quella sulle scritture drizzle con una chiave `status`.
+  ⚠️ **Condizioni**, tutte e due:
+  - in produzione c'è almeno `fix/ruoli-senza-cast-enum` (i frammenti dei
+    ruoli senza il cast al tipo `ticket_status`): senza, un'immagine di prima
+    sul DB di dopo fallisce a ogni scrittura di un ruolo, e il rollback a R2
+    non regge;
+  - R3 parte **due settimane dopo R2** (decisione D8 del maintainer), cioè
+    quando per due settimane nessuno ha avuto bisogno di scendere sotto R2.
+    Prima, un rollback deve poter tornare a un'immagine che nomina ancora la
+    colonna.
+  ⚠️ **La migrazione dev'essere l'ULTIMA del journal al merge**, di numero e
+  di `when`: drizzle applica per `when`, e una migrazione con un `when` più
+  piccolo arrivata dopo si salterebbe in silenzio.
+  `migration-0245.test.ts` («il journal delle migrazioni») lo controlla su
+  tutto il journal: se nel frattempo ne sono arrivate altre, si rinumera e
+  si sposta `when` dopo l'ultima.
+  **Deploy**: **backup del DB prima** (la migrazione toglie una colonna e un
+  tipo). Poi ribuildare **`server`** (applica la migrazione all'avvio),
+  healthy e migrazione applicata, poi `worker` e `caddy`. Nessuna env, nessun
+  `notification_kind` nuovo. Il worker di R0/R2 non nomina la colonna, quindi
+  la finestra fra i due rebuild è sicura.
+  **Controllo dopo il deploy**:
+  ```sql
+  select count(*) from information_schema.columns where table_name = 'tickets' and column_name = 'status';  -- 0
+  select count(*) from pg_type where typname = 'ticket_status';                                            -- 0
+  select tgname from pg_trigger where tgrelid = 'tickets'::regclass and not tgisinternal and tgname like 'tickets_st%';  -- tickets_state
+  ```
+  Poi, nella nuova app, una task che si chiude e si riapre (la data di
+  chiusura), una spostata di progetto, e uno stato che cambia famiglia in
+  Impostazioni → Stati.
+  **Rollback**: si scende **AL MASSIMO a R2**, e solo a un'immagine che ha già
+  `fix/ruoli-senza-cast-enum`: il codice di prima di R0 nomina la colonna, e
+  quello fra R0 e quel fix nomina il tipo, che non ci sono più. Su
+  un'immagine così scendere è sicuro (non legge né scrive l'enum, e il
+  trigger nuovo fa ciò che facevano quelli vecchi senza la colonna). Per tornare a un'immagine di prima di R0 serve il
+  backup fatto prima di R3, con i dati di dopo persi: per questo R3 aspetta.
+
 - **«Stati senza enum», R0 del ritiro del web vecchio (28 nov 2026)**: ramo
   `feat/stati-senza-enum`, blocco T del piano
   `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md`. Nessuno legge o
