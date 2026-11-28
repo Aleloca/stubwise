@@ -205,9 +205,10 @@ describe("Credentials — la voce della colonna", () => {
     expect(within(bar()).getByText("Activate it in the browser.")).toBeInTheDocument();
   });
 
-  // Review M10: nella build web (l'app servita su /app, senza il ponte del
-  // desktop) cifrare non si può: niente «New credential», e la barra dice
-  // come si apre la cassaforte dal browser.
+  // Review M10, poi la cassaforte nel browser (fase 1): nella build web (l'app
+  // servita su /app, senza il ponte del desktop) cifra il worker della
+  // scheda, quindi «New credential» c'è come nella build Electron; la barra
+  // dice come si apre la cassaforte dal browser.
   describe("M10: la build web", () => {
     beforeEach(() => {
       vi.stubEnv("VITE_STUBWISE_BUILD", "app");
@@ -221,9 +222,9 @@ describe("Credentials — la voce della colonna", () => {
       vi.unstubAllGlobals();
     });
 
-    it("niente «New credential» nella sezione", async () => {
+    it("«New credential» c'è anche nella build web (cifra il worker della scheda)", async () => {
       await openSection("p-laura");
-      expect(screen.queryByRole("button", { name: "New credential" })).toBeNull();
+      expect(screen.getByRole("button", { name: "New credential" })).toBeInTheDocument();
     });
 
     it("nella build Electron «New credential» c'è (lo decide il target, non il ponte)", async () => {
