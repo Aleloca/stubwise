@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
 import { projectStatuses, tickets } from "./schema.js";
 import { legacyTicketStatus, seedRepository, startTestDb, type TestDb } from "./testing.js";
-import { roleUpdate, statusIdForRole, ticketStatusSql, type TicketRole } from "./ticket-status.js";
+import { roleLiteral, roleUpdate, statusIdForRole, ticketStatusSql, type TicketRole } from "./ticket-status.js";
 
 // Gli stati senza l'enum (blocco T del ritiro del web vecchio, R0). Il test
 // d'accordo: per ogni ruolo che uno scrittore assegna, da ogni stato di
@@ -88,7 +88,7 @@ async function differencesIn(project: { projectId: string; statuses: Status[] })
   const before: { statusId: string; column: string }[] = [];
   for (const c of cases) {
     const [row] = await db.execute<{ sid: string }>(
-      sql`select stubwise_status_for_legacy(${project.projectId}::uuid, ${c.role}::"ticket_status", ${c.start.id}::uuid) as sid`,
+      sql`select stubwise_status_for_legacy(${project.projectId}::uuid, ${roleLiteral(c.role)}, ${c.start.id}::uuid) as sid`,
     );
     before.push({ statusId: row!.sid, column: c.role });
   }
