@@ -44,6 +44,7 @@ export type {
 // di fix, intake del backlog), e la regola "una transizione = un evento datato"
 // deve essere una sola.
 export { recordTicketStatusChange } from "./ticket-events.js";
+export { CLOSED_ROLES, roleUpdate, statusIdForRole, ticketColumns, ticketStatusSql, type TicketRole } from "./ticket-status.js";
 // Registro delle DECISIONI di progetto: vive qui perché a scrivere in
 // `project_decisions` sono il server (risposta a una domanda, gate del piano,
 // "Procedi" del pulse, voci manuali) e, in lettura, il worker che compone il

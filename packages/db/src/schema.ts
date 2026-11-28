@@ -1080,11 +1080,14 @@ export const tickets = pgTable(
     originContent: text("origin_content"),
     type: ticketType("type").notNull(),
     priority: ticketPriority("priority").notNull(),
-    // Compatibilità (0108): DERIVATO da `statusId` dal trigger
-    // `tickets_status_sync`, e viceversa quando uno scrittore vecchio scrive
-    // solo l'enum. Si toglie col ritiro del web vecchio
-    // (docs/invariants/tasks.md).
-    status: ticketStatus("status").notNull().default("open"),
+    // ⚠️ La colonna `status` (l'enum) c'è ancora nel DB, tenuta dal trigger
+    // `tickets_status_sync`, ma NON è più nello schema (blocco T, R0): il
+    // codice non la legge né la scrive, e il compilatore lo garantisce. Lo
+    // `status` delle risposte si deriva con `ticketStatusSql`; per cambiare
+    // stato si scrive `statusId` con `statusIdForRole` (`ticket-status.ts`).
+    // La colonna si toglie con le migrazioni del ritiro (R3).
+    /** Quando un todo è stato smistato (0240): `status` derivato = `triaged`. Lo azzera il trigger fuori da todo. */
+    triagedAt: timestamp("triaged_at", { withTimezone: true }),
     // Lo stato VERO (0108), uno degli stati del progetto. NOT NULL nel DB ma
     // opzionale all'insert: senza, il trigger lo ricava dall'enum.
     statusId: uuid("status_id")
@@ -1171,7 +1174,9 @@ export const tickets = pgTable(
   (table) => [
     uniqueIndex("tickets_project_id_number_unique").on(table.projectId, table.number),
     // Board e liste filtrano sempre per progetto e stato.
-    index("tickets_project_id_status_idx").on(table.projectId, table.status),
+    // L'indice c'è ancora nel DB sulla colonna enum (fuori dallo schema, R0):
+    // se ne va con lei nelle migrazioni del ritiro (R3).
+    index("tickets_project_id_status_idx").on(table.projectId, sql`"status"`),
     // Lookup dei ticket di una milestone (e set null in cascata).
     index("tickets_milestone_id_idx").on(table.milestoneId),
     // Ricerca full-text sul vettore generato.

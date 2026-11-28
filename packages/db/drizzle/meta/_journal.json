@@ -1660,6 +1660,13 @@
       "when": 1804982400000,
       "tag": "0238_vault_unlock_window",
       "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "7",
+      "when": 1805155200000,
+      "tag": "0240_tickets_triaged_at",
+      "breakpoints": true
     }
   ]
 }
