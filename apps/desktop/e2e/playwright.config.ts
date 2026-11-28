@@ -3,8 +3,8 @@ import process from "node:process";
 import { defineConfig, devices } from "@playwright/test";
 
 /*
- * E2E della NUOVA app (D3 del piano del taglio): la build web vera, servita su
- * `/app` con le intestazioni del Caddyfile (`serve-app.mjs`), contro lo stack
+ * E2E della NUOVA app (D3 del piano del taglio): la build web vera, servita alla
+ * radice (R1) con le intestazioni del Caddyfile (`serve-app.mjs`), contro lo stack
  * vero (`start-stack.mjs`: Postgres testcontainers + server su :3220).
  *
  * UN flusso seriale su un solo database, che nasce vuoto a ogni run: un
@@ -42,7 +42,7 @@ export default defineConfig({
     },
     {
       // La build web vera, come la serve Caddy (non `vite dev`).
-      // E la pagina a sé della cassaforte (`dist-vault`, su /app/vault/).
+      // E la pagina a sé della cassaforte (`dist-vault`, su /vault/).
       command: "pnpm build:web && pnpm build:vault && node e2e/serve-app.mjs",
       cwd: desktop,
       url: "http://localhost:5220/health",

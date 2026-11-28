@@ -5,7 +5,7 @@ import { seedMailThread, type SeededThread } from "./seed";
 
 /*
  * La suite E2E MINIMA della nuova app, da avere prima di spegnere il web
- * vecchio (D3 del piano del taglio): la build web vera su `/app`, lo stack
+ * vecchio (D3 del piano del taglio): la build web vera alla radice (R1), lo stack
  * vero. Il percorso di una persona: entra con password e secondo fattore,
  * vede la Home, apre una task e la commenta, legge un thread della posta.
  *
@@ -53,7 +53,10 @@ test.afterAll(async () => {
 });
 
 test("si entra dalla UI con password e codice dell'app, e si arriva alla Home", async () => {
-  await page.goto("/app/");
+  const root = await page.goto("/");
+  // Le intestazioni della radice: quelle del `handle` dell'app nel Caddyfile.
+  expect(root!.headers()["cross-origin-opener-policy"]).toBe("same-origin");
+  expect(root!.headers()["content-security-policy"]).toContain("trusted-types stubwise-vault-worker stubwise-html");
   await expect(page.getByRole("heading", { name: "Sign in to Stubwise" })).toBeVisible();
   await page.getByLabel("Email").fill(ADMIN_EMAIL);
   await page.getByLabel("Password").fill(ADMIN_PASSWORD);
@@ -67,7 +70,7 @@ test("si entra dalla UI con password e codice dell'app, e si arriva alla Home", 
 });
 
 test("una task si apre dal suo progetto, e un commento resta dopo un ricaricamento", async () => {
-  await page.goto(`/app/#/p/${PROJECT_CODE}/tasks?task=${taskCode}`);
+  await page.goto(`/#/p/${PROJECT_CODE}/tasks?task=${taskCode}`);
   // A 1440 px il pannello è affiancato (`DOCKED_PANEL_QUERY`): una regione della pagina, non un dialogo.
   const panel = page.getByRole("region", { name: `Task ${taskCode}` });
   await expect(panel).toBeVisible();
@@ -86,7 +89,7 @@ test("una task si apre dal suo progetto, e un commento resta dopo un ricaricamen
 });
 
 test("la Posta: un thread si apre e se ne legge il messaggio", async () => {
-  await page.goto("/app/#/mail");
+  await page.goto("/#/mail");
   await expect(page.getByRole("heading", { level: 1, name: "Mail" })).toBeVisible();
   const conversations = page.getByRole("listbox", { name: "Conversations" });
   await conversations.getByRole("option", { name: new RegExp(thread.subject) }).click();
@@ -94,4 +97,26 @@ test("la Posta: un thread si apre e se ne legge il messaggio", async () => {
   const pane = page.locator("[data-reading-pane]");
   await expect(pane.getByText(thread.body)).toBeVisible();
   await expect(pane.getByText(thread.from)).toBeVisible();
+});
+
+// I link di prima di R1 (card, email, push, webhook: `/app/#/…`) e i Mac
+// installati: `/app` e `/app/*` sono un 308 alla radice, e il browser tiene il
+// frammento. I Mac di prima della fase 2 aprono `/vault-pair?state=…`.
+test("un link di prima di R1 (/app/#/…) apre la task alla radice", async () => {
+  await page.goto(`/app/#/p/${PROJECT_CODE}/tasks?task=${taskCode}`);
+  await expect(page.getByRole("region", { name: `Task ${taskCode}` })).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe("/");
+});
+
+test("i rimandi di /app/* e di /vault-pair, come nel Caddyfile", async () => {
+  const head = async (path: string) => {
+    const r = await context.request.get(path, { maxRedirects: 0 });
+    return { status: r.status(), location: r.headers()["location"] };
+  };
+  expect(await head("/app")).toEqual({ status: 308, location: "/" });
+  expect(await head("/app/assets/x.js?v=1")).toEqual({ status: 308, location: "/assets/x.js?v=1" });
+  expect(await head("/app/vault/")).toEqual({ status: 308, location: "/vault/" });
+  expect(await head("/vault")).toEqual({ status: 308, location: "/vault/" });
+  expect(await head("/vault-pair?state=abc")).toEqual({ status: 302, location: "/vault/#/pair?state=abc" });
+  expect(await head("/settings/security")).toEqual({ status: 302, location: "/#/preferences/security" });
 });
