@@ -246,13 +246,13 @@ describe("Credentials — la voce della colonna", () => {
       );
       await waitFor(() => expect(bar().dataset.vaultBar).toBe("unsupported"));
       expect(
-        within(bar()).getByText(
-          "In the browser, the vault opens on Stubwise's web pages, with your passkey.",
-        ),
+        within(bar()).getByText("In the browser, the vault opens on the Vault page, with your passkey."),
       ).toBeInTheDocument();
-      expect(
-        within(bar()).getByRole("button", { name: "Open the vault page" }),
-      ).toBeInTheDocument();
+      // Fase 2: la pagina della cassaforte della nuova app (dall'helper dei link), non il web vecchio.
+      const assign = vi.spyOn(window.location, "assign").mockImplementation(() => undefined);
+      await userEvent.click(within(bar()).getByRole("button", { name: "Open the vault page" }));
+      expect(assign).toHaveBeenCalledWith("/app/#/vault");
+      assign.mockRestore();
     });
 
     // Cassaforte nel browser, design §9: gli stati della barra della build web.

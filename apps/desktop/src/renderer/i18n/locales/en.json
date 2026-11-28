@@ -13699,7 +13699,7 @@
       "disabled": "This instance opens the vault only in the browser.",
       "unsupported": "This Mac can't open the vault (no Secure Enclave, or a build without it). Open it in the browser.",
       "inactiveAdmin": "Activate it in the browser.",
-      "unsupportedWeb": "In the browser, the vault opens on Stubwise's web pages, with your passkey.",
+      "unsupportedWeb": "In the browser, the vault opens on the Vault page, with your passkey.",
       "openWebPage": "Open the vault page",
       "openWeb": "Open · closes after 15 minutes without use",
       "webLimit": "In the browser, sleep and screen lock close it when you come back.",

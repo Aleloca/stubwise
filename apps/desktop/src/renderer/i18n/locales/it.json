@@ -13699,7 +13699,7 @@
       "disabled": "Questa istanza apre la cassaforte solo dal browser.",
       "unsupported": "Questo Mac non può aprire la cassaforte (manca il Secure Enclave, o la build non lo prevede). Aprila dal browser.",
       "inactiveAdmin": "Attivala nel browser.",
-      "unsupportedWeb": "Nel browser la cassaforte si apre dalle pagine web di Stubwise, con la tua passkey.",
+      "unsupportedWeb": "Nel browser la cassaforte si apre dalla pagina Cassaforte, con la tua passkey.",
       "openWebPage": "Apri la pagina della cassaforte",
       "openWeb": "Aperta · si chiude dopo 15 minuti senza uso",
       "webLimit": "Nel browser, lo stop e il blocco dello schermo la chiudono al tuo ritorno.",
