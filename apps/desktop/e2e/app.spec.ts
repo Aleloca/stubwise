@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
+import { ADMIN_EMAIL, ADMIN_PASSWORD, ensureAdmin } from "./admin";
 import { clientIpHeaders, nextTotpCode, signInWithRequest } from "./second-factor";
 import { seedMailThread, type SeededThread } from "./seed";
 
@@ -14,8 +15,6 @@ import { seedMailThread, type SeededThread } from "./seed";
  * della pagina.
  */
 
-const ADMIN_EMAIL = "ada@example.com";
-const ADMIN_PASSWORD = "password-sicura-e2e-app";
 const PROJECT_CODE = "ESHOP";
 
 test.describe.configure({ mode: "serial" });
@@ -26,12 +25,7 @@ let taskCode: string;
 let thread: SeededThread;
 
 async function prepare(request: APIRequestContext): Promise<void> {
-  const status = await request.get("/api/auth/setup");
-  const { needed } = (await status.json()) as { needed: boolean };
-  if (needed) {
-    const setup = await request.post("/api/auth/setup", { data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD } });
-    expect(setup.ok()).toBe(true);
-  }
+  await ensureAdmin(request);
   // Il primo login configura il secondo fattore (via API); da qui ogni login lo chiede.
   await signInWithRequest(request, ADMIN_EMAIL, ADMIN_PASSWORD);
   const me = (await (await request.get("/api/auth/me")).json()) as { user: { id: string } };
