@@ -106,6 +106,33 @@ prima ritrova la colonna giusta.
   scritto dopo R1 apre la Home del web vecchio invece della pagina: un
   degrado, non un errore, che dura finché non si risale.
 
+### P — il plugin e i tool MCP sulle rotte dell'app (D10, prima di R2)
+
+Decisione del maintainer (D10, b): PRIMA della pulizia, i comandi del plugin
+(`/stubwise:run`, `/stubwise:start`) e i tool MCP dedicati che usano le 17
+rotte che l'app non chiama passano alle rotte dell'app. Chi:
+- design e piano di ticket e voci di backlog (`set_design`, `set_plan`,
+  `delete_design`, `delete_plan`);
+- `create_backlog_from_design`, `convert_backlog_to_ticket`;
+- `get_backlog_item`, `list_backlog`;
+- le azioni dell'inbox.
+
+Il catalogo MCP (`/api/mcp/catalog`) è dell'MCP e resta.
+
+- Dove l'app non ha ancora la rotta (Remove design e Remove plan,
+  inventario 1.6), la si aggiunge prima, ADDITIVA, sulle rotte della nuova app.
+- Una versione nuova del plugin, con il changeset di `@stubwise/mcp` e di
+  `@stubwise/claude-plugin` (gruppo `fixed`), pubblicata dal workflow
+  Release; si verifica con `npm view @stubwise/mcp version`.
+- **Compatibilità**: un plugin vecchio deve continuare a funzionare finché le
+  rotte vecchie esistono. Quindi l'ordine è: rotte dell'app (se mancano), poi
+  plugin nuovo pubblicato e aggiornato, poi R2, che toglie le 17 rotte. Fra P
+  e R2 passa abbastanza tempo perché l'avviso «plugin vecchio» del server MCP
+  arrivi a chi lo usa.
+- **Rollback**: P è additivo. Si torna alla versione precedente del plugin,
+  o si lascia quella nuova, che funziona anche con le rotte vecchie
+  presenti.
+
 ### R2 — la pulizia del server (solo codice)
 
 - **Cosa si toglie** (§3):
@@ -238,7 +265,7 @@ senza chiamanti**. Le 100, divise:
   - Per design e piano l'app non ha ancora «Remove design» e «Remove plan»
     (inventario 1.6).
 
-  È una decisione da portare al maintainer (**[D 10]**, sotto).
+  Deciso (D10, b): passano alle rotte dell'app nel blocco P, prima di R2.
 - **9 le usa solo la mobile di oggi**: si accetta (D5).
 - **34 sono le candidate vere**, da rivedere una per una prima di togliere:
   - alcune arrivano forse per un'altra strada, per esempio le azioni sulle
@@ -293,10 +320,12 @@ Le voci già note:
 4. **R1**, lo spegnimento con `/app` alla radice: `server` e `caddy`, e la
    cancellazione di `apps/web`. Rollback: le immagini di prima (quella di
    caddy TENUTA).
-5. **R2**, la pulizia del server dall'elenco dello script: `server`,
+5. **P**, il plugin e i tool MCP sulle rotte dell'app (D10), pubblicato
+   PRIMA di R2.
+6. **R2**, la pulizia del server dall'elenco dello script: `server`,
    `worker`, `caddy`. Rollback: le immagini di prima.
-6. La guida riscritta (D6), subito dopo R1.
-7. **R3**, due settimane dopo R2, con il backup: le colonne Slack,
+7. La guida riscritta (D6), subito dopo R1.
+8. **R3**, due settimane dopo R2, con il backup: le colonne Slack,
    `saved_views`, l'hash degli inviti, e il passo dei dati del blocco T
    (trigger sostituito, colonna, enum). Rollback: solo fino a R2.
 
