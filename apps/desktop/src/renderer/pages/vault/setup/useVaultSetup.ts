@@ -50,6 +50,10 @@ export function setupErrorKey(code: string): string {
     "worker_unavailable",
     "network",
     "forbidden",
+    "code_required",
+    "presence_required",
+    "invalid_second_factor",
+    "locked",
   ];
   return `vault.setup.errors.${known.includes(code) ? code : "failed"}`;
 }

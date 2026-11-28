@@ -1,5 +1,8 @@
+import type { PasskeyAuthenticationOptions } from "@stubwise/shared";
 import { request } from "./client";
+import type { FreshPresence } from "./core";
 import { touchPasskey, type Who } from "./unlock";
+import { plainCeremony } from "./webauthn";
 
 // La fase 2 della cassaforte nel browser dalla parte della PAGINA (design
 // §10, I7): attivare, creare la propria chiave, una passkey in più, il kit
@@ -113,12 +116,20 @@ export interface RecoveryPerson {
   credentials: { id: string; projectId: string; service: string; label: string | null }[];
 }
 
-/** Il testo del kit va al worker, che ne ricava la privata: qui non resta. */
+/** Il testo del kit va al worker, che ne ricava la privata: qui non resta. Legato a persona e sessione (I-1). */
 export async function loadRecoveryKit(
+  who: Who,
   kitText: string,
 ): Promise<{ ok: true; items: RecoveryPerson[] } | { ok: false; code: string; error?: "reauth_required" }> {
+  const w = who();
+  if (!w.personId) return { ok: false, code: "unauthenticated" };
   return reauthAware(
-    await request<{ ok: true; items: RecoveryPerson[] } | { ok: false; code: string }>({ t: "recoveryLoad", kitText }),
+    await request<{ ok: true; items: RecoveryPerson[] } | { ok: false; code: string }>({
+      t: "recoveryLoad",
+      kitText,
+      personId: w.personId,
+      sessionTag: w.sessionTag,
+    }),
   );
 }
 
@@ -126,8 +137,36 @@ export type RecoveryConfirmOutcome =
   | { ok: true; saved: number; keyChanged: number; notAllowed: number; unopenable: number; items: RecoveryPerson[] | null }
   | { ok: false; code: string; error?: "reauth_required" };
 
-export async function confirmWithRecoveryKit(personKeyId: string): Promise<RecoveryConfirmOutcome> {
-  return reauthAware(await request<RecoveryConfirmOutcome>({ t: "recoveryConfirm", personKeyId }));
+/**
+ * Conferma col kit, con una presenza FRESCA (I-1): una passkey qualunque,
+ * senza PRF; se la persona non ne ha (`code_required`), la pagina chiede il
+ * codice dell'app e lo ripassa qui, che lo consegna al worker e basta.
+ */
+export async function confirmWithRecoveryKit(
+  who: Who,
+  personKeyId: string,
+  code?: string,
+): Promise<RecoveryConfirmOutcome> {
+  const w = who();
+  if (!w.personId) return { ok: false, code: "unauthenticated" };
+  let presence: FreshPresence;
+  if (code !== undefined) presence = { kind: "code", code };
+  else {
+    const prepared = await request<{ ok: true; options: PasskeyAuthenticationOptions } | { ok: false; code: string }>({
+      t: "presenceOptions",
+    });
+    if (!prepared.ok) return prepared.code === "no_passkeys" ? { ok: false, code: "code_required" } : prepared;
+    const touched = await plainCeremony(prepared.options);
+    if (!touched.ok) return touched;
+    presence = { kind: "passkey", assertion: touched.assertion };
+  }
+  return request<RecoveryConfirmOutcome>({
+    t: "recoveryConfirm",
+    personKeyId,
+    personId: w.personId,
+    sessionTag: w.sessionTag,
+    presence,
+  });
 }
 
 export async function forgetRecoveryKit(): Promise<void> {

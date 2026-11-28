@@ -14002,7 +14002,9 @@
         "credentials_other": "{{count}} credenziali",
         "saved_one": "{{count}} credenziale passata a {{name}}.",
         "saved_other": "{{count}} credenziali passate a {{name}}.",
-        "skipped": "{{count}} non passate: la loro password è cambiata nel frattempo, o non toccava a te darle."
+        "skipped": "{{count}} non passate: la loro password è cambiata nel frattempo, o non toccava a te darle.",
+        "codeLabel": "Codice dell'app di autenticazione",
+        "codeHint": "Non hai una passkey: ogni conferma col kit chiede il codice."
       },
       "rotate": {
         "title": "Rigenera il kit di recupero",
@@ -14063,7 +14065,11 @@
         "not_pending": "Questa persona non aspetta più.",
         "worker_unavailable": "Questo browser non può aprire la cassaforte.",
         "network": "Non raggiungo Stubwise. Riprova.",
-        "forbidden": "Lo può fare solo un full admin."
+        "forbidden": "Lo può fare solo un full admin.",
+        "code_required": "Non hai una passkey: scrivi il codice dell'app di autenticazione per confermare.",
+        "presence_required": "Conferma che sei tu per continuare.",
+        "invalid_second_factor": "Quel codice non è giusto. Riprova.",
+        "locked": "Troppi tentativi sbagliati: aspetta qualche minuto e riprova."
       }
     }
   },

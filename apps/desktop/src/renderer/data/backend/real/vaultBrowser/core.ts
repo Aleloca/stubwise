@@ -67,6 +67,9 @@ export const REVEALS_PER_UNLOCK = 30;
 export const SHARES_PER_UNLOCK = 10;
 export const PASSWORD_CHANGES_PER_UNLOCK = 10;
 
+/** I-1 (revisione della fase 2): il kit di recupero letto vale 10 minuti a ora di parete, poi va riletto. */
+export const RECOVERY_MS = 10 * 60_000;
+
 /** Quanto resta valida una PRF ricevuta senza lo sblocco che la consuma. */
 export const STASH_MS = 2 * 60_000;
 
@@ -154,8 +157,17 @@ export type CoreRequest =
    * copie. Il kit resta qui fino a `recoveryForget` (o all'uscita); confermare
    * apre la copia di recupero di ogni credenziale e la ricifra per la persona.
    */
-  | { t: "recoveryLoad"; kitText: string }
-  | { t: "recoveryConfirm"; personKeyId: string }
+  | { t: "recoveryLoad"; kitText: string; personId: string; sessionTag: string }
+  /**
+   * I-1: ogni conferma col kit vuole una presenza FRESCA, che il worker
+   * verifica col server prima della conferma: una passkey qualunque (senza
+   * PRF né sigillo: chi recupera può non avere una chiave) o, senza passkey,
+   * il codice dell'app, che qui si inoltra a `POST /reauth` e basta (non si
+   * logga, non si tiene).
+   */
+  | { t: "recoveryConfirm"; personKeyId: string; personId: string; sessionTag: string; presence?: FreshPresence }
+  /** Le opzioni della presenza fresca: una cerimonia senza PRF; `no_passkeys` se la persona non ne ha. */
+  | { t: "presenceOptions" }
   | { t: "recoveryForget" }
   /**
    * Fase 2, l'associazione del Mac (`/vault-pair`, solo nella build web): il
@@ -199,6 +211,9 @@ export type CoreRequest =
  * quell'operazione sola.
  */
 export type Presence = { assertion: unknown; credentialId: string };
+
+/** Una presenza fresca per il recupero (I-1): un'asserzione di passkey, o il codice dell'app. */
+export type FreshPresence = { kind: "passkey"; assertion: unknown } | { kind: "code"; code: string };
 
 export type CoreEvent =
   | { t: "state"; state: "open"; closesAt: number }
@@ -299,7 +314,16 @@ export class VaultCore {
   /** Il kit generato qui: solo la pubblica (il testo è andato alla pagina). */
   private kit: { publicKey: string; purpose: "activate" | "rotate" } | null = null;
   /** Il kit del recupero, letto: la privata, chi aspetta (con le copie), e una prova non ancora consumata. */
-  private recovery: { key: CryptoKey; people: VaultPendingPerson[]; proof: { challengeId: string; proof: string } | null } | null = null;
+  private recovery: {
+    key: CryptoKey;
+    people: VaultPendingPerson[];
+    proof: { challengeId: string; proof: string } | null;
+    /** I-1: chi l'ha caricato, in quale sessione (della pagina e del server), e quando. */
+    personId: string;
+    sessionTag: string;
+    serverTag: string | null;
+    loadedAt: number;
+  } | null = null;
   /** L'associazione letta: la pubblica del Mac e gli ultimi 4 della sua impronta, mai alla pagina. */
   private pairing: { state: string; deviceId: string; devicePublicKey: string; last4: string } | null = null;
   /** La prima metà di `sealBegin`: la PRF che apre la chiave, e per quale passkey nuova. */
@@ -443,9 +467,8 @@ export class VaultCore {
   lock(reason: LockReason, code?: string): void {
     this.dropStash();
     this.dropSealing();
-    // Il kit del recupero non è la chiave della persona: lo butta la fine della
-    // sessione, non una chiusura per inattività o una riconferma chiesta.
-    if (reason === "session" || reason === "logout" || reason === "remote" || reason === "pagehide") this.recovery = null;
+    // I-1: il kit del recupero lo butta OGNI chiusura, per qualunque motivo.
+    this.recovery = null;
     const was = this.key;
     this.key = null;
     if (this.timer !== null) this.deps.clearTimer(this.timer);
@@ -825,12 +848,41 @@ export class VaultCore {
   }
 
   /** Chi aspetta, visto col kit: con una prova nuova, che resta buona per la prossima conferma. */
-  private async recoveryReload(key: CryptoKey): Promise<VaultPendingPerson[]> {
+  private async recoveryReload(
+    key: CryptoKey,
+    who: { personId: string; sessionTag: string; serverTag: string | null; loadedAt: number },
+  ): Promise<VaultPendingPerson[]> {
     const proof = await this.recoveryProof(key);
     const out = vaultPendingResponseSchema.safeParse(await this.http("POST", "/api/vault/recovery/pending", proof));
     if (!out.success) throw new HttpError(0, "invalid_response");
-    this.recovery = { key, people: out.data.items, proof };
+    this.recovery = { key, people: out.data.items, proof, ...who };
     return out.data.items;
+  }
+
+  /**
+   * I-1: il kit caricato, se vale ancora per QUESTA persona e sessione (anche
+   * sul server) e da meno di {@link RECOVERY_MS}; altrimenti si butta.
+   */
+  private async liveRecovery(personId: string, sessionTag: string) {
+    const r = this.recovery;
+    if (!r) return null;
+    const stale = r.personId !== personId || r.sessionTag !== sessionTag || this.deps.now() - r.loadedAt > RECOVERY_MS;
+    if (!stale) {
+      const server = await this.whoOnServer();
+      if (server.userId === r.personId && server.serverTag === r.serverTag && this.recovery === r) return r;
+    }
+    if (this.recovery === r) this.recovery = null;
+    return null;
+  }
+
+  /** I-1: la presenza fresca, verificata col server; lancia (col codice del server) se non regge. */
+  private async verifyPresence(presence: FreshPresence): Promise<void> {
+    if (presence.kind === "code") {
+      // Il codice si inoltra e basta: non si logga, non si tiene.
+      await this.http("POST", "/api/me/security/reauth", { code: String(presence.code) });
+      return;
+    }
+    await this.http("POST", "/api/me/security/reauth/passkey/verify", { response: presence.assertion });
   }
 
   /**
@@ -838,11 +890,17 @@ export class VaultCore {
    * ancora consumata; scaduta, se ne chiede una nuova una volta). Poi
    * l'elenco si rilegge: se non riesce, l'esito resta.
    */
-  private async recoveryConfirm(personKeyId: string) {
-    const r = this.recovery;
+  private async recoveryConfirm(req: Extract<CoreRequest, { t: "recoveryConfirm" }>) {
+    const personKeyId = req.personKeyId;
+    const r = await this.liveRecovery(req.personId, req.sessionTag);
     if (!r) return { ok: false as const, code: "no_kit" };
     const person = r.people.find((p) => p.personKey.id === personKeyId);
     if (!person) return { ok: false as const, code: "not_pending" };
+    if (!req.presence || (req.presence.kind !== "passkey" && req.presence.kind !== "code"))
+      return { ok: false as const, code: "presence_required" };
+    await this.verifyPresence(req.presence);
+    // Una chiusura arrivata durante la verifica ha buttato il kit.
+    if (this.recovery !== r) return { ok: false as const, code: "no_kit" };
     const { copies, unopenable } = await this.rewrap(person, r.key, "recovery");
     if (person.credentials.length > 0 && copies.length === 0) return { ok: false as const, code: "nothing_opened" };
     const send = (proof: { challengeId: string; proof: string }) =>
@@ -859,7 +917,7 @@ export class VaultCore {
     const outcome = { ...counts(result), unopenable };
     let items: VaultPendingPerson[] | null = null;
     try {
-      if (this.recovery === r) items = await this.recoveryReload(r.key);
+      if (this.recovery === r) items = await this.recoveryReload(r.key, r);
     } catch {
       items = null;
     }
@@ -1040,10 +1098,18 @@ export class VaultCore {
         } catch {
           return { ok: false, code: "invalid_kit" };
         }
-        return { ok: true, items: await summarize(await this.recoveryReload(key)) };
+        const server = await this.whoOnServer();
+        if (server.userId !== req.personId) return { ok: false, code: "session" };
+        const who = { personId: req.personId, sessionTag: req.sessionTag, serverTag: server.serverTag, loadedAt: this.deps.now() };
+        return { ok: true, items: await summarize(await this.recoveryReload(key, who)) };
       }
       case "recoveryConfirm":
-        return this.recoveryConfirm(req.personKeyId);
+        return this.recoveryConfirm(req);
+      case "presenceOptions": {
+        // Senza `purpose`: la riconferma normale, nessuna estensione PRF.
+        const options = await this.http<PasskeyAuthenticationOptions>("POST", "/api/me/security/reauth/passkey/options", {});
+        return { ok: true, options };
+      }
       case "recoveryForget":
         this.recovery = null;
         return { ok: true };

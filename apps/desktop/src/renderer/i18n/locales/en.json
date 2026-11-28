@@ -14002,7 +14002,9 @@
         "credentials_other": "{{count}} credentials",
         "saved_one": "{{count}} credential passed to {{name}}.",
         "saved_other": "{{count}} credentials passed to {{name}}.",
-        "skipped": "{{count}} not passed: their password changed in the meantime, or they weren't yours to give."
+        "skipped": "{{count}} not passed: their password changed in the meantime, or they weren't yours to give.",
+        "codeLabel": "Code from your authenticator app",
+        "codeHint": "You have no passkey: every confirmation with the kit asks for the code."
       },
       "rotate": {
         "title": "Regenerate the recovery kit",
@@ -14063,7 +14065,11 @@
         "not_pending": "This person isn't waiting any more.",
         "worker_unavailable": "This browser can't open the vault.",
         "network": "Couldn't reach Stubwise. Try again.",
-        "forbidden": "Only a full admin can do this."
+        "forbidden": "Only a full admin can do this.",
+        "code_required": "You have no passkey: type the code from your authenticator app to confirm.",
+        "presence_required": "Confirm it's you to continue.",
+        "invalid_second_factor": "That code isn't right. Try again.",
+        "locked": "Too many wrong attempts: wait a few minutes and try again."
       }
     }
   },

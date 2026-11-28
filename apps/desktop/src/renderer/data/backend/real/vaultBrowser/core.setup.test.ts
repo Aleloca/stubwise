@@ -508,8 +508,13 @@ describe("il recupero col kit, nel worker (fase 2)", () => {
     };
   });
 
+  const load = (kitText: string) => ({ t: "recoveryLoad" as const, kitText, personId: ME, sessionTag: TAG });
+  const PASSKEY = { kind: "passkey" as const, assertion };
+  const confirmReq = (personKeyId: string, presence: unknown = PASSKEY) =>
+    ({ t: "recoveryConfirm", personKeyId, personId: ME, sessionTag: TAG, presence }) as never;
+
   it("il kit si legge nel worker: al server solo la prova, alla pagina chi aspetta senza le copie", async () => {
-    const out = (await core.handle({ t: "recoveryLoad", kitText: kit.kitText })) as { ok: true; items: Record<string, unknown>[] };
+    const out = (await core.handle(load(kit.kitText))) as { ok: true; items: Record<string, unknown>[] };
     expect(out.ok).toBe(true);
     expect(out.items).toHaveLength(1);
     expect(out.items[0]).toMatchObject({ email: "bea@example.com", personKeyId: BEA_KEY, credentials: [{ id: C1, service: "AWS" }] });
@@ -518,15 +523,15 @@ describe("il recupero col kit, nel worker (fase 2)", () => {
   });
 
   it("un testo che non è un kit, o il kit di un'altra cassaforte", async () => {
-    expect(await core.handle({ t: "recoveryLoad", kitText: "non è un kit" })).toEqual({ ok: false, code: "invalid_kit" });
+    expect(await core.handle(load("non è un kit"))).toEqual({ ok: false, code: "invalid_kit" });
     expect(calls).toHaveLength(0);
     const other = await generateRecoveryKit();
-    expect(await core.handle({ t: "recoveryLoad", kitText: other.kitText })).toEqual({ ok: false, code: "wrong_kit" });
+    expect(await core.handle(load(other.kitText))).toEqual({ ok: false, code: "wrong_kit" });
   });
 
   it("conferma: la copia di recupero ricifrata per la chiave della persona, con una prova per conferma", async () => {
-    await core.handle({ t: "recoveryLoad", kitText: kit.kitText });
-    const out = await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY });
+    await core.handle(load(kit.kitText));
+    const out = await core.handle(confirmReq(BEA_KEY));
     expect(out).toMatchObject({ ok: true, saved: 1, keyChanged: 0, notAllowed: 0, unopenable: 0 });
     const body = calls.find((c) => c.path === `/api/vault/recovery/confirm/${BEA_KEY}`)!.body as {
       copies: { credentialId: string; wrappedKey: string; keyVersion: string }[];
@@ -537,31 +542,92 @@ describe("il recupero col kit, nel worker (fase 2)", () => {
     expect(await decryptPassword(C1, ciphertext, itemKey)).toBe("Kx4!pa-77Wq");
     // La prova dell'elenco l'ha consumata la conferma; la seconda ne chiede una nuova.
     const before = challenges.length;
-    await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY });
+    await core.handle(confirmReq(BEA_KEY));
     expect(challenges.length).toBeGreaterThan(before);
   });
 
   it("senza il kit caricato, o dopo `recoveryForget`, niente conferma", async () => {
-    expect(await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY })).toEqual({ ok: false, code: "no_kit" });
-    await core.handle({ t: "recoveryLoad", kitText: kit.kitText });
+    expect(await core.handle(confirmReq(BEA_KEY))).toEqual({ ok: false, code: "no_kit" });
+    await core.handle(load(kit.kitText));
     await core.handle({ t: "recoveryForget" });
-    expect(await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY })).toEqual({ ok: false, code: "no_kit" });
+    expect(await core.handle(confirmReq(BEA_KEY))).toEqual({ ok: false, code: "no_kit" });
     expect(calls.some((c) => c.path.startsWith("/api/vault/recovery/confirm/"))).toBe(false);
   });
 
   it("una persona che non aspetta più: `not_pending`, senza bruciare la prova", async () => {
-    await core.handle({ t: "recoveryLoad", kitText: kit.kitText });
-    expect(await core.handle({ t: "recoveryConfirm", personKeyId: "99999999-9999-4999-8999-999999999999" })).toEqual({ ok: false, code: "not_pending" });
+    await core.handle(load(kit.kitText));
+    expect(await core.handle(confirmReq("99999999-9999-4999-8999-999999999999"))).toEqual({ ok: false, code: "not_pending" });
     expect(used.size).toBe(0);
   });
 
-  it("una riconferma chiesta non butta il kit caricato", async () => {
-    await core.handle({ t: "recoveryLoad", kitText: kit.kitText });
-    const real = routes[`POST /api/vault/recovery/confirm/${BEA_KEY}`]!;
-    routes[`POST /api/vault/recovery/confirm/${BEA_KEY}`] = () => ({ status: 403, body: { code: "reauth_required" } });
-    expect(await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY })).toEqual({ ok: false, code: "reauth_required" });
-    routes[`POST /api/vault/recovery/confirm/${BEA_KEY}`] = real;
-    expect(await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY })).toMatchObject({ ok: true, saved: 1 });
+  it("I-1: ogni chiusura butta il kit caricato (anche una riconferma chiesta, l'inattività, la scadenza)", async () => {
+    for (const reason of ["idle", "expired", "reauth", "user"] as const) {
+      await core.handle(load(kit.kitText));
+      await core.handle({ t: "lock", reason });
+      expect(await core.handle(confirmReq(BEA_KEY)), reason).toEqual({ ok: false, code: "no_kit" });
+    }
+    expect(used.size).toBe(0);
+  });
+
+  it("I-1: il kit vale 10 minuti a ora di parete dal caricamento", async () => {
+    await core.handle(load(kit.kitText));
+    clock += 10 * 60_000 + 1;
+    expect(await core.handle(confirmReq(BEA_KEY))).toEqual({ ok: false, code: "no_kit" });
+    expect(used.size).toBe(0);
+  });
+
+  it("I-1: legato a persona e sessione: un'altra persona, un'altra etichetta o un'altra sessione sul server non confermano", async () => {
+    await core.handle(load(kit.kitText));
+    expect(await core.handle({ ...(confirmReq(BEA_KEY) as object), personId: "p-bea" } as never)).toEqual({ ok: false, code: "no_kit" });
+    await core.handle(load(kit.kitText));
+    expect(await core.handle({ ...(confirmReq(BEA_KEY) as object), sessionTag: "tag-2" } as never)).toEqual({ ok: false, code: "no_kit" });
+    await core.handle(load(kit.kitText));
+    routes["GET /api/auth/me"] = () => ({ body: { user: { id: ME }, sessionTag: "srv-tag-NUOVO" } });
+    expect(await core.handle(confirmReq(BEA_KEY))).toEqual({ ok: false, code: "no_kit" });
+    expect(used.size).toBe(0);
+  });
+
+  it("I-1: chi carica il kit dev'essere chi è sul server", async () => {
+    routes["GET /api/auth/me"] = () => ({ body: { user: { id: "p-bea" }, sessionTag: "srv-tag" } });
+    expect(await core.handle(load(kit.kitText))).toEqual({ ok: false, code: "session" });
+    expect(calls.some((c) => c.path === "/api/vault/recovery/challenge")).toBe(false);
+  });
+
+  it("I-1: ogni conferma vuole una presenza fresca, verificata dal worker PRIMA della conferma", async () => {
+    await core.handle(load(kit.kitText));
+    expect(await core.handle(confirmReq(BEA_KEY, null))).toEqual({ ok: false, code: "presence_required" });
+    expect(used.size).toBe(0);
+    await core.handle(confirmReq(BEA_KEY));
+    const paths = calls.map((c) => `${c.method} ${c.path}`);
+    const verify = paths.lastIndexOf("POST /api/me/security/reauth/passkey/verify");
+    expect(verify).toBeGreaterThan(-1);
+    expect(verify).toBeLessThan(paths.indexOf(`POST /api/vault/recovery/confirm/${BEA_KEY}`));
+    expect(calls[verify]!.body).toEqual({ response: assertion });
+  });
+
+  it("I-1: una presenza che il server rifiuta non conferma", async () => {
+    await core.handle(load(kit.kitText));
+    routes["POST /api/me/security/reauth/passkey/verify"] = () => ({ status: 401, body: { code: "invalid_passkey" } });
+    expect(await core.handle(confirmReq(BEA_KEY))).toEqual({ ok: false, code: "invalid_passkey" });
+    expect(used.size).toBe(0);
+  });
+
+  it("I-1: senza passkey, il codice: lo verifica il worker con `POST /reauth`, per ogni conferma", async () => {
+    routes["POST /api/me/security/reauth"] = () => ({ status: 204, body: null });
+    await core.handle(load(kit.kitText));
+    expect(await core.handle(confirmReq(BEA_KEY, { kind: "code", code: "123456" }))).toMatchObject({ ok: true, saved: 1 });
+    expect(calls.find((c) => c.path === "/api/me/security/reauth")!.body).toEqual({ code: "123456" });
+    expect(calls.some((c) => c.path.endsWith("/passkey/verify"))).toBe(false);
+  });
+
+  it("le opzioni della presenza: una passkey qualunque, senza PRF; senza passkey `no_passkeys`", async () => {
+    routes["POST /api/me/security/reauth/passkey/options"] = () => ({
+      body: { challenge: "Y2hhbGxlbmdl", allowCredentials: [{ id: CRED, type: "public-key" }] },
+    });
+    expect(await core.handle({ t: "presenceOptions" })).toMatchObject({ ok: true, options: { challenge: "Y2hhbGxlbmdl" } });
+    expect(calls.at(-1)!.body).toEqual({});
+    routes["POST /api/me/security/reauth/passkey/options"] = () => ({ status: 409, body: { code: "no_passkeys" } });
+    expect(await core.handle({ t: "presenceOptions" })).toEqual({ ok: false, code: "no_passkeys" });
   });
 });
 

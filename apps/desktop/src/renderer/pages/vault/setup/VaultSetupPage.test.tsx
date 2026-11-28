@@ -158,10 +158,40 @@ describe("la pagina della cassaforte (fase 2)", () => {
     expect(document.body.textContent).not.toContain(KIT);
     expect(screen.getByText("ab12 cd34 ef56 7890")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Confirm the access of bea@example.com with the kit" }));
-    await waitFor(() => expect(m.confirmWithRecoveryKit).toHaveBeenCalledWith("k-bea"));
+    await waitFor(() => expect(m.confirmWithRecoveryKit).toHaveBeenCalledWith("k-bea", undefined));
     expect(await screen.findByText("No access is waiting for a confirmation.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Done: forget the kit" }));
     await waitFor(() => expect(m.forgetRecoveryKit).toHaveBeenCalled());
+  });
+
+  it("I-1: recupero senza passkey: la conferma chiede il codice, per QUELLA conferma", async () => {
+    m.status = { ok: true, activated: true, key: "confirmed", sealedPasskeyIds: ["pk-1"] };
+    const bea = {
+      userId: "u-bea",
+      email: "bea@example.com",
+      personKeyId: "k-bea",
+      status: "pending",
+      createdAt: "2026-11-27T10:00:00.000Z",
+      device: null,
+      fingerprint: "ab12 cd34 ef56 7890",
+      credentials: [],
+    };
+    m.loadRecoveryKit.mockResolvedValue({ ok: true, items: [bea] });
+    m.confirmWithRecoveryKit
+      .mockResolvedValueOnce({ ok: false, code: "code_required" })
+      .mockResolvedValueOnce({ ok: true, saved: 0, keyChanged: 0, notAllowed: 0, unopenable: 0, items: [] });
+    renderWithData(<VaultSetupPage />, { personId: "p-roberta" });
+    fireEvent.click(await screen.findByRole("button", { name: "Use the recovery kit" }));
+    fireEvent.change(screen.getByLabelText("Recovery kit"), { target: { value: KIT } });
+    fireEvent.click(screen.getByRole("button", { name: "Use the kit" }));
+    const confirm = await screen.findByRole("button", { name: "Confirm the access of bea@example.com with the kit" });
+    fireEvent.click(confirm);
+    const code = await screen.findByLabelText("Code from your authenticator app");
+    expect(confirm).toBeDisabled();
+    fireEvent.change(code, { target: { value: "123456" } });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(m.confirmWithRecoveryKit).toHaveBeenLastCalledWith("k-bea", "123456"));
+    expect(await screen.findByText("No access is waiting for a confirmation.")).toBeInTheDocument();
   });
 
   it("recupero con un testo che non è un kit: lo dice", async () => {

@@ -155,8 +155,34 @@ describe("la fase 2 dalla pagina", () => {
   it("recupero e rotazione: la riconferma chiesta arriva come `error` per `useReauth`", async () => {
     const setup = await load();
     answers.recoveryLoad = { ok: false, code: "reauth_required" };
-    expect(await setup.loadRecoveryKit("KIT")).toEqual({ ok: false, code: "reauth_required", error: "reauth_required" });
+    expect(await setup.loadRecoveryKit(who, "KIT")).toEqual({ ok: false, code: "reauth_required", error: "reauth_required" });
+    expect(sent.at(-1)).toMatchObject({ t: "recoveryLoad", personId: "p-ada", sessionTag: "e0" });
     answers.rotateKit = { ok: false, code: "vault_unlock_required" };
     expect(await setup.rotateKitInBrowser(who)).toEqual({ ok: false, code: "vault_unlock_required" });
+  });
+
+  it("I-1: conferma col kit: una passkey SENZA PRF, l'asserzione al worker, nessuna PRF passata", async () => {
+    const setup = await load();
+    answers.presenceOptions = { ok: true, options: { challenge: "Y2hhbGxlbmdl", allowCredentials: [{ id: CRED, type: "public-key" }] } };
+    answers.recoveryConfirm = { ok: true, saved: 1, keyChanged: 0, notAllowed: 0, unopenable: 0, items: [] };
+    expect(await setup.confirmWithRecoveryKit(who, "k-bea")).toMatchObject({ ok: true, saved: 1 });
+    expect(kinds()).toEqual(["presenceOptions", "recoveryConfirm"]);
+    const req = sent.at(-1)! as unknown as { presence: { kind: string; assertion: { clientExtensionResults: unknown } } };
+    expect(req.presence.kind).toBe("passkey");
+    expect(req.presence.assertion.clientExtensionResults).toEqual({});
+    const options = (navigator.credentials.get as ReturnType<typeof vi.fn>).mock.calls[0]![0] as { publicKey: { extensions?: unknown } };
+    expect(options.publicKey.extensions).toBeUndefined();
+  });
+
+  it("I-1: senza passkey `code_required`; col codice, il codice al worker e nessuna cerimonia", async () => {
+    const setup = await load();
+    answers.presenceOptions = { ok: false, code: "no_passkeys" };
+    expect(await setup.confirmWithRecoveryKit(who, "k-bea")).toEqual({ ok: false, code: "code_required" });
+    expect(ceremonies).toBe(0);
+    sent = [];
+    answers.recoveryConfirm = { ok: true, saved: 0, keyChanged: 0, notAllowed: 0, unopenable: 0, items: [] };
+    await setup.confirmWithRecoveryKit(who, "k-bea", "123456");
+    expect(kinds()).toEqual(["recoveryConfirm"]);
+    expect(sent[0]).toMatchObject({ presence: { kind: "code", code: "123456" } });
   });
 });

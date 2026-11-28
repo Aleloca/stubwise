@@ -7,7 +7,7 @@ import { ReauthHost } from "../../../layout/ReauthDialog";
 import { useReauth } from "../../../layout/useReauth";
 import { formatDateTime } from "../../../notifications/time";
 import { useToast } from "../../../tasks-ui/Toast";
-import { BusyLabel, EntryColumn, EntryHeading, ErrorLine } from "../../entry/parts";
+import { BusyLabel, EntryColumn, EntryHeading, ErrorLine, TotpInput } from "../../entry/parts";
 import { LoginSteps } from "../../entry/LoginPage";
 import { primaryButton, secondaryButton } from "../../tasks/controls";
 import { useOpenVault } from "../VaultBar";
@@ -327,6 +327,9 @@ function Recovery() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const loaded = useRef(false);
+  /** La persona per cui serve il codice (nessuna passkey): il campo compare nella sua scheda. */
+  const [codeFor, setCodeFor] = useState<string | null>(null);
+  const [code, setCode] = useState("");
 
   useEffect(
     () => () => {
@@ -349,20 +352,26 @@ function Recovery() {
     } else if (!cancelled(out)) setError("code" in out ? out.code : "failed");
   }
 
-  async function confirm(person: setup.RecoveryPerson) {
+  /**
+   * I-1: ogni conferma vuole una presenza fresca, verificata dal worker: la
+   * passkey (senza PRF) o, se la persona non ne ha, il codice dell'app,
+   * chiesto qui per QUELLA conferma e poi dimenticato.
+   */
+  async function confirm(person: setup.RecoveryPerson, withCode?: string) {
     setError(null);
     setBusy(person.personKeyId);
-    const out = await run(() => setup.confirmWithRecoveryKit(person.personKeyId), {
-      action: t("vault.setup.recovery.confirmAria", { name: person.email }).toLowerCase(),
-    });
+    const out = await setup.confirmWithRecoveryKit(person.personKeyId, withCode);
     setBusy(null);
+    setCode("");
+    if (!out.ok && out.code === "code_required") return setCodeFor(person.personKeyId);
+    setCodeFor(null);
     if (out.ok) {
       toast.show(t("vault.setup.recovery.saved", { count: out.saved, name: person.email }));
       if (out.keyChanged + out.notAllowed > 0)
         toast.show(t("vault.setup.recovery.skipped", { count: out.keyChanged + out.notAllowed }));
       setItems((current) => out.items ?? current?.filter((p) => p.personKeyId !== person.personKeyId) ?? null);
       await changed();
-    } else if (!cancelled(out)) setError("code" in out ? out.code : "failed");
+    } else setError(out.code);
   }
 
   async function done() {
@@ -409,12 +418,18 @@ function Recovery() {
                   {t("vault.setup.recovery.fingerprint")} <span className="num font-mono text-ink">{p.fingerprint}</span>
                 </span>
                 <span className="text-sm text-ink-muted">{t("vault.setup.recovery.credentials", { count: p.credentials.length })}</span>
+                {codeFor === p.personKeyId && (
+                  <>
+                    <p className="text-sm text-ink-muted">{t("vault.setup.recovery.codeHint")}</p>
+                    <TotpInput label={t("vault.setup.recovery.codeLabel")} value={code} onChange={setCode} autoFocus />
+                  </>
+                )}
                 <button
                   type="button"
-                  className={`${primaryButton} mt-1 self-start`}
+                  className={`${primaryButton} mt-1 self-start disabled:opacity-40`}
                   aria-label={t("vault.setup.recovery.confirmAria", { name: p.email })}
-                  disabled={busy !== null}
-                  onClick={() => void confirm(p)}
+                  disabled={busy !== null || (codeFor === p.personKeyId && code.length !== 6)}
+                  onClick={() => void confirm(p, codeFor === p.personKeyId ? code : undefined)}
                 >
                   <BusyLabel
                     busy={busy === p.personKeyId}

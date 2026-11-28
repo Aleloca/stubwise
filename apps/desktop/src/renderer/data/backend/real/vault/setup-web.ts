@@ -42,8 +42,10 @@ export const activateVault = () => setup.activateInBrowser(vaultWho);
 export const createVaultKey = (opts: { recreate?: boolean } = {}) => setup.createKeyInBrowser(vaultWho, opts);
 export const addPasskeyToVault = (passkeyId: string) => setup.addPasskeyInBrowser(vaultWho, passkeyId);
 export const rotateRecoveryKit = () => setup.rotateKitInBrowser(vaultWho);
-export const loadRecoveryKit = setup.loadRecoveryKit;
-export const confirmWithRecoveryKit = setup.confirmWithRecoveryKit;
+export const loadRecoveryKit = (kitText: string) => setup.loadRecoveryKit(vaultWho, kitText);
+/** Senza `code`: una passkey; `code_required` se la persona non ne ha, e la pagina richiama col codice. */
+export const confirmWithRecoveryKit = (personKeyId: string, code?: string) =>
+  setup.confirmWithRecoveryKit(vaultWho, personKeyId, code);
 export const forgetRecoveryKit = setup.forgetRecoveryKit;
 export const lookupPairing = setup.lookupPairing;
 export const sealPairing = (state: string, typed: string) => setup.sealPairingInBrowser(vaultWho, state, typed);
