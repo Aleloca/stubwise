@@ -17,7 +17,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { deleteAllProjects, seedRepository as seedRepositoryRaw, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
-import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
+import type { ChatAvailability, ChatLlm } from "./chat-llm.js";
 import { seedUsers, addMember } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -27,11 +27,8 @@ const ENCRYPTION_KEY = randomBytes(32);
 // `mergeOutput` è il markdown emesso; `availabilityOverride` esercita il 503.
 let mergeOutput = "# Documento fuso";
 let availabilityOverride: ChatAvailability | null = null;
-// Ultimo `usage` ricevuto dal fake: operazione e progetto dei consumi del merge.
-let lastUsage: ChatLlmInput["usage"] | null = null;
 const fakeChatLlm: ChatLlm = {
-  async *stream(input: ChatLlmInput): AsyncIterable<string> {
-    lastUsage = input.usage;
+  async *stream(): AsyncIterable<string> {
     yield mergeOutput;
   },
   async isAvailable(): Promise<ChatAvailability> {
@@ -757,111 +754,6 @@ describe("GET /api/backlog/jobs/:jobId", () => {
   });
 });
 
-describe("POST /api/backlog/:id/suggested/accept", () => {
-  it("member (non admin) può accettare i valori suggeriti", async () => {
-    const item = await insertItem({ suggested: { effort: 4 } });
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${item.id}/suggested/accept`,
-      headers: { cookie: memberCookie },
-    });
-    expect(res.statusCode).toBe(200);
-    expect((res.json() as { effort: number }).effort).toBe(4);
-  });
-
-  it("404 se inesistente", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${crypto.randomUUID()}/suggested/accept`,
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(404);
-  });
-
-  it("409 se suggested è null", async () => {
-    const item = await insertItem();
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${item.id}/suggested/accept`,
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(409);
-  });
-
-  it("409 se suggested ha solo un reason orfano (nulla da accettare)", async () => {
-    const item = await insertItem({ suggested: { reason: "solo la motivazione" } });
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${item.id}/suggested/accept`,
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(409);
-  });
-
-  it("applica tutti i metadati suggeriti e azzera suggested", async () => {
-    const item = await insertItem({
-      effort: 1,
-      risk: "low",
-      suggested: { effort: 4, risk: "high", riskNote: "attenzione", urgency: "urgent" },
-    });
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${item.id}/suggested/accept`,
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as {
-      effort: number;
-      risk: string;
-      riskNote: string;
-      urgency: string;
-      suggested: unknown;
-    };
-    expect(body.effort).toBe(4);
-    expect(body.risk).toBe("high");
-    expect(body.riskNote).toBe("attenzione");
-    expect(body.urgency).toBe("urgent");
-    expect(body.suggested).toBeNull();
-  });
-});
-
-describe("POST /api/backlog/:id/suggested/dismiss", () => {
-  it("member (non admin) può scartare i valori suggeriti", async () => {
-    const item = await insertItem({ suggested: { effort: 4 } });
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${item.id}/suggested/dismiss`,
-      headers: { cookie: memberCookie },
-    });
-    expect(res.statusCode).toBe(200);
-    expect((res.json() as { suggested: unknown }).suggested).toBeNull();
-  });
-
-  it("409 se suggested è null", async () => {
-    const item = await insertItem();
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${item.id}/suggested/dismiss`,
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(409);
-  });
-
-  it("azzera suggested senza applicare i metadati", async () => {
-    const item = await insertItem({ effort: 1, suggested: { effort: 4, risk: "high" } });
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${item.id}/suggested/dismiss`,
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as { effort: number; suggested: unknown };
-    // I metadati reali NON cambiano; solo suggested è azzerato.
-    expect(body.effort).toBe(1);
-    expect(body.suggested).toBeNull();
-  });
-});
-
 describe("POST /api/backlog/:id/convert", () => {
   it("senza sessione → 401", async () => {
     const item = await insertItem();
@@ -1234,132 +1126,6 @@ describe("GET /api/backlog/:id espone implementationPlan e originContent", () =>
   });
 });
 
-describe("POST /api/backlog/:id/merge", () => {
-  it("member (non admin) può fondere due voci", async () => {
-    const a = await insertItem();
-    const b = await insertItem();
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${a.id}/merge`,
-      headers: { cookie: memberCookie },
-      payload: { targetId: b.id },
-    });
-    expect(res.statusCode).toBe(200);
-    expect((res.json() as { id: string }).id).toBe(b.id);
-  });
-
-  it("400 se id === targetId", async () => {
-    const a = await insertItem();
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${a.id}/merge`,
-      headers: { cookie: adminCookie },
-      payload: { targetId: a.id },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("404 se il target non esiste", async () => {
-    const a = await insertItem();
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${a.id}/merge`,
-      headers: { cookie: adminCookie },
-      payload: { targetId: crypto.randomUUID() },
-    });
-    expect(res.statusCode).toBe(404);
-  });
-
-  it("400 se i due sono di progetti diversi", async () => {
-    const a = await insertItem();
-    const { projectId: other } = await seedRepository(testDb.db);
-    const b = await insertItem({ projectId: other });
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${a.id}/merge`,
-      headers: { cookie: adminCookie },
-      payload: { targetId: b.id },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("409 se il target è archived o converted", async () => {
-    const a = await insertItem();
-    const b = await insertItem({ status: "archived" });
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${a.id}/merge`,
-      headers: { cookie: adminCookie },
-      payload: { targetId: b.id },
-    });
-    expect(res.statusCode).toBe(409);
-  });
-
-  it("503 se la chat non è servibile", async () => {
-    const a = await insertItem();
-    const b = await insertItem();
-    availabilityOverride = { available: false };
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${a.id}/merge`,
-      headers: { cookie: adminCookie },
-      payload: { targetId: b.id },
-    });
-    expect(res.statusCode).toBe(503);
-  });
-
-  it("fonde: somma requestCount, sposta i link (upsert), documento AI, assorbito archived", async () => {
-    mergeOutput = "# Documento integrato";
-    const absorbed = await insertItem({ title: "Assorbito", requestCount: 2 });
-    const target = await insertItem({ title: "Destinazione", requestCount: 3, document: "# Vecchio target" });
-
-    // Ticket: t1 solo sull'assorbito, tShared su entrambi (testa l'upsert).
-    const t1 = await insertTicket(1, "solo assorbito");
-    const tShared = await insertTicket(2, "condiviso");
-    await testDb.db.insert(backlogItemTickets).values([
-      { itemId: absorbed.id, ticketId: t1, role: "origin" },
-      { itemId: absorbed.id, ticketId: tShared, role: "origin" },
-      { itemId: target.id, ticketId: tShared, role: "origin" },
-    ]);
-
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/backlog/${absorbed.id}/merge`,
-      headers: { cookie: adminCookie },
-      payload: { targetId: target.id },
-    });
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as { id: string; requestCount: number; document: string; status: string };
-    // Risposta = target aggiornato.
-    expect(body.id).toBe(target.id);
-    expect(body.requestCount).toBe(5); // 3 + 2
-    expect(body.document).toBe("# Documento integrato");
-    // Consumi del merge: operazione backlog_merge, sul progetto delle voci.
-    expect(lastUsage).toEqual({ operation: "backlog_merge", projectId });
-
-    // Link spostati sul target: t1 (nuovo) + tShared (già presente, non duplicato).
-    const targetLinks = await testDb.db
-      .select()
-      .from(backlogItemTickets)
-      .where(eq(backlogItemTickets.itemId, target.id));
-    expect(targetLinks.map((l) => l.ticketId).sort()).toEqual([t1, tShared].sort());
-    // I link dell'assorbito sono stati rimossi.
-    const absorbedLinks = await testDb.db
-      .select()
-      .from(backlogItemTickets)
-      .where(eq(backlogItemTickets.itemId, absorbed.id));
-    expect(absorbedLinks).toHaveLength(0);
-
-    // Assorbito → archived con mergedIntoId.
-    const [absorbedRow] = await testDb.db
-      .select({ status: backlogItems.status, mergedIntoId: backlogItems.mergedIntoId })
-      .from(backlogItems)
-      .where(eq(backlogItems.id, absorbed.id));
-    expect(absorbedRow!.status).toBe("archived");
-    expect(absorbedRow!.mergedIntoId).toBe(target.id);
-  });
-});
-
 describe("POST/DELETE /api/backlog/:id/refine-session", () => {
   it("un member avvia (200, agentSessionId) e col messaggio riceve inputId", async () => {
     const item = await insertItem();
@@ -1487,11 +1253,12 @@ describe("la voce chiusa chiude la sessione di refinement (Review Focus #6)", ()
   it("fusione: si chiude quella della voce ASSORBITA", async () => {
     const { itemId } = await started();
     const target = await started();
+    // La fusione dell'app (`/api/requests/:id/merge`, la sola dopo R2).
     const res = await app.inject({
       method: "POST",
-      url: `/api/backlog/${itemId}/merge`,
+      url: `/api/requests/${itemId}/merge`,
       headers: { cookie: adminCookie },
-      payload: { targetId: target.itemId },
+      payload: { intoId: target.itemId },
     });
     expect(res.statusCode).toBe(200);
     expect(await refineOf(itemId)).toMatchObject({ status: "closed", closedReason: "item_closed" });

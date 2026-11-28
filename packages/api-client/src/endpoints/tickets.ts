@@ -10,7 +10,6 @@ import {
   ticketDetailSchema,
   ticketPageSchema,
   ticketSchema,
-  ticketActivityEntrySchema,
   ticketHistorySchema,
   ticketQuestionsSchema,
 } from "@stubwise/shared";
@@ -28,7 +27,6 @@ import type {
   RunAiBody,
   RunAiResult,
   Ticket,
-  TicketActivityEntry,
   TicketComment,
   TicketDetail,
   TicketHistory,
@@ -82,7 +80,6 @@ export interface TicketPatch {
 }
 
 const jobsSchema = z.array(aiJobSchema);
-const activitySchema = z.array(ticketActivityEntrySchema);
 const commentsSchema = z.array(ticketCommentSchema);
 
 /**
@@ -114,20 +111,6 @@ export function createTicketsEndpoints(request: ApiRequest) {
     /** I run dell'agente sul ticket, dal più recente: la timeline del lavoro. */
     jobs(ticketId: string): Promise<Reader<AiJob>[]> {
       return request("GET", `/api/tickets/${seg(ticketId)}/jobs`, undefined, jobsSchema);
-    },
-
-    /**
-     * Feed di attività del ticket (commenti, eventi di audit, marker dei run),
-     * fuso e ordinato per `createdAt` CRESCENTE dal server.
-     *
-     * Lo legge l'app mobile per datare i passi della "Storia del lavoro": nulla
-     * su `AiJob` dice QUANDO un piano è stato sbloccato o QUANDO la PR è nata,
-     * mentre gli eventi `status_changed` lo dicono. Sulla forma piatta e
-     * permissiva dello schema — e sul perché non è la `discriminatedUnion` del
-     * server — vedi {@link ticketActivityEntrySchema}.
-     */
-    activity(ticketId: string): Promise<Reader<TicketActivityEntry>[]> {
-      return request("GET", `/api/tickets/${seg(ticketId)}/activity`, undefined, activitySchema);
     },
 
     /**

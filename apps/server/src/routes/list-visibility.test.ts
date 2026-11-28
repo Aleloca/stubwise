@@ -528,17 +528,11 @@ describe("consumi", () => {
     expect(body.totals.costUsd).toBe(1);
     expect(body.byProject.map((p) => p.projectId)).toEqual([projectA]);
 
-    const breakdown = (await get(erin, "/api/ai-usage/breakdown?groupBy=project")).json() as {
-      rows: { key: string | null }[];
-    };
-    expect(breakdown.rows.map((r) => r.key)).toEqual([projectA]);
-
     const adminBody = (await get(admin(), "/api/ai-usage/costs")).json() as Costs;
     expect(adminBody.totals.costUsd).toBe(7);
 
     // Alice (Legacy Member) non ha `project.usage.view` né `usage.view`.
     expect((await get(alice, "/api/ai-usage/costs")).statusCode).toBe(403);
-    expect((await get(alice, "/api/ai-usage/breakdown?groupBy=project")).statusCode).toBe(403);
   });
 });
 

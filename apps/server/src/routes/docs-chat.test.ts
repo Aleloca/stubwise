@@ -680,64 +680,6 @@ describe("POST /api/repositories/:repositoryId/docs/chat?stream=false (fase 4, m
   });
 });
 
-describe("GET /api/repositories/:projectId/docs/chat/sessions[/:id/messages]", () => {
-  it("elenca le sessioni dell'utente e i loro messaggi", async () => {
-    const project = await insertProject(testDb.db);
-    await insertCurrentGeneration(testDb.db, project.id);
-
-    await app.inject({
-      method: "POST",
-      url: `/api/repositories/${project.id}/docs/chat`,
-      headers: { cookie: memberCookie },
-      payload: { message: "Domanda per lo storico." },
-    });
-
-    const sessionsRes = await app.inject({
-      method: "GET",
-      url: `/api/repositories/${project.id}/docs/chat/sessions`,
-      headers: { cookie: memberCookie },
-    });
-    expect(sessionsRes.statusCode).toBe(200);
-    const sessions = sessionsRes.json() as { id: string }[];
-    expect(sessions.length).toBeGreaterThan(0);
-
-    const messagesRes = await app.inject({
-      method: "GET",
-      url: `/api/repositories/${project.id}/docs/chat/sessions/${sessions[0]!.id}/messages`,
-      headers: { cookie: memberCookie },
-    });
-    expect(messagesRes.statusCode).toBe(200);
-    const messages = messagesRes.json() as { id: string; role: string; content: string }[];
-    expect(messages.length).toBe(2);
-    expect(messages[0]!.role).toBe("user");
-    expect(messages[1]!.role).toBe("assistant");
-    // Ogni messaggio espone l'`id` (chiave React lato client).
-    expect(messages.every((m) => typeof m.id === "string" && m.id.length > 0)).toBe(true);
-  });
-
-  it("messaggi di una sessione altrui: 404", async () => {
-    const project = await insertProject(testDb.db);
-    await insertCurrentGeneration(testDb.db, project.id);
-    await app.inject({
-      method: "POST",
-      url: `/api/repositories/${project.id}/docs/chat`,
-      headers: { cookie: memberCookie },
-      payload: { message: "Domanda member." },
-    });
-    const [session] = await testDb.db
-      .select()
-      .from(docChatSessions)
-      .where(eq(docChatSessions.repositoryId, project.id));
-
-    const res = await app.inject({
-      method: "GET",
-      url: `/api/repositories/${project.id}/docs/chat/sessions/${session!.id}/messages`,
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(404);
-  });
-});
-
 describe("POST /api/repositories/:repositoryId/docs/chat — retrieval dal grafo (fase 2b)", () => {
   /**
    * Sottografo finto: volutamente SENZA righe `NODE ... [src=... loc=L..]`, così

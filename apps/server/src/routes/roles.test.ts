@@ -553,13 +553,6 @@ describe("ultimo full admin", () => {
     expect(await instanceRoleOf(someone.id)).toBe(managerRole);
   });
 
-  it("la rotta legacy /role passa dalla stessa guardia (codice last_admin)", async () => {
-    const res = await call(admin, "PATCH", `/api/users/${admin.id}/role`, { role: "member" });
-    expect(res.statusCode).toBe(409);
-    expect(res.json()).toMatchObject({ code: "last_admin" });
-    expect(await instanceRoleOf(admin.id)).toBe(adminRoleId);
-  });
-
   it("area 9 (D-2, era R31): chi ha users.manage crea il link di reset anche per un full admin (il rischio accettato) → 201, il token c'è", async () => {
     const res = await call(usersManager, "POST", `/api/users/${admin.id}/password-reset`);
     expect(res.statusCode).toBe(201);

@@ -93,19 +93,6 @@ describe("utente User: scritture d'istanza respinte, stato invariato", () => {
     expect(await testDb.db.select().from(invites)).toHaveLength(before);
   });
 
-  it("PATCH /api/users/:id/role → 403 e ruolo invariato", async () => {
-    const [admin] = await testDb.db.select().from(users).where(eq(users.email, "admin@example.com"));
-    const res = await app.inject({
-      method: "PATCH",
-      url: `/api/users/${admin!.id}/role`,
-      headers: { cookie: memberCookie },
-      payload: { role: "member" },
-    });
-    expect(res.statusCode).toBe(403);
-    const [after] = await testDb.db.select().from(users).where(eq(users.id, admin!.id));
-    expect(after!.role).toBe("admin");
-  });
-
   it("PUT /api/settings/instance → 403", async () => {
     const res = await app.inject({
       method: "PUT",

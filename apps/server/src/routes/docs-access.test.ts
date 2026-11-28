@@ -192,7 +192,6 @@ describe("Docs di un repository: docs.view, docs.edit, docs.generate", () => {
     `/api/repositories/${repoA}/docs/highlights`,
     `/api/repositories/${repoA}/docs/pages/fatture-a`,
     `/api/repositories/${repoA}/docs/export?kind=technical`,
-    `/api/repositories/${repoA}/docs/chat/sessions`,
   ];
 
   it("un non membro riceve 404 not_found su ogni lettura; Viewer e Contributor 200", async () => {
@@ -277,7 +276,6 @@ describe("Docs di progetto e chat RAG", () => {
       `/api/projects/${projectA}/docs/spaces`,
       `/api/projects/${projectA}/docs/highlights`,
       `/api/projects/${projectA}/docs/search?q=fatture`,
-      `/api/projects/${projectA}/docs/chat/sessions`,
     ]) {
       const res = await call(outsider, "GET", url);
       expect({ url, status: res.statusCode }).toEqual({ url, status: 404 });
@@ -404,16 +402,13 @@ describe("Repository: repos.view / docs.view, repos.manage, git_accounts.manage"
     }
   });
 
-  it("webhook e modifica: Legacy Member 403 (nome invariato), Developer 200", async () => {
-    expect((await call(legacy, "GET", `/api/repositories/${repoASlug}/webhook`)).statusCode).toBe(403);
+  it("configura il webhook e modifica: Legacy Member 403 (nome invariato), Developer 200", async () => {
     expect((await call(legacy, "POST", `/api/repositories/${repoASlug}/configure-webhook`)).statusCode).toBe(403);
     const denied = await call(legacy, "PATCH", `/api/repositories/${repoASlug}`, { name: "Rinominato" });
     expect(denied.statusCode).toBe(403);
     const [row] = await testDb.db.select().from(repositories).where(eq(repositories.id, repoA));
     expect(row?.name).toBe("Repository di test");
 
-    expect((await call(dev, "GET", `/api/repositories/${repoASlug}/webhook`)).statusCode).toBe(200);
-    expect((await call(outsider, "GET", `/api/repositories/${repoASlug}/webhook`)).statusCode).toBe(404);
     const ok = await withOfflinePlatformIdentity(() =>
       call(lead, "PATCH", `/api/repositories/${repoASlug}`, { name: "Repository di test" }),
     );

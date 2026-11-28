@@ -214,7 +214,6 @@ describe("rotte con riconferma recente", () => {
       "PATCH /api/roles/:id",
       "PATCH /api/users/:id/email",
       "PATCH /api/users/:id/instance-role",
-      "PATCH /api/users/:id/role",
       "POST /api/ai-providers",
       "POST /api/auth/desktop-handoff",
       "POST /api/auth/invites",

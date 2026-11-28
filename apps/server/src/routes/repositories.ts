@@ -105,23 +105,6 @@ const updateRepositorySchema = z.object({
 const slugParamsSchema = z.object({ slug: z.string().min(1) });
 
 /**
- * Risposta dell'endpoint admin del webhook: il path su cui il provider deve
- * consegnare gli eventi, le ultime 4 del segreto HMAC e se Stubwise l'ha
- * configurato. Si restituisce solo il path (non l'URL assoluto): la UI lo
- * antepone all'origin corrente, evitando di dover propagare PUBLIC_URL fin
- * dentro la route.
- *
- * Area 9, F5 (decisione C): il segreto INTERO non esce più da qui. Lo dà una
- * volta sola la rigenerazione (`POST /:slug/webhook-secret`, con la
- * riconferma), che è anche la strada della configurazione manuale.
- */
-const webhookConfigSchema = z.object({
-  webhookPath: z.string(),
-  secretLast4: z.string(),
-  configured: z.boolean(),
-});
-
-/**
  * Esito della configurazione automatica del webhook: `created`/`updated`
  * dicono se è stato creato o aggiornato lato provider, `detail` è il messaggio
  * per la UI, `url` è l'URL pubblico registrato. NON contiene MAI il segreto né
@@ -526,28 +509,6 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
       }
       const review = await resolveReviewAccounts(app.db, [row.repository.id]);
       return toPublicRepository(row.repository, row.gitAccountName, review.get(row.repository.id), withConfig, permissions.has("repos.manage"));
-    },
-  );
-
-  // Solo `repos.manage`: il webhookSecret è l'unica difesa contro webhook di merge
-  // forgiati (che forzerebbero i ticket a "done"). Da qui ne escono solo le
-  // ultime 4 (area 9, F5, decisione C): per intero, una volta, dalla rigenerazione.
-  app.get(
-    "/:slug/webhook",
-    {
-      config: { mcp: { action: "repositories.webhook", summary: "Lo stato del webhook git di un repository (configurato, ultime 4 cifre del segreto).", effect: "read" }, access: repositoryAccess("slug", "repos.manage") },
-      schema: {
-        params: slugParamsSchema,
-        response: { 200: webhookConfigSchema, 404: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request, reply) => {
-      const [row] = await app.db
-        .select({ webhookSecret: repositories.webhookSecret, configuredAt: repositories.webhookConfiguredAt })
-        .from(repositories)
-        .where(eq(repositories.slug, request.params.slug));
-      if (!row) return apiError(reply, 404, "repository_not_found", "Repository not found");
-      return { webhookPath: `/webhooks/git/${request.params.slug}`, secretLast4: row.webhookSecret.slice(-4), configured: row.configuredAt !== null };
     },
   );
 

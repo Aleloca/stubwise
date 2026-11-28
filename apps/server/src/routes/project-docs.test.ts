@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
@@ -876,72 +876,6 @@ describe("POST /api/projects/:projectId/docs/chat?stream=false (fase 4, mobile)"
       url: `/api/projects/${projectB}/docs/chat?stream=false`,
       headers: { cookie: memberCookie },
       payload: { sessionId: session, message: "Cross-project in json." },
-    });
-    expect(res.statusCode).toBe(404);
-  });
-});
-
-describe("GET /api/projects/:projectId/docs/chat/sessions[/:id/messages]", () => {
-  it("elenca le sessioni dell'utente e i loro messaggi, scoped a (projectId, userId)", async () => {
-    const projectId = await seedProject(testDb.db);
-    const repoA = await seedRepoInProject(testDb.db, projectId, "Repo Alfa");
-    await seedGeneration(testDb.db, repoA.id);
-
-    await app.inject({
-      method: "POST",
-      url: `/api/projects/${projectId}/docs/chat`,
-      headers: { cookie: memberCookie },
-      payload: { message: "Domanda per lo storico." },
-    });
-
-    const sessionsRes = await app.inject({
-      method: "GET",
-      url: `/api/projects/${projectId}/docs/chat/sessions`,
-      headers: { cookie: memberCookie },
-    });
-    expect(sessionsRes.statusCode).toBe(200);
-    const sessions = sessionsRes.json() as { id: string }[];
-    expect(sessions.length).toBeGreaterThan(0);
-
-    const messagesRes = await app.inject({
-      method: "GET",
-      url: `/api/projects/${projectId}/docs/chat/sessions/${sessions[0]!.id}/messages`,
-      headers: { cookie: memberCookie },
-    });
-    expect(messagesRes.statusCode).toBe(200);
-    const messages = messagesRes.json() as { role: string }[];
-    expect(messages.length).toBe(2);
-    expect(messages[0]!.role).toBe("user");
-    expect(messages[1]!.role).toBe("assistant");
-
-    // L'admin non vede le sessioni del member (scoping per utente).
-    const adminSessions = await app.inject({
-      method: "GET",
-      url: `/api/projects/${projectId}/docs/chat/sessions`,
-      headers: { cookie: adminCookie },
-    });
-    expect((adminSessions.json() as unknown[]).length).toBe(0);
-  });
-
-  it("messaggi di una sessione altrui: 404", async () => {
-    const projectId = await seedProject(testDb.db);
-    const repoA = await seedRepoInProject(testDb.db, projectId, "Repo Alfa");
-    await seedGeneration(testDb.db, repoA.id);
-    await app.inject({
-      method: "POST",
-      url: `/api/projects/${projectId}/docs/chat`,
-      headers: { cookie: memberCookie },
-      payload: { message: "Domanda member." },
-    });
-    const [session] = await testDb.db
-      .select()
-      .from(docChatSessions)
-      .where(and(eq(docChatSessions.projectId, projectId)));
-
-    const res = await app.inject({
-      method: "GET",
-      url: `/api/projects/${projectId}/docs/chat/sessions/${session!.id}/messages`,
-      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
   });

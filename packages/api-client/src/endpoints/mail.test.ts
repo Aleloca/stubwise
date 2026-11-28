@@ -23,13 +23,6 @@ describe("endpoints mail", () => {
     expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/me/mail");
   });
 
-  it("summary: GET /api/me/mail/summary", async () => {
-    const { c, fetchImpl } = clientReturning(200, { openProposals: 2, failed: 1, ignored: 0 });
-    const summary = await c.mail.summary();
-    expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/me/mail/summary");
-    expect(summary).toEqual({ openProposals: 2, failed: 1, ignored: 0 });
-  });
-
   it("rejections: GET /api/me/mail/rejections, days solo se passato", async () => {
     const body = {
       days: 7,

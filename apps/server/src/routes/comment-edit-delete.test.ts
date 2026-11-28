@@ -13,7 +13,7 @@ import type { ObjectStorage } from "../storage/index.js";
 /**
  * Modificare e cancellare i commenti (piano 2026-10-05, A4/A5).
  *
- * A4 — le LETTURE: `GET /comments`, la risposta del `POST` e `/activity`
+ * A4 — le LETTURE: `GET /comments`, la risposta del `POST` (l'`/activity` dei ticket è andato via con R2)
  * portano `editedAt`/`deletedAt`/`deletedBy`, i permessi calcolati PER CHI
  * GUARDA e `inDecisionLog`; un padre eliminato dà `replyTo.deleted`; le due
  * ricerche non trovano più il testo cancellato (verso opposto incluso); una
@@ -105,10 +105,6 @@ interface PublicComment {
   inDecisionLog: boolean;
   replyTo: { id: string; excerpt: string; authorName: string | null; deleted: boolean } | null;
 }
-interface ActivityItem extends Partial<PublicComment> {
-  kind: string;
-  id: string;
-}
 
 async function newTicket(): Promise<string> {
   const [row] = await testDb.db
@@ -150,15 +146,6 @@ async function listComments(ticketId: string, cookie: string): Promise<PublicCom
   return res.json() as PublicComment[];
 }
 
-async function activity(ticketId: string, cookie: string): Promise<ActivityItem[]> {
-  const res = await app.inject({
-    method: "GET",
-    url: `/api/tickets/${ticketId}/activity`,
-    headers: { cookie },
-  });
-  expect(res.statusCode).toBe(200);
-  return res.json() as ActivityItem[];
-}
 
 /** Lo stato di una cancellazione, scritto in DB come lo scrive la rotta. */
 async function markDeleted(commentId: string, byUserId: string): Promise<void> {
@@ -216,7 +203,7 @@ describe("letture: permessi per CHI GUARDA (A4)", () => {
     });
   });
 
-  it("stessa riga, tre sessioni: autore, altro member, admin — su /comments e /activity", async () => {
+  it("stessa riga, tre sessioni: autore, altro member, admin — su /comments", async () => {
     const ticketId = await newTicket();
     const created = await postComment(ticketId, "scritto da A");
     const expectations: Array<[string, { canEdit: boolean; canDelete: boolean }]> = [
@@ -227,8 +214,6 @@ describe("letture: permessi per CHI GUARDA (A4)", () => {
     for (const [cookie, perms] of expectations) {
       const listed = (await listComments(ticketId, cookie)).find((c) => c.id === created.id);
       expect(listed).toMatchObject(perms);
-      const fed = (await activity(ticketId, cookie)).find((i) => i.id === created.id);
-      expect(fed).toMatchObject(perms);
     }
   });
 
@@ -249,7 +234,7 @@ describe("letture: permessi per CHI GUARDA (A4)", () => {
     }
   });
 
-  it("un eliminato: corpo vuoto, chi e quando, nessun permesso — su entrambe le letture", async () => {
+  it("un eliminato: corpo vuoto, chi e quando, nessun permesso — su /comments", async () => {
     const ticketId = await newTicket();
     const created = await postComment(ticketId, "da cancellare");
     await markDeleted(created.id, users.adminId);
@@ -262,9 +247,6 @@ describe("letture: permessi per CHI GUARDA (A4)", () => {
         canDelete: false,
       });
       expect(listed?.deletedAt).not.toBeNull();
-      const fed = (await activity(ticketId, cookie)).find((i) => i.id === created.id);
-      expect(fed).toMatchObject({ body: "", deletedBy: { name: "admin@example.com" } });
-      expect(fed?.deletedAt).not.toBeNull();
     }
   });
 
@@ -278,8 +260,6 @@ describe("letture: permessi per CHI GUARDA (A4)", () => {
     const listed = (await listComments(ticketId, users.memberCookie)).find((c) => c.id === created.id);
     expect(listed?.body).toBe("dopo");
     expect(listed?.editedAt).not.toBeNull();
-    const fed = (await activity(ticketId, users.memberCookie)).find((i) => i.id === created.id);
-    expect(fed?.editedAt).not.toBeNull();
   });
 
   it("una risposta a un eliminato: replyTo.deleted vero e nessun estratto", async () => {
@@ -297,8 +277,6 @@ describe("letture: permessi per CHI GUARDA (A4)", () => {
       excerpt: "",
       deleted: true,
     });
-    const fed = (await activity(ticketId, users.memberCookie)).find((i) => i.id === replyId);
-    expect(fed?.replyTo).toMatchObject({ excerpt: "", deleted: true });
   });
 
   it("D1 NEGATIVO: rispondere a un eliminato → 422 e nessuna riga nuova", async () => {
@@ -361,8 +339,6 @@ describe("inDecisionLog (L1)", () => {
     for (const c of listed.filter((c) => c.id !== instructions?.id)) {
       expect(c.inDecisionLog).toBe(false);
     }
-    const fed = await activity(ticketId, users.memberCookie);
-    expect(fed.find((i) => i.id === instructions?.id)?.inDecisionLog).toBe(true);
   });
 });
 

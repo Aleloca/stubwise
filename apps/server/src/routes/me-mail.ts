@@ -7,7 +7,6 @@ import {
   googleAccounts,
   mailDrafts,
   mailOutgoing,
-  notifications,
   projects,
   type Db,
   meetingNotes,
@@ -40,7 +39,6 @@ import {
   mailRejectionsSchema,
   mailReproposeResultSchema,
   mailSourceSchema,
-  mailSummarySchema,
   mailThreadDetailSchema,
   mailThreadPageSchema,
   mailThreadReadBodySchema,
@@ -910,106 +908,6 @@ export async function meMailRoutes(
         wantsEmail ? queryTriageCandidates(app.db, input) : Promise.resolve([]),
       ]);
       return mergePages([emailCandidates, calendarCandidates, triageCandidates], limit);
-    },
-  );
-
-  /**
-   * Contatori per il badge di nav e l'intestazione: `openProposals` sulle
-   * NOTIFICHE (`google.proposal` ancora `open` di questo utente — l'audience
-   * `mailbox_owner` garantisce che sia l'unico destinatario), `failed`/
-   * `ignored` sulle RIGHE (posta + calendario + smistamento, stato
-   * normalizzato). Fase 6b: il lato email conta i FIGLI `email_proposals`,
-   * non più i messaggi — un messaggio con due proposte `failed` (progetti
-   * diversi) conta per due.
-   *
-   * Fase 6c (fix di review, Task 3): `openProposals` include GIÀ una
-   * proposta di smistamento ATTIVA senza bisogno di una query in più — è una
-   * notifica `google.proposal` come le altre (vedi `buildTriageProposalEvent`
-   * in `apps/worker/src/google/proposal.ts`), quindi la query sopra la conta
-   * per costruzione. `failed`/`ignored` invece PRIMA di questo task
-   * ignoravano lo smistamento (nessuna riga per lui): due query in più,
-   * simmetriche a quelle del calendario, così il totale torna a coincidere
-   * ESATTAMENTE con ciò che {@link queryTriageCandidates} mostra come
-   * `failed`/`ignored`.
-   */
-  app.get(
-    "/summary",
-    {
-      config: { access: { kind: "user" }, mcp: { action: "mail.summary", summary: "I contatori della posta: proposte aperte, email non smistate o fallite.", effect: "read" } },
-      schema: {
-        response: { 200: mailSummarySchema, ...authErrorResponses },
-      },
-    },
-    async (request) => {
-      const userId = request.user!.id;
-      const [
-        [openRow],
-        [emailFailedRow],
-        [emailIgnoredRow],
-        [calFailedRow],
-        [calIgnoredRow],
-        [triageFailedRow],
-        [triageIgnoredRow],
-      ] = await Promise.all([
-        app.db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(notifications)
-          .where(
-            and(
-              eq(notifications.userId, userId),
-              eq(notifications.kind, "google.proposal"),
-              eq(notifications.status, "open"),
-            ),
-          ),
-        app.db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(emailProposals)
-          .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
-          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-          .where(and(eq(googleAccounts.userId, userId), eq(emailProposals.status, "failed"))),
-        app.db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(emailProposals)
-          .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
-          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-          .where(and(eq(googleAccounts.userId, userId), eq(emailProposals.status, "ignored"))),
-        app.db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(calendarEvents)
-          .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
-          .where(
-            and(eq(googleAccounts.userId, userId), sql`${calendarEvents.outcome}->>'type' = 'failed'`),
-          ),
-        app.db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(calendarEvents)
-          .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
-          .where(
-            and(eq(googleAccounts.userId, userId), sql`${calendarEvents.outcome}->>'type' = 'ignored'`),
-          ),
-        app.db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(emailMessages)
-          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-          .where(
-            and(
-              eq(googleAccounts.userId, userId),
-              sql`${emailMessages.classification}->>'triage' = 'true' and ${emailMessages.status} = 'failed'`,
-            ),
-          ),
-        app.db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(emailMessages)
-          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-          .where(
-            and(eq(googleAccounts.userId, userId), sql`${emailMessages.outcome}->>'type' = 'triage_dismissed'`),
-          ),
-      ]);
-      return {
-        openProposals: openRow?.count ?? 0,
-        failed: (emailFailedRow?.count ?? 0) + (calFailedRow?.count ?? 0) + (triageFailedRow?.count ?? 0),
-        ignored: (emailIgnoredRow?.count ?? 0) + (calIgnoredRow?.count ?? 0) + (triageIgnoredRow?.count ?? 0),
-      };
     },
   );
 

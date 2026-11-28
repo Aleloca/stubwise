@@ -11,15 +11,12 @@ import {
   emailLabelsSchema,
   emailRoutesPutSchema,
   emailRoutesSchema,
-  prReviewSummarySchema,
   projectDecisionSchema,
   projectDetailSchema,
   projectListItemSchema,
   projectPulseSummarySchema,
   projectSchema,
-  projectTimelineKindSchema,
   projectBriefWeeklySchema,
-  projectTimelineSchema,
   updateProjectSchema,
   compareProjectNames,
   needsViewer,
@@ -67,12 +64,6 @@ import {
 } from "./shared.js";
 import { apiError } from "../errors.js";
 import { deleteStoredObjects, storageKeysOfProject } from "../chat/attachments.js";
-import {
-  TIMELINE_MAX_DAYS,
-  buildProjectTimeline,
-  listProjectReviews,
-  resolveTimelineWindow,
-} from "../services/project-timeline.js";
 import { listProjectBriefs, queueBriefRegeneration } from "../services/project-briefs.js";
 import {
   createManualDecision,
@@ -246,7 +237,6 @@ function toPublicProject(row: ProjectRow, pausers: Map<string, string> = new Map
     kind: row.clientName ? "client" : "internal",
   };
 }
-
 
 /**
  * Route dei progetti (gruppi), registrate sotto /api/projects. Lettura per chi
@@ -610,120 +600,6 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => {
       return { labels: await listObservedEmailLabels(app.db, request.user!.id) };
-    },
-  );
-
-  /**
-   * Le review AI di PR del progetto (Fase 5): la PRIMA lettura di `pr_reviews`
-   * da un'API. Serve alla timeline (verdetto accanto alla PR) e all'app.
-   *
-   * Registrata PRIMA di `GET /:projectId` per coerenza con `/pulse` qui sopra.
-   * Il path ha un suffisso letterale (`/reviews`) e non collide davvero con la
-   * rotta parametrica, ma l'ordine "letterali prima della `:id`" è la regola di
-   * questo file e non si fa un'eccezione per ricordarsi che era innocua.
-   */
-  app.get(
-    "/:projectId/reviews",
-    {
-      // Review di PR: `repos.view` (ruling R49), come le PR stesse.
-      config: { access: onProject("repos.view"), mcp: { action: "projects.reviews", summary: "Le review AI delle PR di un progetto.", effect: "read" } },
-      schema: {
-        params: idParamsSchema,
-        querystring: z.object({
-          limit: z.coerce.number().int().min(1).max(200).optional(),
-        }),
-        response: {
-          200: z.array(prReviewSummarySchema),
-          404: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request) => {
-      return listProjectReviews(app.db, request.params.projectId, request.query.limit ?? 50);
-    },
-  );
-
-  /**
-   * LA TIMELINE DI PROGETTO (Fase 5): ticket, milestone, PR, report, decisioni
-   * e brief fusi in un racconto ordinato. Alimenta la pagina web "Roadmap".
-   *
-   * `from`/`to` sono ISO 8601 e hanno default lato server (ultime 4 settimane);
-   * `kinds` è un elenco separato da virgole per filtrare i tipi di voce. La
-   * finestra non può superare i 180 giorni: sopra è un 400, non una risposta
-   * enorme costruita scandendo lo storico intero.
-   *
-   * ACL: chi vede il progetto (membro o full admin; seguirlo non basta).
-   * "Non membro" e "inesistente" rispondono entrambi 404. Le VOCI seguono poi
-   * i permessi di lettura (ruling R49, vedi `buildProjectTimeline`).
-   */
-  app.get(
-    "/:projectId/timeline",
-    {
-      config: { access: onProject("member"), mcp: { action: "projects.timeline", summary: "La timeline di un progetto: ticket, traguardi, PR, report, decisioni e brief in una finestra di date.", effect: "read" } },
-      schema: {
-        params: idParamsSchema,
-        querystring: z.object({
-          from: z.string().optional(),
-          to: z.string().optional(),
-          kinds: z.string().optional(),
-        }),
-        response: {
-          200: projectTimelineSchema,
-          400: errorSchema,
-          404: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const resolved = resolveTimelineWindow(request.query);
-      if (!resolved.ok) {
-        return apiError(
-          reply,
-          400,
-          resolved.reason,
-          resolved.reason === "window_too_large"
-            ? `The timeline window cannot exceed ${TIMELINE_MAX_DAYS} days`
-            : "Invalid from/to range",
-        );
-      }
-
-      // `kinds` vuoto (`?kinds=`) NON è "nessun tipo": è un parametro che il
-      // client ha mandato senza valore, e la risposta giusta è la timeline
-      // intera, non una lista vuota che sembra un progetto senza storia.
-      let kinds: Set<string> | undefined;
-      if (request.query.kinds !== undefined && request.query.kinds.trim() !== "") {
-        const requested = request.query.kinds.split(",").map((value) => value.trim());
-        const unknown = requested.filter(
-          (value) => !projectTimelineKindSchema.options.includes(value as never),
-        );
-        if (unknown.length > 0) {
-          return apiError(
-            reply,
-            400,
-            "invalid_kinds",
-            `Unknown timeline kinds: ${unknown.join(", ")}`,
-          );
-        }
-        kinds = new Set(requested);
-      }
-
-      // Le voci si filtrano coi permessi di lettura di chi chiede (ruling
-      // R49): ticket altrui, PR, report e brief non passano dalla timeline
-      // a chi non li vedrebbe dalle loro rotte.
-      const entries = await buildProjectTimeline(
-        app.db,
-        request.params.projectId,
-        resolved.window,
-        kinds,
-        { userId: request.user!.id, permissions: routePermissions(request) },
-      );
-      return {
-        from: resolved.window.from.toISOString(),
-        to: resolved.window.to.toISOString(),
-        entries,
-      };
     },
   );
 

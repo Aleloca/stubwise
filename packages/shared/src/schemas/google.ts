@@ -928,20 +928,6 @@ export const mailThreadReadBodySchema = z.object({
 export type MailThreadReadBody = z.infer<typeof mailThreadReadBodySchema>;
 
 /**
- * Contatori per il badge di nav e l'intestazione della pagina. `openProposals`
- * è quello che alimenta il badge (le proposte APERTE, cioè le notifiche
- * `google.proposal` non ancora gestite di questo utente — non lo stato delle
- * righe di posta, che può restare `proposed` anche dopo che la notifica è
- * stata archiviata senza confermare un'opzione).
- */
-export const mailSummarySchema = z.object({
-  openProposals: z.number().int().min(0).default(0),
-  failed: z.number().int().min(0).default(0),
-  ignored: z.number().int().min(0).default(0),
-});
-export type MailSummary = z.infer<typeof mailSummarySchema>;
-
-/**
  * Perché il cancello di ammissione (`admit()`, fase 6c) ha tenuto fuori una
  * mail. Sono i soli esiti NEGATIVI di `AdmissionResult`: gli esiti positivi
  * (`workspace_domain`, `project_rule`) non producono uno scarto. Un client lo

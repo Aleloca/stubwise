@@ -24,8 +24,6 @@ import {
   removeBacklogItemDesign,
   setBacklogItemDesign,
   setBacklogItemPlan,
-  acceptBacklogItemSuggested,
-  dismissBacklogItemSuggested,
   updateBacklogItemMetadata,
 } from "@stubwise/notifications";
 import { z } from "zod";
@@ -46,19 +44,16 @@ import {
 import {
   inProjects,
   projectIdsWithPermission,
-  projectPermissionsFor,
   routePermissions,
   visibleProjectIds,
   type ProjectScope,
 } from "../auth/access.js";
 import {
   backlogItemAccess,
-  canSeeBacklogItem,
   fromBacklogJob,
   fromBody,
 } from "../auth/project-resolvers.js";
 import { convertBacklogItem } from "../services/backlog.js";
-import { applyBacklogMerge, MergeAiError, MergeChangedError, mergedDocumentOf, readMergeSnapshot } from "../services/backlog-merge.js";
 import { backlogVisibleSql } from "../services/backlog-visibility.js";
 export { backlogVisibleSql };
 import {
@@ -101,9 +96,6 @@ const listQuerySchema = z.object({
 });
 
 const idParamsSchema = z.object({ id: z.uuid() });
-
-/** Body di merge: la voce di destinazione che assorbe questa. */
-const mergeBodySchema = z.object({ targetId: z.uuid() });
 
 /** Colonne "base" della voce (esplicite: mai `embedding`). */
 const baseColumns = {
@@ -829,66 +821,6 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  // Accetta TUTTI i metadati suggeriti: li applica ai campi reali e azzera
-  // `suggested`. 409 se non c'è nulla da accettare.
-  app.post(
-    "/:id/suggested/accept",
-    {
-      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.acceptSuggested", summary: "Accetta i metadati proposti su una voce di backlog.", effect: "write" } },
-      schema: {
-        params: idParamsSchema,
-        response: {
-          200: backlogItemBaseSchema,
-          404: errorSchema,
-          409: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      // Lo scrittore sta in `backlog-item-writes.ts`, con la voce in lock.
-      // Simmetrico al PATCH: senza metadati azionabili (un `reason` orfano non
-      // conta) non c'è nulla da accettare.
-      const res = await acceptBacklogItemSuggested(app.db, id);
-      if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      if (res === "no_suggested") return apiError(reply, 409, "no_suggested", "No suggested metadata to accept");
-      const updated = await loadBaseItem(app.db, id, itemVisibility(request));
-      // La voce può sparire tra l'update e la rilettura (race con una delete).
-      if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      return updated;
-    },
-  );
-
-  // Scarta i metadati suggeriti: azzera `suggested` senza applicarli. 409 se non
-  // c'è nulla da scartare.
-  app.post(
-    "/:id/suggested/dismiss",
-    {
-      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.dismissSuggested", summary: "Scarta i metadati proposti su una voce di backlog.", effect: "write" } },
-      schema: {
-        params: idParamsSchema,
-        response: {
-          200: backlogItemBaseSchema,
-          404: errorSchema,
-          409: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const res = await dismissBacklogItemSuggested(app.db, id);
-      if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      if (res === "no_suggested") return apiError(reply, 409, "no_suggested", "No suggested metadata to dismiss");
-      const updated = await loadBaseItem(app.db, id, itemVisibility(request));
-      // La voce può sparire tra l'update e la rilettura (race con una delete).
-      if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      return updated;
-    },
-  );
-
-
   // --- Sessione di refinement (design 2026-10-14) ---------------------------
   //
   // Chi può lavorare sul backlog (`backlog.edit`, come scrivere nella
@@ -933,7 +865,6 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-
   // --- Converti in task ----------------------------------------------------
   //
   // Crea un ticket `task` col documento come corpo, priorità dall'urgenza ed
@@ -977,97 +908,6 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         return apiError(reply, 409, "already_converted", "Backlog item already converted");
       }
       return { ticketId: result.ticketId, ticketNumber: result.ticketNumber, ticketAppPath: await ticketAppUrl(app.db, null, result.ticketId) };
-    },
-  );
-
-  // --- Fondi con… (merge manuale) ------------------------------------------
-  //
-  // Fonde QUESTA voce (assorbita) in `targetId` (destinazione): sposta i link
-  // ticket (upsert per evitare conflitti PK), somma i requestCount, integra i
-  // documenti via una chiamata one-shot all'LLM e archivia l'assorbita con
-  // mergedIntoId. La
-  // chiamata LLM è FUORI transazione (prima degli update); il resto è atomico.
-  app.post(
-    "/:id/merge",
-    {
-      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.merge", summary: "Fonde una voce di backlog in un'altra (sposta link e richiedenti).", effect: "destructive", note: "Il testo della destinazione viene riscritto e non torna com'era; la voce fusa si riapre con `requests.reopen`." } },
-      schema: {
-        params: idParamsSchema,
-        body: mergeBodySchema,
-        response: {
-          200: backlogItemBaseSchema,
-          400: errorSchema,
-          404: errorSchema,
-          409: errorSchema,
-          502: errorSchema,
-          503: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const { targetId } = request.body;
-
-      if (id === targetId) {
-        return apiError(reply, 400, "merge_self", "Cannot merge an item into itself");
-      }
-
-      const absorbed = await loadBaseItem(app.db, id, itemVisibility(request));
-      if (!absorbed) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      const target = await loadBaseItem(app.db, targetId, itemVisibility(request));
-      // Una destinazione che chi chiede non vede (progetto invisibile, o voce
-      // altrui senza `backlog.view_all` nel suo progetto) è, per lui, una
-      // destinazione che non esiste: il 400 «altro progetto» ne confermerebbe
-      // l'esistenza.
-      const targetPermissions =
-        target && target.projectId !== absorbed.projectId
-          ? await projectPermissionsFor(app.db, request.user!, target.projectId)
-          : routePermissions(request);
-      if (
-        !target ||
-        !targetPermissions ||
-        !(await canSeeBacklogItem(app.db, request.user!, targetPermissions, target.id))
-      ) {
-        return apiError(reply, 404, "target_not_found", "Target backlog item not found");
-      }
-
-      if (absorbed.projectId !== target.projectId) {
-        return apiError(reply, 400, "cross_project_merge", "Items must be in the same project");
-      }
-      if (target.status === "archived" || target.status === "converted") {
-        return apiError(reply, 409, "target_not_mergeable", "Target item is archived or converted");
-      }
-
-      if (app.chatLlm.isAvailable) {
-        const availability = await app.chatLlm.isAvailable();
-        if (!availability.available) {
-          return apiError(reply, 503, "chat_unavailable", "Backlog chat requires an API-key AI provider");
-        }
-      }
-
-      // Integrazione dei due documenti (markdown puro, non JSON): FUORI
-      // transazione; poi la fusione atomica (`services/backlog-merge.ts`). Se il
-      // modello non risponde non si scrive niente.
-      // Se nel frattempo una delle due cambia, 409 `request_changed`.
-      const before = await readMergeSnapshot(app.db, id, targetId);
-      if (!before) return apiError(reply, 409, "request_changed", "One of the two items changed; nothing was merged");
-      try {
-        const mergedDocument = await mergedDocumentOf(app.chatLlm, before.target, before.absorbed, target.projectId);
-        await applyBacklogMerge(app.db, before, mergedDocument);
-      } catch (error) {
-        if (error instanceof MergeAiError) {
-          return apiError(reply, 502, "merge_failed", "The AI could not merge the two items; nothing was changed");
-        }
-        if (error instanceof MergeChangedError) {
-          return apiError(reply, 409, "request_changed", "One of the two items changed while merging; nothing was merged");
-        }
-        throw error;
-      }
-
-      const updated = await loadBaseItem(app.db, targetId, itemVisibility(request));
-      if (!updated) return apiError(reply, 404, "target_not_found", "Target backlog item not found");
-      return updated;
     },
   );
 

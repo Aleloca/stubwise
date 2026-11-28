@@ -192,10 +192,6 @@ function getMail(cookie: string, query = "") {
   return app.inject({ method: "GET", url: `/api/me/mail${query}`, headers: { cookie } });
 }
 
-function getSummary(cookie: string) {
-  return app.inject({ method: "GET", url: "/api/me/mail/summary", headers: { cookie } });
-}
-
 function repropose(cookie: string, source: "email" | "calendar" | "email_triage", id: string) {
   return app.inject({
     method: "POST",
@@ -528,112 +524,6 @@ describe("GET /api/me/mail — smistamento (fase 6c, fix di review Task 3)", () 
     const items = (res.json() as { items: { source: string; kind: string }[] }).items;
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ source: "calendar", kind: "calendar" });
-  });
-});
-
-describe("GET /api/me/mail/summary", () => {
-  it("senza sessione: 401", async () => {
-    expect((await getSummary("")).statusCode).toBe(401);
-  });
-
-  it("conta i FIGLI (email_proposals) e le righe failed/ignored del calendario", async () => {
-    const { accountId } = await seedAccount(adminId);
-    const projectId = await seedProject();
-    const failedMessage = await seedEmail(accountId);
-    await seedProposal(failedMessage, projectId, { status: "failed" });
-    const ignoredMessage = await seedEmail(accountId);
-    await seedProposal(ignoredMessage, projectId, { status: "ignored" });
-    await seedCalendar(accountId, { outcome: { type: "failed", error: "x" } });
-    await db.insert(notifications).values({
-      userId: adminId,
-      kind: "google.proposal",
-      status: "open",
-      event: { kind: "google.proposal", proposalId: randomUUID() },
-    });
-
-    const res = await getSummary(adminCookie);
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as { openProposals: number; failed: number; ignored: number };
-    expect(body.openProposals).toBe(1);
-    expect(body.failed).toBe(2);
-    expect(body.ignored).toBe(1);
-  });
-
-  it("un messaggio con più figli failed conta ognuno separatamente", async () => {
-    const { accountId } = await seedAccount(adminId);
-    const projectA = await seedProject("Alpha");
-    const projectB = await seedProject("Bravo");
-    const messageId = await seedEmail(accountId);
-    await seedProposal(messageId, projectA, { status: "failed" });
-    await seedProposal(messageId, projectB, { status: "failed" });
-
-    const res = await getSummary(adminCookie);
-    const body = res.json() as { failed: number };
-    expect(body.failed).toBe(2);
-  });
-
-  it("un altro utente vede i propri contatori, non quelli altrui", async () => {
-    const { accountId } = await seedAccount(memberId);
-    const projectId = await seedProject();
-    const messageId = await seedEmail(accountId);
-    await seedProposal(messageId, projectId, { status: "failed" });
-
-    const res = await getSummary(adminCookie);
-    const body = res.json() as { failed: number };
-    expect(body.failed).toBe(0);
-  });
-
-  describe("fase 6c (fix di review Task 3): coerenza col contenuto della lista", () => {
-    it("il contatore openProposals coincide con la riga di smistamento ATTIVA mostrata dalla lista", async () => {
-      const { accountId } = await seedAccount(adminId);
-      const [notification] = await db
-        .insert(notifications)
-        .values({
-          userId: adminId,
-          kind: "google.proposal",
-          status: "open",
-          event: { kind: "google.proposal", proposalId: randomUUID() },
-        })
-        .returning({ id: notifications.id });
-      await seedTriage(accountId, { status: "proposed", proposalNotificationId: notification!.id });
-
-      const [summaryRes, mailRes] = await Promise.all([getSummary(adminCookie), getMail(adminCookie)]);
-      const summary = summaryRes.json() as { openProposals: number };
-      const items = (mailRes.json() as { items: { kind: string; status: string }[] }).items;
-      expect(summary.openProposals).toBe(1);
-      expect(items.filter((i) => i.kind === "triage" && i.status === "proposed")).toHaveLength(1);
-    });
-
-    it("failed conta anche uno smistamento FALLITO", async () => {
-      const { accountId } = await seedAccount(adminId);
-      await seedTriage(accountId, { status: "failed", error: "target_gone" });
-
-      const res = await getSummary(adminCookie);
-      const body = res.json() as { failed: number };
-      expect(body.failed).toBe(1);
-    });
-
-    it("ignored conta anche uno smistamento CHIUSO con «nessuno di questi»", async () => {
-      const { accountId } = await seedAccount(adminId);
-      await seedTriage(accountId, { status: "ignored", outcome: { type: "triage_dismissed" } });
-
-      const res = await getSummary(adminCookie);
-      const body = res.json() as { ignored: number };
-      expect(body.ignored).toBe(1);
-    });
-
-    it("un ignored generico (nessun segnale) non gonfia il contatore di smistamento", async () => {
-      const { accountId } = await seedAccount(adminId);
-      await seedTriage(accountId, {
-        status: "ignored",
-        classification: { signal: "none", summary: "nulla", proposals: [], recommendedIndex: 0 },
-        outcome: null,
-      });
-
-      const res = await getSummary(adminCookie);
-      const body = res.json() as { ignored: number };
-      expect(body.ignored).toBe(0);
-    });
   });
 });
 

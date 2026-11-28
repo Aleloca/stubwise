@@ -12,7 +12,9 @@ import {
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { buildProjectTimeline } from "@stubwise/notifications";
 import { buildApp } from "../app.js";
+import { projectPermissionsFor } from "../auth/access.js";
 import { addMember, createUserWithPat } from "../test/fixtures.js";
 
 /**
@@ -146,10 +148,20 @@ interface TimelineEntry {
   ticketNumber?: number;
 }
 
-async function timelineKinds(user: TestUser): Promise<TimelineEntry[]> {
-  const res = await get(user, `/api/projects/${projectId}/timeline`);
-  expect(res.statusCode).toBe(200);
-  return (res.json() as { entries: TimelineEntry[] }).entries;
+/**
+ * La timeline del progetto come la vede chi legge: la funzione che usano la
+ * cronologia dell'app, il polso e il brief (`buildProjectTimeline` col suo
+ * `viewer`). La rotta `/timeline` è andata via con R2; il filtro per ruolo
+ * sta nella funzione, ed è lui che si prova qui.
+ */
+async function timelineKinds(user: TestUser, kinds?: Set<string>): Promise<TimelineEntry[]> {
+  const permissions = await projectPermissionsFor(testDb.db, { id: user.id, instancePermissions: new Set() }, projectId);
+  expect(permissions).not.toBeNull();
+  const window = { from: new Date(Date.now() - 28 * 86_400_000), to: new Date(Date.now() + 86_400_000) };
+  return (await buildProjectTimeline(testDb.db, projectId, window, kinds, {
+    userId: user.id,
+    permissions: permissions!,
+  })) as TimelineEntry[];
 }
 
 describe("timeline", () => {
@@ -175,20 +187,12 @@ describe("timeline", () => {
     expect(kinds.has("decision")).toBe(true);
   });
 
-  it("chiedere un tipo non permesso con ?kinds= non lo fa uscire", async () => {
-    const res = await get(contributor, `/api/projects/${projectId}/timeline?kinds=pr_opened,brief`);
-    expect(res.statusCode).toBe(200);
-    expect((res.json() as { entries: unknown[] }).entries).toEqual([]);
+  it("chiedere un tipo non permesso non lo fa uscire", async () => {
+    expect(await timelineKinds(contributor, new Set(["pr_opened", "brief"]))).toEqual([]);
   });
 });
 
 describe("review, report, brief", () => {
-  it("GET /reviews: il Legacy Member sì, il Contributor no (repos.view)", async () => {
-    const ok = await get(legacy, `/api/projects/${projectId}/reviews`);
-    expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toHaveLength(1);
-    expect((await get(contributor, `/api/projects/${projectId}/reviews`)).statusCode).toBe(403);
-  });
 
   it("GET /api/activity: il report del progetto solo a chi ha repos.view", async () => {
     const ids = async (user: TestUser) =>

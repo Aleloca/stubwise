@@ -17,6 +17,7 @@ import {
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedBacklogItem, seedRepository, startTestDb } from "@stubwise/db/testing";
+import { buildProjectTimeline } from "@stubwise/notifications";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -245,16 +246,15 @@ describe("cosa se ne va, cosa resta", () => {
 
   it("non riappare nella timeline del progetto (polso e brief)", async () => {
     const t = await task(legacy.id, { title: "Nella timeline" });
-    const timeline = () =>
-      app.inject({ method: "GET", url: `/api/projects/${projectId}/timeline`, headers: { cookie: u.adminCookie } });
-    const before = await timeline();
-    expect(before.statusCode).toBe(200);
-    expect(JSON.stringify(before.json())).toContain(t.id);
+    // La timeline che leggono polso e brief (`buildProjectTimeline`): la sua
+    // rotta è andata via con R2, la funzione resta.
+    const window = { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) };
+    const timeline = () => buildProjectTimeline(testDb.db, projectId, window);
+    expect(JSON.stringify(await timeline())).toContain(t.id);
     expect((await del(t.id, legacy.headers.cookie)).statusCode).toBe(204);
-    const after = await timeline();
-    expect(after.statusCode).toBe(200);
-    expect(JSON.stringify(after.json())).not.toContain(t.id);
-    expect(JSON.stringify(after.json())).not.toContain("Nella timeline");
+    const after = JSON.stringify(await timeline());
+    expect(after).not.toContain(t.id);
+    expect(after).not.toContain("Nella timeline");
   });
 
   it("i follower ricevono «task eliminata»; le notifiche restano senza link, con objectGone; consumi e registro decisioni restano", async () => {

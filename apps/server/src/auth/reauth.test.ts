@@ -174,14 +174,6 @@ const ROUTES: [string, SensitiveRoute][] = [
     },
   ],
   [
-    "PATCH /api/users/:id/role",
-    {
-      method: "PATCH",
-      url: () => `/api/users/${memberId}/role`,
-      payload: () => ({ role: "member" }),
-    },
-  ],
-  [
     "PATCH /api/users/:id/instance-role",
     {
       method: "PATCH",

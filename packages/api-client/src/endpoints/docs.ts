@@ -4,8 +4,6 @@ import {
   docGenerationJobSchema,
   docGenerationViewSchema,
   docStatusResponseSchema,
-  docChatMessageSchema,
-  docChatSessionSchema,
   docPageSchema,
   docsChatAnswerSchema,
   docSpaceSchema,
@@ -23,8 +21,6 @@ import type {
   DocStatusResponse,
   UpdateManualDocPageInput,
   Reader,
-  DocChatMessage,
-  DocChatSession,
   DocPage,
   DocsChatAnswer,
   DocSpace,
@@ -40,8 +36,6 @@ import { seg, toQuery } from "../query.js";
 
 const spacesSchema = z.array(docSpaceSchema);
 const treeSchema = z.array(docTreeNodeSchema);
-const sessionsSchema = z.array(docChatSessionSchema);
-const messagesSchema = z.array(docChatMessageSchema);
 const projectSearchSchema = z.array(projectDocsSearchResultSchema);
 
 /**
@@ -165,24 +159,6 @@ export function createDocsEndpoints(request: ApiRequest) {
       );
     },
 
-    chatSessions(repositoryId: string): Promise<Reader<DocChatSession>[]> {
-      return request(
-        "GET",
-        `/api/repositories/${seg(repositoryId)}/docs/chat/sessions`,
-        undefined,
-        sessionsSchema,
-      );
-    },
-
-    chatMessages(repositoryId: string, sessionId: string): Promise<Reader<DocChatMessage>[]> {
-      return request(
-        "GET",
-        `/api/repositories/${seg(repositoryId)}/docs/chat/sessions/${seg(sessionId)}/messages`,
-        undefined,
-        messagesSchema,
-      );
-    },
-
     /** Un turno della chat sui Docs di PROGETTO (cross-repo), risposta JSON completa (`?stream=false`, fase 4 mobile). */
     projectChat(
       projectId: string,
@@ -193,24 +169,6 @@ export function createDocsEndpoints(request: ApiRequest) {
         `/api/projects/${seg(projectId)}/docs/chat?stream=false`,
         input,
         docsChatAnswerSchema,
-      );
-    },
-
-    projectChatSessions(projectId: string): Promise<Reader<DocChatSession>[]> {
-      return request(
-        "GET",
-        `/api/projects/${seg(projectId)}/docs/chat/sessions`,
-        undefined,
-        sessionsSchema,
-      );
-    },
-
-    projectChatMessages(projectId: string, sessionId: string): Promise<Reader<DocChatMessage>[]> {
-      return request(
-        "GET",
-        `/api/projects/${seg(projectId)}/docs/chat/sessions/${seg(sessionId)}/messages`,
-        undefined,
-        messagesSchema,
       );
     },
 

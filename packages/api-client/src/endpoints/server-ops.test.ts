@@ -30,17 +30,6 @@ describe("endpoints serverOps", () => {
     expect(a).toMatchObject({ canViewDiagnosis: false, sessionId: null, diagnosis: null, attribution: null });
   });
 
-  it("avvio, registro (before/limit), chiave dei comandi", async () => {
-    const a = clientReturning(ANALYSIS);
-    await a.client.serverOps.startAnalysis(SERVER_ID);
-    expect(call(a.fetchImpl)).toMatchObject({ url: `/api/servers/${SERVER_ID}/analyses`, method: "POST" });
-    const o = clientReturning({ commands: [] });
-    await o.client.serverOps.operations(SERVER_ID, { before: "2026-11-14T00:00:00.000Z", limit: 10 });
-    expect(call(o.fetchImpl).url).toBe(`/api/servers/${SERVER_ID}/operations?before=2026-11-14T00%3A00%3A00.000Z&limit=10`);
-    const k = clientReturning({ publicKey: "MCowBQ" });
-    expect(await k.client.serverOps.commandKey()).toEqual({ publicKey: "MCowBQ" });
-  });
-
   it("SSH: collega, verifica, rigenera, revoca", async () => {
     const view = { status: "pending" };
     for (const [run, url, method] of [
