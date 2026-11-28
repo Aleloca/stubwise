@@ -240,6 +240,21 @@ describe("la Posta in lettura: una conversazione", () => {
     expect(t.messages[1]).toMatchObject({ id: M2, context: true, html: null, cc: null, attachments: [] });
   });
 
+  it("un messaggio di solo testo oltre i 20.000 caratteri: si legge il corpo intero, non l'estratto tagliato", async () => {
+    // Il worker taglia l'estratto a `MAX_TEXT_LENGTH` (20.000, `packages/google/src/gmail.ts`);
+    // il corpo intero sta nella cache dell'originale.
+    const full = `${"Riga del verbale. ".repeat(1_300)}Fine.`;
+    expect(full.length).toBeGreaterThan(20_000);
+    installFakeServer({
+      ...common,
+      "GET /api/me/mail/threads/t-1": { body: detail({ messages: [message({ textExcerpt: full.slice(0, 20_000) })] }) },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original({ bodyText: full, bodyHtml: null }) },
+    });
+    const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
+    expect(m!.text).toBe(full);
+    expect(m!.text.endsWith("Fine.")).toBe(true);
+  });
+
   it("l'originale che non si legge (Gmail, token): resta l'estratto", async () => {
     installFakeServer({
       ...common,

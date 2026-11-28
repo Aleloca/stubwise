@@ -240,6 +240,13 @@ jobs:
       - name: Esegui i test e2e
         run: pnpm --filter @stubwise/web e2e
 
+      # La nuova app (D3 del piano del taglio): la build web VERA servita su
+      # /app con le intestazioni del Caddyfile, contro lo stesso tipo di stack
+      # (Postgres testcontainers + server vero, porte sue: 3220 e 5220). Quando
+      # il web vecchio sparisce, il passo qui sopra va via e resta questo.
+      - name: Esegui i test e2e della nuova app
+        run: pnpm --filter @stubwise/desktop e2e
+
       - name: Carica il report Playwright in caso di fallimento
         if: failure()
         uses: actions/upload-artifact@v4
@@ -248,5 +255,7 @@ jobs:
           path: |
             apps/web/playwright-report/
             apps/web/test-results/
+            apps/desktop/playwright-report/
+            apps/desktop/test-results/
           if-no-files-found: ignore
           retention-days: 7

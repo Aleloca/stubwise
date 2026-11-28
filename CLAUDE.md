@@ -1453,6 +1453,17 @@ tutti.
   un **fix nuovo** dal branch di default. Si riprende da «Riprendi la
   correzione» sul ticket, che manda `resumeCorrectionJobId`. La descrizione
   del tool e la skill lo dicono.
+- **Le rotte dei tool dedicati sono dell'MCP PER SCELTA (D10, 28 nov
+  2026).** Dodici rotte (voce di backlog: lettura, modifica, conversione,
+  design, piano, creazione da un design, job; design e piano del ticket; i
+  brief di un progetto; `/api/mcp/catalog` e `/:action`) le chiamano solo i
+  tool dedicati di `@stubwise/mcp`, non l'app, e il maintainer ha deciso che
+  restano come superficie propria dell'MCP: lo dichiarano con
+  `config.mcp.owner: "mcp"` (elenco chiuso in
+  `apps/server/src/mcp/mcp-owned.test.ts`), e lo script delle rotte non le
+  propone da togliere. Chi ne cambia una cambia un tool del plugin: lo provi
+  col golden dell'MCP (`packages/mcp/scripts/golden/README.md`), e chi
+  aggiunge una rotta per un tool dedicato la aggiunge all'elenco apposta.
 - **Modalità collaboratore (20 ott 2026,** `docs/plans/2026-10-19-mcp-collaboratori-design.md`**)**:
   un utente non tecnico (anche senza permessi di sviluppo, es. `Contributor`) usa Claude Code senza repo né
   `/stubwise:init`. Tool nuovi di `@stubwise/mcp`: `search_project_docs`,
