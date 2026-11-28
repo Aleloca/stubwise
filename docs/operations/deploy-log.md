@@ -7484,6 +7484,69 @@ deploy o di un rollback che la tocca.
   ```
   La colonna della 0238 può restare (il codice vecchio non la nomina).
   Scendendo, lo sblocco torna a rinnovare la riconferma.
+- **«La cassaforte nel browser, fase 2» (28 nov 2026)**: branch
+  `feat/cassaforte-browser-fase2`, sopra `feat/cassaforte-browser` (la voce
+  qui sotto va deployata prima, o insieme). Design
+  `docs/plans/2026-11-27-cassaforte-browser-design.md` §10 (I7), più la
+  revisione di sicurezza della fase 2 (I-1, I-2 e i Minor): quello che oggi
+  fa solo il web vecchio, per poterlo ritirare.
+  - **La pagina a sé della cassaforte (`/app/vault/`, bundle di caddy)**: un
+    documento suo (`vault.html`, buildato a sé in `/srv/vault`), con la sua
+    CSP stretta (`VAULT_PAGE_CSP` di `scripts/caddy-csp.mjs`: `default-src
+    'none'`… `base-uri 'none'`, Trusted Types del solo worker), COOP e
+    `no-store`. Dentro solo il worker della cassaforte e quattro pagine:
+    `#/setup` (attivare col kit, creare o ricreare la propria chiave,
+    rigenerare il kit), `#/recover` (il recupero col kit, con una presenza
+    fresca per ogni conferma e il kit che scade dopo 10 minuti),
+    `#/pair?state=…` (sigillare un Mac), `#/passkeys` («Use for the vault»).
+    La riconferma la fa la pagina stessa (una passkey senza PRF, o il codice
+    che il worker inoltra a `POST /reauth`). Senza sessione manda al login
+    dell'app con `next` in elenco chiuso, e ritorna.
+  - **La nuova app (`/app`)**: la barra («Create your key», «Activate the
+    vault») e «Use for the vault» in Preferenze → Security portano alla
+    pagina a sé con una navigazione completa; il login legge `next`.
+  - **L'app per Mac**: «Pair this Mac» apre `<istanza>/app/vault/#/pair`
+    invece di `/vault-pair` del web vecchio; «Open in the browser» apre
+    `/app/vault/#/setup` («nessuna chiave», «non attiva») o `/app/#/vault`
+    (gli altri stati), mai più il web vecchio.
+  - **Server**: niente. Le tracce del §10 c'erano già: `vault_key_created`,
+    `vault_seal_added` (I7) e `vault_device_sealed`, ognuna col suo
+    `security.alert`.
+  **Deploy**: ribuildare **`caddy`** (il Dockerfile builda e controlla anche
+  `dist-vault`). Nessuna migrazione, nessuna env, nessun `notification_kind`
+  nuovo. **Ordine**: caddy PRIMA di distribuire un pacchetto per Mac nuovo.
+  Un Mac nuovo contro un caddy vecchio apre `/app/vault/`, che lì non c'è
+  (il fallback di `/app` dà l'app, non la pagina): l'associazione non parte
+  finché caddy non è aggiornato. I Mac vecchi aprono ancora `/vault-pair` del
+  web vecchio, che finché c'è funziona.
+  ⚠️ **Al ritiro del web vecchio**: `/vault-pair?state=…` deve diventare un
+  redirect a `/app/vault/#/pair?state=…` (lo state passa nel frammento),
+  altrimenti un Mac non aggiornato non si associa più. ⚠️ **Con R1** (l'app
+  alla radice): la pagina diventa `/vault/` cambiando `APP_ENTRY`, la `base`
+  di `apps/desktop/vite.vault.config.ts` e il blocco Caddy.
+  **Controllo dopo il deploy**:
+  ```sh
+  curl -sI https://<istanza>/app/vault/ | grep -iE "content-security-policy|cross-origin-opener|cache-control"
+  # una sola CSP, con default-src 'none' e trusted-types stubwise-vault-worker;
+  # COOP noopener-allow-popups (NON same-origin: seconda revisione, I-1); no-store
+  ```
+  Poi, con la console aperta (nessuna violazione della CSP né dei Trusted
+  Types), su un'istanza di prova: un full admin da `/app/vault/#/setup`
+  attiva la cassaforte (il kit una volta, la passkey, la riconferma), crea la
+  chiave, rigenera il kit e da `#/recover` usa il kit per confermare una
+  persona in attesa; un'altra persona crea la propria chiave e da
+  `#/passkeys` aggiunge una seconda passkey (due tocchi); dal Mac, «Pair
+  this Mac» fino al ritorno all'app. Da disconnessi, `/app/vault/#/setup`
+  porta al login e poi torna lì.
+  In Chromium, `pnpm --filter @stubwise/desktop verify:vault-isolation` prova
+  che uno script dell'app non governa la pagina a sé (aperta o seguita).
+  **Rollback**: scendere caddy non lascia dati, ma è sicuro SOLO se nessun
+  pacchetto per Mac nuovo (quello che apre `/app/vault/#/pair`) è già stato
+  distribuito. Se lo è, scendendo quei Mac non si associano più finché non
+  si risale (il caddy vecchio non ha `/app/vault/`): o si risale presto, o
+  prima di scendere si ridistribuisce il pacchetto per Mac precedente (che
+  apre `/vault-pair` del web vecchio, ancora lì).
+
 - **«La cassaforte nella nuova app nel browser» (28 nov 2026)**: branch
   `feat/cassaforte-browser` (con dentro `feat/vault-session-tag`). Design
   `docs/plans/2026-11-27-cassaforte-browser-design.md`, tre revisioni di
@@ -7577,6 +7640,29 @@ deploy o di un rollback che la tocca.
   un ticket con un design attivo torna a scrivere il corpo (cioè il design),
   come prima; i testi già salvati su `origin_content` restano e «Remove
   design» li riporta.
+
+- **«Le immagini delle email passano dal nostro server» (28 nov 2026)**:
+  branch `feat/proxy-immagini-posta`, design
+  `docs/plans/2026-11-28-proxy-immagini-posta-design.md`. Nella nuova app (nel
+  browser e sul Mac) «Show images» funziona: le immagini remote si chiedono
+  al server per posizione (`GET /api/me/mail/:source/:id/images/:n`), che le
+  scarica col modulo `apps/server/src/mail-images/` (difese SSRF, solo
+  raster, mai SVG, 5 MB, 8 s, UA generico; DNS con c-ares, al più 8
+  richieste esterne e 4 per persona) e le restituisce coi suoi header
+  (`no-store`).
+  `/original` numera le immagini (`data-image`). La CSP del frame si stringe
+  (`img-src data:` sempre), quella di `/app` e del Mac non cambia. Il web
+  vecchio resta com'è (carica dal mittente) fino al ritiro; sulle descrizioni
+  del calendario il bottone sparisce.
+  **Ordine**: prima `server` (healthy), poi `caddy`. L'app Mac si
+  ricostruisce a mano. Nessuna migrazione né env.
+  **Controllo dopo il deploy**: aprire nella nuova app un'email con
+  immagini, «Show original», «Show images». Le immagini compaiono, e nella
+  scheda Network partono solo richieste a `/api/me/mail/…/images/n`, nessuna
+  verso il mittente.
+  **Rollback**: sicuro. Un renderer nuovo con un server vecchio non trova
+  `data-image`, e le immagini restano spente come prima; un renderer vecchio
+  ignora l'attributo.
 
 - **«I link portano alla nuova app» (27 nov 2026)**: rami
   `feat/link-nuova-app` e `feat/link-go-routes`, che si appoggia al primo.

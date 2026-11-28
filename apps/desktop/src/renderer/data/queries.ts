@@ -746,6 +746,15 @@ export function useLatestBrief(projectId: string) {
 }
 
 /**
+ * Chi carica le immagini remote di un messaggio per «Show images» (il proxy
+ * del server, per posizione): un `data:` o `null`. Non passa dalla cache delle
+ * query, perché lo stato di «Show images» non si ricorda.
+ */
+export function useMessageImageLoader(messageId: string): (n: number) => Promise<string | null> {
+  return useCallback((n: number) => api.mail.getMessageImage(messageId, n).catch(() => null), [messageId]);
+}
+
+/**
  * I risultati aperti di recente nella ⌘K (shape `search-history.md`): solo a
  * query vuota; con `repositoryId`, quelli di quello spazio Docs. Lettura
  * accessoria: un errore non ferma la ⌘K (il gruppo semplicemente non c'è).

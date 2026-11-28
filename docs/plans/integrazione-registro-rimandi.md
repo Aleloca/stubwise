@@ -336,6 +336,23 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 6 — Posta e Calendario
 
+- **Proxy delle immagini: l'oracolo di tempo sui nomi interni** *(S,
+  accettato, revisione di sicurezza, M4, 28 nov 2026)*: solo il
+  proprietario della casella, mandandosi un'email, può distinguere dai tempi
+  un nome interno che risolve a un IP privato (rifiutato subito dopo il DNS)
+  da un NXDOMAIN o da un host esterno. Sa se un nome esiste, non può
+  scansionare: nessuna connessione parte verso un indirizzo vietato.
+  Chiudere vorrebbe dire uniformare i tempi di risposta, e oggi non vale il
+  costo.
+- **Le immagini nelle descrizioni degli eventi del calendario** *(S, 28 nov
+  2026, design `2026-11-28-proxy-immagini-posta-design.md`, PI 8)*: il proxy
+  delle immagini copre le email (per posizione, dal corpo in `email_bodies`),
+  non le descrizioni degli eventi, che non passano da lì. Nella nuova app,
+  sulle descrizioni, «Show images» non c'è più: la frase sulle immagini
+  bloccate resta. Il web vecchio, che le caricava dal mittente, verrà
+  cancellato. Si chiude con la stessa forma sugli eventi
+  (`…/calendar/events/:id/images/:n`), se serve.
+
 - Più account Google nel cassetto *(S, F1, decisione B(a) dell'orchestratrice)*:
   il server tiene una casella per Workspace; il cassetto del desktop ne mostra
   una (quella da ricollegare, se c'è, altrimenti la prima). La Posta e il
@@ -2057,6 +2074,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   lettore futuro dell'array grezzo conti con `distinct`.
 
 ## Trasversali
+
+- **La pagina a sé della cassaforte su un'ORIGINE separata** *(S, seconda
+  revisione di sicurezza della fase 2, 28 nov 2026; decisione di 46)*: oggi
+  sta su `/app/vault/`, la stessa origine dell'app, e la separa solo la COOP
+  `noopener-allow-popups`, che Chromium applica e Firefox e Safari possono
+  ignorare (lì uno script nell'app che apre la pagina la governa). Un
+  sottodominio suo (es. `vault.<istanza>`), con la sua CSP, la sessione
+  passata da un handoff monouso come `desktop-exchange`, e il `rpId` della
+  passkey da tenere uguale (la passkey è della radice dell'istanza), chiude
+  il limite per tutti i browser. Va deciso col maintainer: cambia il deploy
+  self-hosted (un nome DNS e un certificato in più).
 
 - **Rinominare il codice di un progetto rompe i link della nuova app già
   spediti** *(S, revisione dei link M6, 27 nov 2026)*: card, email, push e

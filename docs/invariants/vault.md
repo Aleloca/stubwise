@@ -414,8 +414,43 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
      aperto la cassaforte in quella pagina: i passi 2–5 vanno ripetuti per
      ciascuna.
 
+- **La pagina a sé della cassaforte (fase 2, `/app/vault/`, 28 nov 2026).**
+  Revisioni di sicurezza della fase 2 (I-1, I-2, poi la seconda). Le regole:
+  - **Attivare, la propria chiave, il kit, il recupero, l'associazione di un
+    Mac e «Use for the vault» stanno in un documento suo** (`vault.html`,
+    `apps/desktop/src/renderer/vaultPage/`), buildato a sé: dentro solo il
+    worker della cassaforte, e nessun codice dell'app. Lo tengono vero un
+    elenco chiuso degli import (`vaultPage/architecture.test.ts`, anche
+    `export … from` e `import(`) e `check-vault-target.mjs … vault` (né il
+    ponte del desktop né il livello dati dell'app, e le rotte `/api/` in un
+    elenco chiuso, uno per la pagina e uno per il worker).
+  - **La sua CSP è sua** (`VAULT_PAGE_CSP` di `scripts/caddy-csp.mjs`,
+    `default-src 'none'`… e i Trusted Types del solo worker), con COOP
+    **`noopener-allow-popups`** (`VAULT_PAGE_COOP`): con `same-origin` uno
+    script dell'app, che è la STESSA origine, aprirebbe la pagina o ne
+    seguirebbe la scheda e la governerebbe prima del boot (la prova in
+    Chromium è `pnpm --filter @stubwise/desktop verify:vault-isolation`,
+    con un controllo `same-origin` che deve restare vulnerabile). Ci si
+    entra SEMPRE con una navigazione completa.
+  - **Il kit di recupero letto** sta nel worker al più 10 minuti, legato a
+    persona e sessione, e ogni chiusura lo butta; ogni conferma col kit
+    vuole una presenza fresca verificata dal worker (una passkey senza PRF,
+    o il codice dell'app, che il worker inoltra e non tiene). Un codice o
+    una passkey sbagliati non buttano il kit (non sono la fine della
+    sessione).
+  - **Senza sessione** la pagina manda al login dell'app con `next` in un
+    elenco chiuso (`vaultReturn`): mai un URL.
+
 ## Limiti accettati
 
+- **La pagina a sé della cassaforte condivide l'origine con l'app**
+  (seconda revisione della fase 2): COOP `noopener-allow-popups` separa le
+  due pagine in Chromium, ma Firefox e Safari, se non supportano il valore,
+  lo trattano come `unsafe-none` e restano come oggi: uno script iniettato
+  nell'app che apre la pagina della cassaforte, o ne segue la scheda, può
+  governarla prima del boot e leggere il kit. La difesa vera, a lungo
+  termine, è un'**origine separata** per la pagina (registro dei rimandi,
+  «Trasversali»).
 - **Server compromesso mentre lo si usa**: chi lo controlla in quel momento può
   servire una web modificata che ruba ciò che si sblocca, dare allo script una
   chiave pubblica falsa o aggiungere un lettore finto che il browser

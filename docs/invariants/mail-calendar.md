@@ -737,6 +737,18 @@
   uscire il documento dal suo recinto — con le immagini remote neutralizzate
   di default (spostate in `data-src`, mai in `src`: sono il vettore classico
   dei pixel di tracciamento) finché chi legge non chiede di mostrarle.
+  **Le immagini remote (28 nov 2026)** passano dal proxy del server
+  (`GET /api/me/mail/:source/:id/images/:n`, `apps/server/src/mail-images/`):
+  per POSIZIONE nel corpo, mai per URL; il corpo si legge da questa cache e
+  si sanifica come per `/original`; i byte delle immagini non si conservano
+  da nessuna parte, e gli URL non finiscono nei log (solo l'host). Nella
+  nuova app arrivano come `data:` e la CSP del frame resta `img-src data:`.
+  ⚠️ **Scelta accettata (revisione di sicurezza, M7)**: per la parità MCP la
+  rotta è anche `mail.image` (`download_file`), quindi un client MCP può
+  chiedere un'immagine, e con lei un pixel di tracciamento, senza il gesto
+  «Show images» di una persona. Il mittente vede l'IP del server e sa che
+  l'email è stata «aperta». È la stessa capacità di chi legge dall'app,
+  senza il clic.
   **E soprattutto**: la ragione per cui la cache è una TABELLA A SÉ dal nome
   esplicito e non una colonna accanto a `email_messages.text_excerpt`. Un
   corpo persistito lì sarebbe un'affermazione implicita «questo è ciò che
