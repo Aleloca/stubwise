@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchRemoteImage, IMAGE_PROXY_USER_AGENT, type ImageFetchDeps, type RemoteResponse } from "./fetch.js";
+import { fetchRemoteImage, IMAGE_PROXY_USER_AGENT, MAX_CONCURRENT_FETCHES, MAX_FETCH_QUEUE, type ImageFetchDeps, type RemoteResponse } from "./fetch.js";
 
 // Il fetch del proxy delle immagini (design §3–§5), con DNS e connessione
 // finti: nessuna richiesta di rete vera.
@@ -30,6 +30,7 @@ function deps(over: Partial<ImageFetchDeps> = {}): ImageFetchDeps & { requests: 
         return response();
       }),
     totalMs: over.totalMs ?? 8000,
+    ...(over.queueWaitMs !== undefined ? { queueWaitMs: over.queueWaitMs } : {}),
   };
 }
 
@@ -158,5 +159,42 @@ describe("fetchRemoteImage", () => {
     }
     expect((await Promise.all(all)).every((r) => r.ok)).toBe(true);
     expect(peak).toBe(8);
+  });
+
+  it("I2: un DNS che non risponde resta dentro il tetto di tempo (timeout, non un posto tenuto per sempre)", async () => {
+    const d = deps({ totalMs: 30, resolve: () => new Promise<string[]>(() => {}) });
+    const started = Date.now();
+    expect(await fetchRemoteImage("https://cdn.example/a.png", d)).toEqual({ ok: false, reason: "timeout" });
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("I2: coda piena → busy subito; un'attesa oltre il suo tetto → busy", async () => {
+    const gates: (() => void)[] = [];
+    const blocking = deps({ request: async () => { await new Promise<void>((go) => gates.push(go)); return response(); } });
+    const held = Array.from({ length: MAX_CONCURRENT_FETCHES + MAX_FETCH_QUEUE }, () => fetchRemoteImage("https://cdn.example/a.png", blocking));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(await fetchRemoteImage("https://cdn.example/a.png", blocking)).toEqual({ ok: false, reason: "busy" });
+    while (gates.length || (await Promise.race([Promise.all(held).then(() => true), new Promise((r) => setTimeout(() => r(false), 5))])) === false) {
+      gates.shift()?.();
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect((await Promise.all(held)).every((r) => r.ok)).toBe(true);
+    // Un'attesa più lunga del suo tetto: busy, e il posto non resta preso.
+    const slowGates: (() => void)[] = [];
+    const slow = deps({ queueWaitMs: 20, request: async () => { await new Promise<void>((go) => slowGates.push(go)); return response(); } });
+    const busy = Array.from({ length: MAX_CONCURRENT_FETCHES }, () => fetchRemoteImage("https://cdn.example/a.png", slow));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(await fetchRemoteImage("https://cdn.example/a.png", slow)).toEqual({ ok: false, reason: "busy" });
+    while (slowGates.length) slowGates.shift()!();
+    await Promise.all(busy);
+  });
+
+  it("M1: alla fine la richiesta si chiude (il segnale è annullato), anche sulle uscite anticipate", async () => {
+    const signals: AbortSignal[] = [];
+    const ok = deps({ request: async (req) => { signals.push(req.signal); return response(); } });
+    await fetchRemoteImage("https://cdn.example/a.png", ok);
+    const big = deps({ request: async (req) => { signals.push(req.signal); return response({ headers: { "content-type": "image/png", "content-length": String(9e9) } }); } });
+    await fetchRemoteImage("https://cdn.example/a.png", big);
+    expect(signals.map((s) => s.aborted)).toEqual([true, true]);
   });
 });

@@ -7405,7 +7405,9 @@ deploy o di un rollback che la tocca.
   browser e sul Mac) «Show images» funziona: le immagini remote si chiedono
   al server per posizione (`GET /api/me/mail/:source/:id/images/:n`), che le
   scarica col modulo `apps/server/src/mail-images/` (difese SSRF, solo
-  raster, mai SVG, 5 MB, 8 s, UA generico) e le restituisce coi suoi header.
+  raster, mai SVG, 5 MB, 8 s, UA generico; DNS con c-ares, al più 8
+  richieste esterne e 4 per persona) e le restituisce coi suoi header
+  (`no-store`).
   `/original` numera le immagini (`data-image`). La CSP del frame si stringe
   (`img-src data:` sempre), quella di `/app` e del Mac non cambia. Il web
   vecchio resta com'è (carica dal mittente) fino al ritiro; sulle descrizioni

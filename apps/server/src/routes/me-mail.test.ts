@@ -21,7 +21,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { buildApp } from "../app.js";
 import { addMember, fullSessionCookie, seedUsers } from "../test/fixtures.js";
 import type { ImageFetchResult } from "../mail-images/fetch.js";
-import type { MailOriginalClient } from "./me-mail.js";
+import { MAX_IMAGE_BODY_CHARS, type MailOriginalClient } from "./me-mail.js";
 
 /**
  * PAGINA POSTA (fase 6, Task 12; fase 6b, Task 8): `GET /api/me/mail` (lista
@@ -2332,6 +2332,7 @@ describe("GET /api/me/mail/:source/:id/images/:n — il proxy delle immagini", (
   const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
   const asked: string[] = [];
   let outcome: ImageFetchResult = { ok: true, contentType: "image/png", bytes: PNG };
+  let blocker: (() => Promise<void>) | null = null;
   let appImages: FastifyInstance;
   let cookie: string;
   let admin: string;
@@ -2343,6 +2344,7 @@ describe("GET /api/me/mail/:source/:id/images/:n — il proxy delle immagini", (
       encryptionKey: ENCRYPTION_KEY.toString("base64"),
       mailImageFetcher: async (url) => {
         asked.push(url);
+        if (blocker) await blocker();
         return outcome;
       },
     });
@@ -2382,7 +2384,8 @@ describe("GET /api/me/mail/:source/:id/images/:n — il proxy delle immagini", (
     expect(res.headers["content-security-policy"]).toBe("default-src 'none'; sandbox");
     expect(res.headers["cross-origin-resource-policy"]).toBe("same-origin");
     expect(res.headers["referrer-policy"]).toBe("no-referrer");
-    expect(res.headers["cache-control"]).toBe("private, max-age=3600");
+    // Revisione M6: niente in cache, né nel browser né in mezzo.
+    expect(res.headers["cache-control"]).toBe("no-store");
     expect(String(res.headers["content-disposition"])).toMatch(/^inline/);
     // La seconda remota è la posizione 1: l'immagine inline non conta.
     await image(proposalId, 1);
@@ -2421,6 +2424,40 @@ describe("GET /api/me/mail/:source/:id/images/:n — il proxy delle immagini", (
       expect(res.body).not.toContain(reason);
       expect(res.body).not.toContain("a.example");
     }
+  });
+
+  it("I3: la lista degli URL si memoizza per messaggio (il corpo è immutabile): la seconda richiesta non risanifica", async () => {
+    const { proposalId, messageId } = await seedCached();
+    await image(proposalId, 0);
+    // Cambiare la riga sotto (non succede mai: il corpo è immutabile) lo dimostra.
+    await db.update(emailBodies).set({ bodyHtml: '<img src="https://changed.example/z.png">' }).where(eq(emailBodies.emailMessageId, messageId));
+    await image(proposalId, 0);
+    expect(asked).toEqual(["https://a.example/logo.png?u=1&t=2", "https://a.example/logo.png?u=1&t=2"]);
+  });
+
+  it("I3: un corpo oltre il tetto non offre immagini: /original senza data-image, la rotta 404 senza fetch", async () => {
+    const huge = `<p>${"x".repeat(MAX_IMAGE_BODY_CHARS)}</p>${HTML}`;
+    const { proposalId } = await seedCached(huge);
+    const original = await appImages.inject({ method: "GET", url: `/api/me/mail/email/${proposalId}/original`, headers: { cookie } });
+    expect(original.statusCode).toBe(200);
+    expect(original.json().bodyHtml).not.toContain("data-image=");
+    expect((await image(proposalId, 0)).statusCode).toBe(404);
+    expect(asked).toEqual([]);
+  });
+
+  it("I2: al più 4 immagini in volo per persona; la quinta insieme è 429", async () => {
+    const { proposalId } = await seedCached();
+    const gates: (() => void)[] = [];
+    const previous = outcome;
+    blocker = () => new Promise<void>((go) => gates.push(go));
+    const flight = Array.from({ length: 4 }, () => image(proposalId, 0));
+    await new Promise((r) => setTimeout(r, 50));
+    const fifth = await image(proposalId, 0);
+    expect(fifth.statusCode).toBe(429);
+    blocker = null;
+    while (gates.length) gates.shift()!();
+    expect((await Promise.all(flight)).map((r) => r.statusCode)).toEqual([200, 200, 200, 200]);
+    outcome = previous;
   });
 
   it("il rate limit: 120 al minuto per persona, poi 429", async () => {

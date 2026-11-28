@@ -92,6 +92,44 @@ export interface MeMailRoutesOptions {
 
 /** La posizione più alta che la rotta delle immagini accetta: un'email ne ha molte meno. */
 const MAX_IMAGE_INDEX = 999;
+/**
+ * Il corpo oltre il quale le immagini non si offrono (revisione I3): sanificare
+ * è sincrono, e un corpo enorme terrebbe l'event loop per centinaia di ms a
+ * ogni richiesta. `/original` non numera, e la rotta risponde 404.
+ */
+export const MAX_IMAGE_BODY_CHARS = 1_000_000;
+/** Le immagini in volo per persona (revisione I2): il client ne chiede 4 insieme. */
+const MAX_IMAGES_IN_FLIGHT_PER_USER = 4;
+/** La memoria degli URL per messaggio (revisione I3): solo gli URL, breve, limitata. */
+const IMAGE_URLS_TTL_MS = 5 * 60_000;
+const IMAGE_URLS_MAX_ENTRIES = 500;
+const imageUrlsMemo = new Map<string, { urls: string[]; at: number }>();
+
+/**
+ * Gli URL delle immagini remote di un corpo, memoizzati per messaggio: un
+ * corpo in cache è immutabile (un messaggio Gmail non cambia; sparisce col
+ * CASCADE), quindi la lista non scade per correttezza, solo per memoria.
+ * `null` per un corpo oltre `MAX_IMAGE_BODY_CHARS`: lì le immagini non si offrono.
+ */
+function imageUrlsOf(messageId: string, bodyHtml: string): string[] | null {
+  if (bodyHtml.length > MAX_IMAGE_BODY_CHARS) return null;
+  const now = Date.now();
+  const hit = imageUrlsMemo.get(messageId);
+  if (hit && now - hit.at < IMAGE_URLS_TTL_MS) return hit.urls;
+  const urls = remoteImageUrls(sanitizeEmailHtml(bodyHtml));
+  imageUrlsMemo.delete(messageId);
+  imageUrlsMemo.set(messageId, { urls, at: now });
+  while (imageUrlsMemo.size > IMAGE_URLS_MAX_ENTRIES) imageUrlsMemo.delete(imageUrlsMemo.keys().next().value!);
+  return urls;
+}
+
+/** Il corpo sanificato per `/original`, con le immagini numerate solo sotto il tetto (I3). */
+function originalHtml(raw: string): string {
+  const clean = sanitizeEmailHtml(raw);
+  return raw.length > MAX_IMAGE_BODY_CHARS ? clean : numberRemoteImages(clean);
+}
+
+const imagesInFlight = new Map<string, number>();
 
 /**
  * PAGINA POSTA (fase 6, Task 12; fase 6b, Task 8), sotto `/api/me/mail`: i
@@ -1818,7 +1856,7 @@ export async function meMailRoutes(
       },
       schema: {
         params: mailDetailParamsSchema.extend({ n: z.coerce.number().int().min(0).max(MAX_IMAGE_INDEX) }),
-        response: { 400: errorSchema, 404: errorSchema, 422: errorSchema, ...authErrorResponses },
+        response: { 400: errorSchema, 404: errorSchema, 422: errorSchema, 429: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -1829,9 +1867,20 @@ export async function meMailRoutes(
         .select({ bodyHtml: emailBodies.bodyHtml })
         .from(emailBodies)
         .where(eq(emailBodies.emailMessageId, message.id));
-      const url = cached?.bodyHtml ? remoteImageUrls(sanitizeEmailHtml(cached.bodyHtml))[n] : undefined;
+      const url = cached?.bodyHtml ? imageUrlsOf(message.id, cached.bodyHtml)?.[n] : undefined;
       if (!url) return apiError(reply, 404, "not_found", "Image not found");
-      const result = await imageFetcher(url);
+      const userId = request.user!.id;
+      const inFlight = imagesInFlight.get(userId) ?? 0;
+      if (inFlight >= MAX_IMAGES_IN_FLIGHT_PER_USER) return apiError(reply, 429, "too_many_images", "Too many images at once");
+      imagesInFlight.set(userId, inFlight + 1);
+      let result: ImageFetchResult;
+      try {
+        result = await imageFetcher(url);
+      } finally {
+        const left = (imagesInFlight.get(userId) ?? 1) - 1;
+        if (left > 0) imagesInFlight.set(userId, left);
+        else imagesInFlight.delete(userId);
+      }
       if (!result.ok) {
         let host = "";
         try {
@@ -1848,7 +1897,7 @@ export async function meMailRoutes(
         .header("Content-Security-Policy", "default-src 'none'; sandbox")
         .header("Cross-Origin-Resource-Policy", "same-origin")
         .header("Referrer-Policy", "no-referrer")
-        .header("Cache-Control", "private, max-age=3600")
+        .header("Cache-Control", "no-store")
         .header("Content-Disposition", `inline; filename="image-${n}"`)
         .send(result.bytes as never);
     },
@@ -1951,7 +2000,7 @@ export async function meMailRoutes(
           bodyText: cached.bodyText ?? (cached.bodyHtml ? htmlToText(cached.bodyHtml) : null),
           // In cache sta GREZZO: si sanifica adesso, con il filtro di oggi.
           // Le immagini remote numerate (`data-image`): la rotta delle immagini le chiede per posizione.
-          bodyHtml: cached.bodyHtml ? numberRemoteImages(sanitizeEmailHtml(cached.bodyHtml)) : null,
+          bodyHtml: cached.bodyHtml ? originalHtml(cached.bodyHtml) : null,
           attachments: cached.attachments,
           bodySource: "cache" as const,
           fetchedAt: cached.fetchedAt.toISOString(),
@@ -2024,7 +2073,7 @@ export async function meMailRoutes(
           // `sanitizeEmailHtml` (allowlist, mai denylist; immagini remote
           // neutralizzate). Il client lo rende in un iframe in sandbox come
           // SECONDA difesa indipendente, non l'unica.
-          bodyHtml: body.html ? numberRemoteImages(sanitizeEmailHtml(body.html)) : null,
+          bodyHtml: body.html ? originalHtml(body.html) : null,
           attachments,
           bodySource: "google" as const,
           fetchedAt: fetchedAt.toISOString(),

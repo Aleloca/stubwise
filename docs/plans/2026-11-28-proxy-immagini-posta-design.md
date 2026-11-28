@@ -246,6 +246,28 @@ stessa scelta degli altri download binari. **[PI 10]**
   nella build app la fascia «Show images» non compariva mai. Ora la fascia
   conta anche le posizioni numerate.
 
+### Dopo la revisione di sicurezza (28 nov 2026)
+
+- **I1**: con un nome host il trasporto vero non funzionava (da Node 20
+  `autoSelectFamily` chiede il `lookup` con `{ all: true }`): il `lookup`
+  risponde con l'elenco, sempre sull'indirizzo controllato. Il trasporto è
+  `createNodeRequest`, provato contro un server TLS locale
+  (`fetch.node.test.ts`: SNI e `Host` del nome, certificato verificato, un
+  nome non coperto rifiutato).
+- **I2**: il DNS è `dns.Resolver` (c-ares: un tentativo, 2 s, fuori dal
+  threadpool di libuv) ed è in corsa col tetto degli 8 s; il semaforo ha una
+  coda di al più 16 e un'attesa di al più 3 s (oltre: `busy`, 422); al più 4
+  immagini in volo per persona (oltre: 429).
+- **I3**: gli URL di un messaggio si memoizzano (solo gli URL, 5 minuti, al
+  più 500 messaggi); oltre 1 MB di corpo le immagini non si offrono
+  (`/original` non numera, la rotta risponde 404).
+- **M1** la richiesta si chiude sempre (`abort` nel `finally`); **M2** un
+  `https.Agent` esplicito senza keep-alive (niente proxy d'ambiente); **M3**
+  IPv6 in allowlist (solo `2000::/3`, meno `2001::/23`, `2001:db8::/32`,
+  `2002::/16`, `3fff::/20`) e `168.63.129.16`; **M5** SNI e `Host` senza il
+  punto finale; **M6** `Cache-Control: no-store` (cambia [PI 9]); **M7**
+  nell'invariante.
+
 ## Le scelte da confermare
 
 - **[PI 1]** Le immagini si chiedono per posizione nel messaggio, non con un

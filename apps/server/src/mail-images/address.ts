@@ -22,6 +22,7 @@ const V4_BLOCKED: readonly [string, number][] = [
   ["203.0.113.0", 24], // documentazione
   ["224.0.0.0", 4], // multicast
   ["240.0.0.0", 4], // riservati, broadcast compreso
+  ["168.63.129.16", 32], // il «wire server» di Azure (metadata), revisione M3
 ];
 
 function v4ToInt(ip: string): number {
@@ -70,10 +71,15 @@ function v6Blocked(ip: string): boolean {
   // IPv4 mappato (`::ffff:a.b.c.d`) e NAT64 (`64:ff9b::a.b.c.d`): si guarda l'IPv4 dentro.
   if (w.slice(0, 5).every((x) => x === 0) && w[5] === 0xffff) return v4Blocked(wordsToV4(w[6]!, w[7]!));
   if (first === 0x64 && w[1] === 0xff9b && w.slice(2, 6).every((x) => x === 0)) return v4Blocked(wordsToV4(w[6]!, w[7]!));
-  if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7, compreso fd00:ec2::254
-  if ((first & 0xffc0) === 0xfe80) return true; // fe80::/10
-  if ((first & 0xff00) === 0xff00) return true; // ff00::/8
-  if (first === 0x2001 && w[1] === 0x0db8) return true; // 2001:db8::/32
+  // ALLOWLIST (revisione M3): solo l'unicast globale, 2000::/3. Tutto il resto
+  // (::/96 compatibile, ::ffff:0:0:0/96, 64:ff9b:1::/48, fc00::/7 compreso
+  // fd00:ec2::254, fe80::/10, fec0::/10, ff00::/8, 100::/64…) è vietato.
+  if ((first & 0xe000) !== 0x2000) return true;
+  // E dentro 2000::/3, i casi speciali:
+  if (first === 0x2001 && w[1]! < 0x0200) return true; // 2001::/23 IETF, Teredo (2001::/32) compreso
+  if (first === 0x2001 && w[1] === 0x0db8) return true; // 2001:db8::/32 documentazione
+  if (first === 0x2002) return true; // 2002::/16 6to4 (incapsula un IPv4 qualunque)
+  if (first === 0x3fff && (w[1]! & 0xf000) === 0) return true; // 3fff::/20 documentazione
   return false;
 }
 
