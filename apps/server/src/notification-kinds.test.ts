@@ -2,7 +2,6 @@ import { notificationKind } from "@stubwise/db";
 import { sampleEvents, type ActionId } from "@stubwise/notifications";
 import { inboxActionSchema, notificationKindSchema, type InboxAction } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
-import { INBOX_ACTIONS } from "./slack/inbox-actions.js";
 
 /**
  * Parità dei `kind` di notifica fra le TRE liste che li dichiarano:
@@ -39,16 +38,11 @@ describe("parità dei kind di notifica", () => {
 });
 
 /**
- * Parità delle AZIONI d'inbox fra le tre liste che le dichiarano: `ActionId`
- * (`@stubwise/notifications`, il catalogo), `inboxActionSchema`
- * (`@stubwise/shared`, il contratto HTTP) e `INBOX_ACTIONS`
- * (`slack/inbox-actions.ts`, ciò che si riconosce dagli `action_id` di Slack).
- *
- * Stessa ragione dei kind: `@stubwise/shared` non può importare il motore delle
- * notifiche, e la lista di Slack è un `readonly ActionId[]` — un tipo che
- * accetta anche un sottoinsieme. Un'azione nuova dichiarata solo a metà non
- * romperebbe la compilazione, ma renderebbe il suo bottone Slack un no-op
- * silenzioso.
+ * Parità delle AZIONI d'inbox fra le liste che le dichiarano: `ActionId`
+ * (`@stubwise/notifications`, il catalogo) e `inboxActionSchema`
+ * (`@stubwise/shared`, il contratto HTTP). Stessa ragione dei kind:
+ * `@stubwise/shared` non può importare il motore delle notifiche. (Fino a R2
+ * c'era una terza lista, gli `action_id` dei bottoni Slack.)
  */
 describe("parità delle azioni d'inbox", () => {
   it("shared e il catalogo dichiarano la stessa unione (parità di TIPO)", () => {
@@ -60,7 +54,4 @@ describe("parità delle azioni d'inbox", () => {
     expect(daCatalogo).toEqual([...inboxActionSchema.options]);
   });
 
-  it("Slack riconosce esattamente le azioni del contratto", () => {
-    expect([...INBOX_ACTIONS].sort()).toEqual([...inboxActionSchema.options].sort());
-  });
 });

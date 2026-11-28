@@ -227,27 +227,6 @@ export function createProjectsEndpoints(request: ApiRequest) {
     },
 
     /**
-     * Rimette in coda il brief dell'ultima settimana chiusa (solo admin). A
-     * generarlo è il poller del worker al tick successivo: questa risposta dice
-     * che è ACCODATO, non che è pronto.
-     *
-     * `force` serve solo contro un brief già `done` (senza, il server risponde
-     * 409 `brief_already_done`): rifare un testo già letto e già annunciato è
-     * una decisione, non un click.
-     */
-    generateBrief(
-      projectId: string,
-      body: { force?: boolean } = {},
-    ): Promise<Reader<ProjectBriefWeekly>> {
-      return request(
-        "POST",
-        `/api/projects/${seg(projectId)}/briefs/generate`,
-        body,
-        projectBriefWeeklySchema,
-      );
-    },
-
-    /**
      * UN brief per id. Sta fra gli endpoint `projects` perché il brief è di un
      * progetto, ma il PATH è di primo livello (`/api/briefs/:id`): il brief ha
      * un link proprio, che notifica, roadmap e tool MCP indirizzano per id.

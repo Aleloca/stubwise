@@ -207,7 +207,6 @@ describe("rotte con riconferma recente", () => {
       "DELETE /api/settings/webhooks/:id",
       "DELETE /api/users/:id/git-identities/:email",
       "DELETE /api/users/:id/second-factor",
-      "DELETE /api/users/:id/slack",
       // Lotto 10: togliere un Mac dalla cassaforte (il proprio, o di un altro da un full admin).
       "DELETE /api/vault/device-seals/:id (vault)",
       "DELETE /api/vault/users/:userId/device-seals/:id (vault)",
@@ -259,7 +258,6 @@ describe("rotte con riconferma recente", () => {
       "PUT /api/projects/:projectId/members/:userId",
       "PUT /api/repositories/:id/env-files/:fileId/vars/:key",
       "PUT /api/users/:id/bitbucket",
-      "PUT /api/users/:id/slack",
       // Workspace, lotto 3 (D11): fanno arrivare permessi a qualcuno.
       "PUT /api/workspaces/:id/members/:userId",
       "PUT /api/workspaces/:id/projects/:projectId",
@@ -285,7 +283,6 @@ describe("rotte con riconferma recente", () => {
       "POST /api/servers/:id/checks",
       "PUT /api/servers/:id/checks/:checkId",
       "PUT /api/settings/instance",
-      "PUT /api/settings/notifications",
     ]);
   });
 

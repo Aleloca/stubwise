@@ -1,11 +1,7 @@
 import { automationSettingsSchema, instanceSettingsViewSchema, updateAutomationSettingsSchema, updateInstanceSettingsSchema } from "@stubwise/shared";
-import { legacySaveChangesUrl, loadLegacyWebhook, saveLegacyWebhook, testLegacyWebhook } from "../services/legacy-webhook.js";
-import { sendRoleRuleError } from "./roles.js";
 import { changedFields, recordChange } from "../services/change-log.js";
 import { eq } from "drizzle-orm";
 import {
-  mailAdmissionPatchSchema,
-  mailAdmissionSchema,
   readServerAnalysisLimits,
   serverAnalysisSettingsSchema,
 } from "@stubwise/shared";
@@ -31,105 +27,12 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * comunque fallback a un default se una riga mancasse.
  */
 
-
-/**
- * Impostazioni del webhook di notifica in uscita (riga singleton id=1). La
- * proiezione pubblica espone tutti i campi tranne quelli interni (id/timestamp):
- * il webhook NON è un segreto (lo conosce chi configura), quindi viene
- * restituito così com'è per riempire il form.
- */
-const notificationFormatSchema = z.enum(["slack", "discord", "generic"]);
-
-const notificationSettingsResponseSchema = z.object({
-  webhookUrl: z.string().nullable(),
-  format: notificationFormatSchema,
-  enabled: z.boolean(),
-  notifyTicketCreated: z.boolean(),
-  notifyPrOpened: z.boolean(),
-  notifyPrClosed: z.boolean(),
-  notifyJobHeld: z.boolean(),
-  notifyPlanReview: z.boolean(),
-  notifyBudgetHeld: z.boolean(),
-  notifyReviewCompleted: z.boolean(),
-  notifyDocsLimitPaused: z.boolean(),
-  notifyJobFailed: z.boolean(),
-  notifyMonitor: z.boolean(),
-  notifyAwaitingInput: z.boolean(),
-  notifyPulse: z.boolean(),
-  notifyBrief: z.boolean(),
-  // ⚠️ NIENTE `notifyGoogleProposal` qui, di proposito (fase 6, Task 4 del
-  // piano di fix di review): la proposta nata dalla posta/calendario ha
-  // audience `mailbox_owner` e non deve MAI raggiungere il webhook
-  // d'istanza — un canale condiviso — indipendentemente da un toggle. La
-  // colonna `notify_google_proposal` resta in DB (innocua, sempre `true` di
-  // default, nessuna migrazione), ma questo campo di rotta è stato rimosso
-  // apposta: un toggle che sembrasse controllare "manda la posta di un
-  // collega sul webhook di team" sarebbe fuorviante di per sé, anche se
-  // inerte. Vedi `shouldSendWebhook` in `packages/notifications/src/dispatch.ts`.
-});
-
-/**
- * Body del PUT: il webhook deve essere un URL https quando valorizzato; la
- * stringa vuota è ammessa e significa "nessun webhook" (salvata come null),
- * così la UI può svuotare il campo senza un endpoint dedicato.
- */
-const updateNotificationsBodySchema = z.object({
-  webhookUrl: z
-    .union([z.literal(""), z.url({ protocol: /^https$/, error: "deve essere un URL https" })])
-    .optional()
-    .default(""),
-  format: notificationFormatSchema,
-  enabled: z.boolean(),
-  notifyTicketCreated: z.boolean(),
-  notifyPrOpened: z.boolean(),
-  // Default true: i client esistenti che non inviano il campo conservano il
-  // comportamento "notifica anche le PR chiuse senza merge" come gli altri toggle.
-  notifyPrClosed: z.boolean().default(true),
-  notifyJobHeld: z.boolean(),
-  // Default true: i client esistenti che non inviano il campo conservano il
-  // comportamento "notifica i piani in attesa di approvazione" come gli altri toggle.
-  notifyPlanReview: z.boolean().default(true),
-  // Default true: i client esistenti che non inviano il campo conservano il
-  // comportamento "notifica i job messi in hold per superamento budget".
-  notifyBudgetHeld: z.boolean().default(true),
-  // Default true: i client esistenti che non inviano il campo conservano il
-  // comportamento "notifica le review AI delle PR completate".
-  notifyReviewCompleted: z.boolean().default(true),
-  // Default true: i client esistenti che non inviano il campo conservano il
-  // comportamento "notifica le generazioni Docs in pausa per limite provider".
-  notifyDocsLimitPaused: z.boolean().default(true),
-  notifyJobFailed: z.boolean(),
-  // Default true: i client esistenti che non inviano il campo conservano il
-  // comportamento "notifica gli alert di monitoraggio server (allarme/recovery)".
-  notifyMonitor: z.boolean().default(true),
-  // Default true: i client esistenti che non inviano il campo conservano il
-  // comportamento "notifica le domande dell'AI in attesa di risposta".
-  notifyAwaitingInput: z.boolean().default(true),
-  // Default true: i client esistenti che non inviano il campo conservano il
-  // comportamento "notifica il pulse proattivo sui progetti fermi".
-  notifyPulse: z.boolean().default(true),
-  // Default true: i client esistenti che non inviano il campo conservano il
-  // comportamento "annuncia il brief settimanale del progetto".
-  notifyBrief: z.boolean().default(true),
-  // ⚠️ NIENTE `notifyGoogleProposal` qui: vedi il commento gemello su
-  // `notificationSettingsResponseSchema`. Un client che lo manda comunque
-  // (SPA in cache, automazione) lo vede ignorato in silenzio — Zod scarta i
-  // campi ignoti da un `z.object()` non `.strict()` — non rifiutato: stessa
-  // tolleranza di ogni altro campo qui.
-});
-
-const testNotificationResponseSchema = z.object({
-  ok: z.boolean(),
-  detail: z.string(),
-});
-
 /**
  * Impostazioni d'istanza (riga singleton id=1). `contentLanguage` è la lingua
  * usata per i CONTENUTI generati dalla piattaforma (commenti AI, report PR,
  * messaggi di notifica) — distinta dalla lingua dell'interfaccia del singolo
  * utente. La migrazione seeda la riga id=1; il PUT fa upsert idempotente.
  */
-
 
 /**
  * Lo storage è configurato E valido (gli allegati si possono caricare). La
@@ -192,27 +95,6 @@ function budgetEffectOf(before: boolean, after: boolean): "released" | "now_reac
 }
 
 /**
- * Configurazione d'istanza dell'AMMISSIONE della posta (fase 6c, singleton
- * instance_settings). Legge il default difensivo se la riga manca (DB
- * ripristinato senza seed), come `loadInstanceSettings`.
- */
-async function loadMailAdmission(db: Db): Promise<Omit<z.infer<typeof mailAdmissionSchema>, "classifyV2">> {
-  const [row] = await db
-    .select({
-      admitWorkspaceDomains: instanceSettings.emailAdmitWorkspaceDomains,
-      denyLabels: instanceSettings.emailAdmissionDenyLabels,
-      denyAutomated: instanceSettings.emailAdmissionDenyAutomated,
-    })
-    .from(instanceSettings)
-    .where(eq(instanceSettings.id, 1));
-  return {
-    admitWorkspaceDomains: row?.admitWorkspaceDomains ?? true,
-    denyLabels: row?.denyLabels ?? ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
-    denyAutomated: row?.denyAutomated ?? true,
-  };
-}
-
-/**
  * Route delle impostazioni, registrate sotto /api/settings. Per lo più solo
  * admin: l'automazione AI tocca quota e PR, è una scelta di amministrazione.
  *
@@ -236,7 +118,7 @@ async function storageTargetChanges(db: Db, body: { s3Endpoint?: string | null; 
   return changes(body.s3Endpoint, row?.endpoint) || changes(body.s3Bucket, row?.bucket);
 }
 
-export async function settingsRoutes(instance: FastifyInstance, opts: { mailClassifyV2?: boolean } = {}): Promise<void> {
+export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   app.get(
@@ -312,61 +194,6 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   );
 
   app.get(
-    "/notifications",
-    {
-      config: { mcp: { action: "settings.notifications", summary: "Il webhook in uscita storico delle notifiche: formato, stato, quali notifiche manda (l'URL nascosto).", effect: "read", note: "Gli URL dei webhook sono credenziali al portatore (Slack, Discord): l'MCP li nasconde, si vedono dall'app." }, access: { kind: "instance", permission: "integrations.manage" } },
-      schema: {
-        response: { 200: notificationSettingsResponseSchema, ...authErrorResponses },
-      },
-    },
-    // Area 9, F3 (H-4): sul webhook più vecchio (`services/legacy-webhook.ts`).
-    async () => loadLegacyWebhook(app.db),
-  );
-
-  app.put(
-    "/notifications",
-    {
-      config: { mcp: { action: "settings.updateNotifications", summary: "Modifica il webhook in uscita storico: URL, formato, acceso, quali notifiche manda.", effect: "write", note: "Un URL nuovo chiede la riconferma: da qui session_required. Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "integrations.manage" }, partialReauth: true },
-      schema: {
-        body: updateNotificationsBodySchema,
-        response: {
-          200: notificationSettingsResponseSchema,
-          400: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      // Area 9, F3 (H-4): sul webhook più vecchio, con le regole di
-      // `services/legacy-webhook.ts` (un URL vuoto spegne, non elimina).
-      // Un URL nuovo chiede la riconferma, come sulla rotta nuova.
-      if ((await legacySaveChangesUrl(app.db, request.body.webhookUrl)) && !(await requireReauth(request, reply))) return reply;
-      try {
-        return await saveLegacyWebhook(app.db, request.user!, request.body);
-      } catch (error) {
-        return sendRoleRuleError(reply, error);
-      }
-    },
-  );
-
-  app.post(
-    "/notifications/test",
-    {
-      config: { mcp: { action: "settings.testNotifications", summary: "Manda un evento di prova al webhook delle notifiche.", effect: "write", note: "Parte una chiamata vera verso fuori." }, access: { kind: "instance", permission: "integrations.manage" } },
-      schema: {
-        response: { 200: testNotificationResponseSchema, ...authErrorResponses },
-      },
-    },
-    async () => {
-      // La prova fa emergere l'esito (a differenza del dispatch best-effort):
-      // l'admin deve sapere se il webhook è corretto. Usa il format salvato e
-      // un evento ticket.created fittizio con link a ${publicUrl}/tickets/test.
-      // Area 9, F3 (H-4): la prova del webhook più vecchio, col suo formato e la sua firma.
-      return testLegacyWebhook(app.db, app.encryptionKey, app.publicUrl);
-    },
-  );
-
-  app.get(
     "/instance",
     {
       config: { mcp: { action: "settings.instance", summary: "Le impostazioni dell'istanza (lingua dei contenuti, budget mensile, storage S3, Slack), senza segreti.", effect: "read" }, access: { kind: "instance", permission: "settings.manage" } },
@@ -402,7 +229,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
       // salvato che resta in uso (è la regola che il lotto 10 aveva dato
       // all'azione di Claude `saveStorage`, `reauthOf`). Lo stesso valore,
       // spazi a parte, non è un cambio.
-      const touchesSecret = [body.s3SecretKey, body.slackSigningSecret, body.slackBotToken].some((v) => v !== undefined);
+      const touchesSecret = [body.s3SecretKey].some((v) => v !== undefined);
       const movesStorage = body.s3Endpoint !== undefined || body.s3Bucket !== undefined ? await storageTargetChanges(app.db, body) : false;
       if ((touchesSecret || movesStorage) && !(await requireReauth(request, reply))) return reply;
       // Area 9, F7: la funzione, la stessa delle azioni di Claude (`saveBudget`).
@@ -423,75 +250,6 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
       const out = await setAttachments(app.db, app.encryptionKey, request.user!, request.body.on);
       if (!out.ok) return apiError(reply, 422, "not_set_up", "Set up the storage before turning attachments on");
       return loadInstanceSettings(app.db, app.encryptionKey);
-    },
-  );
-
-  app.get(
-    "/mail-admission",
-    {
-      // Vedi il commento sul docblock di settingsRoutes: unica GET del file
-      // aperta a tutti gli autenticati, non solo agli admin.
-      config: { mcp: { action: "settings.mailAdmission", summary: "Le regole d'ammissione della posta: domini del Workspace, etichette escluse, mail automatiche.", effect: "read" }, access: { kind: "instance", permission: "mail_admission.view" } },
-      schema: {
-        response: { 200: mailAdmissionSchema, ...authErrorResponses },
-      },
-    },
-    async () => {
-      return { ...(await loadMailAdmission(app.db)), classifyV2: opts.mailClassifyV2 ?? false };
-    },
-  );
-
-  app.patch(
-    "/mail-admission",
-    {
-      config: { mcp: { action: "settings.updateMailAdmission", summary: "Modifica le regole d'ammissione della posta.", effect: "write", note: "Cambia quali mail di TUTTI entrano in Stubwise. Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "settings.manage" } },
-      schema: {
-        body: mailAdmissionPatchSchema,
-        response: {
-          200: mailAdmissionSchema,
-          400: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request) => {
-      const body = request.body;
-      // Semantica PATCH: campo assente → colonna invariata. Raccolto in `set`
-      // solo se presente nel body, come i campi S3 non-secret sopra — nessuna
-      // di queste tre colonne è nullable, quindi "invariato" va costruito
-      // così e non con `?? undefined`.
-      const set: {
-        emailAdmitWorkspaceDomains?: boolean;
-        emailAdmissionDenyLabels?: string[];
-        emailAdmissionDenyAutomated?: boolean;
-      } = {};
-      if (body.admitWorkspaceDomains !== undefined) {
-        set.emailAdmitWorkspaceDomains = body.admitWorkspaceDomains;
-      }
-      if (body.denyLabels !== undefined) {
-        set.emailAdmissionDenyLabels = body.denyLabels;
-      }
-      if (body.denyAutomated !== undefined) {
-        set.emailAdmissionDenyAutomated = body.denyAutomated;
-      }
-
-      // Upsert sul singleton (id=1): la migrazione non seeda righe nuove (solo
-      // colonne con default su una riga che già esiste), ma onConflict rende
-      // la rotta robusta anche su un DB ripristinato senza la riga id=1.
-      await app.db
-        .insert(instanceSettings)
-        .values({
-          id: 1,
-          emailAdmitWorkspaceDomains: set.emailAdmitWorkspaceDomains ?? true,
-          emailAdmissionDenyLabels:
-            set.emailAdmissionDenyLabels ?? ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
-          emailAdmissionDenyAutomated: set.emailAdmissionDenyAutomated ?? true,
-        })
-        .onConflictDoUpdate({
-          target: instanceSettings.id,
-          set: { ...set, updatedAt: new Date() },
-        });
-      return { ...(await loadMailAdmission(app.db)), classifyV2: opts.mailClassifyV2 ?? false };
     },
   );
 }

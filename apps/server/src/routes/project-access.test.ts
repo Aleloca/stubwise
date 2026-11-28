@@ -10,7 +10,6 @@ import {
   backlogJobs,
   projectBriefs,
   projectDecisions,
-  projectEmailRoutes,
   projectEnvironments,
   projectFollows,
   projects,
@@ -216,17 +215,11 @@ describe("registro decisioni: decisions.record", () => {
 });
 
 describe("impostazioni del progetto: project.settings.manage", () => {
-  it("senza (Developer): PATCH, DELETE, email-routes, brief e PUT dei plugin 403 (il GET in sola lettura), stato invariato", async () => {
+  it("senza (Developer): PATCH, DELETE e PUT dei plugin 403 (il GET in sola lettura), stato invariato", async () => {
     const patch = await call(dev, "PATCH", `/api/projects/${projectId}`, { name: "Rinominato" });
     expect(patch.statusCode).toBe(403);
     const del = await call(dev, "DELETE", `/api/projects/${projectId}`, { confirmCode: "X" });
     expect(del.statusCode).toBe(403);
-    const routes = await call(dev, "PUT", `/api/projects/${projectId}/email-routes`, {
-      routes: [{ kind: "sender_domain", value: "example.com" }],
-    });
-    expect(routes.statusCode).toBe(403);
-    const brief = await call(dev, "POST", `/api/projects/${projectId}/briefs/generate`, {});
-    expect(brief.statusCode).toBe(403);
     // Review di F5: i plugin si LEGGONO da chi vede il progetto, in sola lettura.
     const plugins = await call(dev, "GET", `/api/projects/${projectId}/plugins`);
     expect(plugins.statusCode).toBe(200);
@@ -238,12 +231,6 @@ describe("impostazioni del progetto: project.settings.manage", () => {
     const [row] = await testDb.db.select().from(projects).where(eq(projects.id, projectId));
     expect(row).toBeDefined();
     expect(row!.name).not.toBe("Rinominato");
-    expect(
-      await testDb.db.select().from(projectEmailRoutes).where(eq(projectEmailRoutes.projectId, projectId)),
-    ).toHaveLength(0);
-    expect(
-      await testDb.db.select().from(projectBriefs).where(eq(projectBriefs.status, "queued")),
-    ).toHaveLength(0);
   });
 
   it("con (Project Lead, non admin d'istanza): PATCH e plugin 200", async () => {

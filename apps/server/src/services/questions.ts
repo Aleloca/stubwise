@@ -44,7 +44,6 @@ import { t } from "@stubwise/i18n";
 import { actorAllows, projectPermissionsOfUser, stateAllows } from "@stubwise/notifications";
 import {
   ANSWER_TEXT_MAX_CHARS,
-  agentQuestionAnswerSchema,
   type AgentQuestionAnswer,
 } from "@stubwise/shared";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
@@ -311,9 +310,7 @@ export async function answerQuestion(
   // segue deve poterlo annullare (vedi il punto 5 del docblock).
   const changedNotificationIds = await propagateDecision(db, {
     target: { jobId, kind: "job.awaiting_input" },
-    action: "answer",
     actorId: actor.id,
-    answer: rendered,
   });
   return {
     ok: true,
@@ -514,15 +511,12 @@ async function repairOrphanCopies(
       .from(notifications)
       .where(eq(notifications.id, anchor.notificationId));
     if (row?.status !== "open") return;
-    const parsed = agentQuestionAnswerSchema.safeParse(answered.answer);
     await propagateDecision(db, {
       target: { jobId: anchor.jobId, kind: "job.awaiting_input" },
-      action: "answer",
       // Se chi ha risposto è stato cancellato nel frattempo resta chi sta
       // sanando: la riga va chiusa comunque, e `handled_by_user_id` non è
       // nullable a piacere.
       actorId: answered.answeredBy?.id ?? actor.id,
-      ...(parsed.success ? { answer: renderAnswer(parsed.data, answered.options) } : {}),
     });
   } catch {
     // Inghiottito di proposito: la riparazione è un di più, non deve poter

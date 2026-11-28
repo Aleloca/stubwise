@@ -127,7 +127,6 @@ import { pluginRoutes } from "./routes/plugins.js";
 import { projectPluginRoutes } from "./routes/project-plugins.js";
 import { serverRoutes } from "./routes/servers.js";
 import { serverCheckRoutes } from "./routes/servers-checks.js";
-import { savedViewRoutes } from "./routes/saved-views.js";
 import { searchRoutes } from "./routes/search.js";
 import { serverAnalysisRoutes } from "./routes/server-analyses.js";
 import { serverSshRoutes } from "./routes/server-ssh.js";
@@ -136,9 +135,6 @@ import { settingsRoutes } from "./routes/settings.js";
 import { storageUploadsRoutes } from "./routes/storage-uploads.js";
 import { modelSettingsRoutes } from "./routes/model-settings.js";
 import type { RateLimitConfig } from "./routes/shared.js";
-import { slackRoutes } from "./slack/routes.js";
-import { slackIdentityRoutes } from "./slack/identity-routes.js";
-import type { SlackClientFactory } from "./slack/creds.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { userRoutes } from "./routes/users.js";
 import { webhookRoutes } from "./routes/webhooks.js";
@@ -374,24 +370,6 @@ export interface BuildAppOptions {
    * test: inietta un fake in-memory senza toccare la rete.
    */
   storageFactory?: StorageFactory;
-  /**
-   * Fabbrica del client Slack (views.open / users.info). Default: client reale
-   * via fetch globale, costruito dal bot token decifrato. Override pensato per
-   * i test: inietta un fake che non tocca la rete Slack.
-   */
-  slackClientFactory?: SlackClientFactory;
-  /**
-   * Sorgente del tempo per la verifica della firma Slack (anti-replay).
-   * Default: Date.now. Override nei test per firmare con un timestamp
-   * deterministico.
-   */
-  slackNow?: () => number;
-  /**
-   * POST best-effort verso un response_url di Slack (risposta differita di
-   * `/docs` post-ack). Default: fetch JSON con try/catch. Override pensato per i
-   * test: inietta uno spy che non tocca la rete e si può attendere.
-   */
-  slackPostResponse?: (url: string, payload: unknown) => Promise<void>;
   /**
    * Client di embedding per la ricerca semantica / chat RAG sui Docs. Default:
    * client reale {@link createEmbeddingClient} costruito da embeddingBaseUrl /
@@ -763,9 +741,6 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(authRoutes, {
     prefix: "/api/auth",
     rateLimit: opts.authRateLimit ?? { max: 10, timeWindow: "1 minute" },
-    // Necessaria per gli inviti originati dal workspace Slack: deriva
-    // email/avatar dal profilo Slack server-side. Fake nei test.
-    slackClientFactory: opts.slackClientFactory,
   });
   // Account git riutilizzabili (credenziali slegate dal progetto): lettura per
   // ogni utente (scelta in fase di creazione progetto), scrittura solo admin.
@@ -870,8 +845,6 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(overviewRoutes, { prefix: "/api" });
   void app.register(projectRequestRoutes, { prefix: "/api" });
   void app.register(decisionRoutes, { prefix: "/api/decisions" });
-  // Viste salvate dei filtri della lista ticket: private o condivise.
-  void app.register(savedViewRoutes, { prefix: "/api/saved-views" });
   // Ricerca globale (spotlight Cmd/K): full-text federata cross-entità e
   // cronologia unificata dei risultati cliccati. Path: /api/search[/history].
   void app.register(searchRoutes, { prefix: "/api/search" });
@@ -897,7 +870,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // propri token, con token in chiaro mostrato una sola volta alla creazione.
   void app.register(patRoutes, { prefix: "/api/pats" });
   // Impostazioni di automazione AI (regole per tipo): solo admin.
-  void app.register(settingsRoutes, { prefix: "/api/settings", mailClassifyV2: opts.mailClassifyV2 ?? false });
+  void app.register(settingsRoutes, { prefix: "/api/settings" });
   // Registro, r.1121: se un caricamento passerebbe adesso, per chiunque sia autenticato.
   void app.register(storageUploadsRoutes, { prefix: "/api/storage" });
   // Modello Anthropic per tipo di lavoro AI (solo admin): plugin a sé sotto /api/settings.
@@ -959,36 +932,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // col suo parser (il corpo com'è) in uno scope a sé.
   void app.register(automationHookRoutes, { prefix: "/webhooks" });
 
-  // Integrazione Slack: slash command + interactivity (modal Block Kit). Sotto
-  // /api/slack ma autenticata SOLO dalla firma Slack (niente sessione). Il
-  // parser raw-body urlencoded è scoped a questo plugin: non tocca /api né
-  // /ingest. La fabbrica del client e la sorgente del tempo sono iniettabili
-  // per i test (fake senza rete, timestamp deterministico).
-  void app.register(slackRoutes, {
-    prefix: "/api/slack",
-    slackClientFactory: opts.slackClientFactory,
-    now: opts.slackNow,
-    // STESSE istanze embeddingClient/chatLlm della chat web (decorate sull'app):
-    // la risposta RAG di `/docs` via Slack riusa identico retrieval + LLM. Il
-    // publicUrl compone i link alle citazioni (può essere assente in test/unit:
-    // slackRoutes lo legge in modo difensivo dal decorator se non passato).
-    embeddingClient,
-    chatLlm,
-    ...(publicUrl !== undefined ? { publicUrl } : {}),
-    ...(opts.slackPostResponse ? { postResponse: opts.slackPostResponse } : {}),
-  });
-
-  // Gestione dell'identità Slack degli utenti (link/unlink + picker membri
-  // workspace): solo admin, JSON, sessione. Plugin separato da slackRoutes
-  // (che è signature-authed e usa un parser urlencoded scoped). Montato sotto
-  // /api: i path interni (`/users/:id/slack`, `/slack/workspace-users`)
-  // risultano così completi. Riusa la stessa SlackClientFactory iniettabile.
-  void app.register(slackIdentityRoutes, {
-    prefix: "/api",
-    slackClientFactory: opts.slackClientFactory,
-  });
-
-  // Linking identità git/Bitbucket → membro (gemello di slackIdentityRoutes),
+  // Linking identità git/Bitbucket → membro,
   // per attribuire i commit alle persone nel daily activity report.
   void app.register(gitIdentityRoutes, { prefix: "/api" });
 

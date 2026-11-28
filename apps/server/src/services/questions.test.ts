@@ -634,13 +634,8 @@ describe("answerQuestion — effetti", () => {
     expect(byId.get(theirs)?.status).toBe("handled");
     expect(byId.get(other)?.status).toBe("open");
 
-    // La nota del DM porta la risposta, non solo il nome di chi ha risposto.
-    const updates = await readSlackUpdates(theirs);
-    expect(updates).toHaveLength(1);
-    const note = (updates[0]!.event as { note?: string }).note ?? "";
-    expect(note).toContain("💬");
-    expect(note).toContain(operator.email);
-    expect(note).toContain("Colonne nuove");
+    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
+    expect(await readSlackUpdates(theirs)).toEqual([]);
     expect(await readSlackUpdates(other)).toHaveLength(0);
   });
 });
@@ -684,7 +679,7 @@ describe("answerQuestion — residuo e round", () => {
   }
 
   it("chiude le copie orfane al primo tentativo che le incontra", async () => {
-    const { mine, theirs, jobId } = await seedOrphanState();
+    const { mine, jobId } = await seedOrphanState();
 
     const result = await answerQuestion(db, {
       notificationId: mine,
@@ -705,11 +700,6 @@ describe("answerQuestion — residuo e round", () => {
       expect(row.status).toBe("handled");
       expect(row.handledByUserId).toBe(maintainer.id);
     }
-    // E il DM porta la risposta vera, come se la propagazione fosse riuscita
-    // al primo colpo.
-    const note = ((await readSlackUpdates(theirs))[0]!.event as { note?: string }).note ?? "";
-    expect(note).toContain(maintainer.email);
-    expect(note).toContain("Colonne vecchie");
   });
 
   it("non riscrive nulla quando le copie sono già chiuse (percorso normale)", async () => {
@@ -725,7 +715,7 @@ describe("answerQuestion — residuo e round", () => {
         .ok,
     ).toBe(true);
     // Secondo tentativo sulla stessa card: 409 e basta. La riparazione è
-    // guardata sullo stato della riga, quindi non accoda un secondo DM.
+    // guardata sullo stato della riga (e dal R2 non accoda più nessun DM).
     expect(
       (
         await answerQuestion(db, {
@@ -735,7 +725,7 @@ describe("answerQuestion — residuo e round", () => {
         })
       ).ok,
     ).toBe(false);
-    expect(await readSlackUpdates(theirs)).toHaveLength(1);
+    expect(await readSlackUpdates(theirs)).toHaveLength(0);
   });
 
   it("una card di un round precedente NON risponde alla domanda nuova", async () => {
@@ -851,36 +841,6 @@ describe("answerQuestion — residuo e round", () => {
       .from(notifications)
       .where(eq(notifications.jobId, parked.jobId));
     expect(after.every((r) => r.status === "handled")).toBe(true);
-  });
-});
-
-describe("answerQuestion — nota del DM", () => {
-  it("il taglio della risposta lunga non spezza un'emoji a metà", async () => {
-    const parked = await seedParkedJob();
-    const notificationId = await seedNotification({
-      userId: maintainer.id,
-      ticketId: parked.ticketId,
-      jobId: parked.jobId,
-      questionId: parked.questionId!,
-    });
-    // 198 caratteri, poi l'emoji: in UTF-16 la sua coppia di surrogati sta a
-    // cavallo del taglio a 199 *code unit*, quindi uno `slice` ingenuo
-    // lascerebbe nella nota un surrogato spaiato.
-    const text = `${"x".repeat(198)}😀${"y".repeat(50)}`;
-    expect(
-      (await answerQuestion(db, { notificationId, actor: maintainer, answer: { text } })).ok,
-    ).toBe(true);
-
-    const note =
-      ((await readSlackUpdates(notificationId))[0]!.event as { note?: string }).note ?? "";
-    expect(note).toContain("😀");
-    // Nessun surrogato alto senza il suo basso (né viceversa).
-    expect(
-      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(note),
-    ).toBe(false);
-    // Troncata: la coda non c'è, e la nota finisce col carattere di ellissi.
-    expect(note).not.toContain("yyyyy");
-    expect(note).toContain("…");
   });
 });
 

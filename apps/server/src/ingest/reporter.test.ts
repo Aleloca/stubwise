@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
-import { resolveReporter, resolveReporterBySlackId } from "./reporter.js";
+import { resolveReporter } from "./reporter.js";
 
 let testDb: TestDb;
 let userId: string;
@@ -41,21 +41,5 @@ describe("resolveReporter", () => {
     expect(await resolveReporter(testDb.db)).toBeNull();
     expect(await resolveReporter(testDb.db, null)).toBeNull();
     expect(await resolveReporter(testDb.db, "")).toBeNull();
-  });
-});
-
-describe("resolveReporterBySlackId", () => {
-  it("trova l'utente con match esatto sullo Slack user id", async () => {
-    expect(await resolveReporterBySlackId(testDb.db, "Ureporter1")).toBe(userId);
-  });
-
-  it("ritorna null se nessun utente ha quello Slack id", async () => {
-    expect(await resolveReporterBySlackId(testDb.db, "Uignoto")).toBeNull();
-  });
-
-  it("ritorna null se lo Slack id è assente (undefined/null/stringa vuota)", async () => {
-    expect(await resolveReporterBySlackId(testDb.db)).toBeNull();
-    expect(await resolveReporterBySlackId(testDb.db, null)).toBeNull();
-    expect(await resolveReporterBySlackId(testDb.db, "")).toBeNull();
   });
 });

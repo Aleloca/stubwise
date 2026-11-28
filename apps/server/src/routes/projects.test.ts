@@ -6,13 +6,9 @@ import { buildApp } from "../app.js";
 import {
   aiJobs,
   aiProviders,
-  emailMessages,
-  googleAccounts,
-  googleWorkspaces,
   notifications,
   projectBriefs,
   projectDecisions,
-  projectEmailRoutes,
   projectFollows,
   projects,
   repositories,
@@ -22,7 +18,18 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { addMember, fullSessionCookie, seedUsers } from "../test/fixtures.js";
-import { lastClosedWeek } from "../services/project-briefs.js";
+
+/** L'ultima settimana chiusa (UTC): il periodo che il brief settimanale riassume. */
+function lastClosedWeek(now: Date = new Date()): { periodStart: string; periodEnd: string } {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const end = todayUtc - DAY_MS;
+  const start = end - 6 * DAY_MS;
+  return {
+    periodStart: new Date(start).toISOString().slice(0, 10),
+    periodEnd: new Date(end).toISOString().slice(0, 10),
+  };
+}
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -879,81 +886,6 @@ describe("brief settimanale", () => {
     });
   });
 
-  describe("POST /api/projects/:projectId/briefs/generate", () => {
-    it("brief `done` senza force: 409, non si butta via un brief già scritto", async () => {
-      const { projectId } = await seedProjectWithBrief({});
-      const res = await app.inject({
-        method: "POST",
-        url: `/api/projects/${projectId}/briefs/generate`,
-        headers: { cookie: adminCookie },
-        payload: {},
-      });
-      expect(res.statusCode).toBe(409);
-      expect((res.json() as { code: string }).code).toBe("brief_already_done");
-    });
-
-    it("con `force`: il brief torna in coda, azzerando i tentativi", async () => {
-      const { projectId, briefId } = await seedProjectWithBrief({ attempts: 3 });
-      const res = await app.inject({
-        method: "POST",
-        url: `/api/projects/${projectId}/briefs/generate`,
-        headers: { cookie: adminCookie },
-        payload: { force: true },
-      });
-      expect(res.statusCode).toBe(200);
-      const body = res.json() as { id: string; status: string };
-      expect(body.id).toBe(briefId);
-      expect(body.status).toBe("queued");
-      const [row] = await testDb.db
-        .select()
-        .from(projectBriefs)
-        .where(eq(projectBriefs.projectId, projectId));
-      expect(row).toMatchObject({ status: "queued", attempts: 0, error: null });
-    });
-
-    it("un brief `failed` si rigenera SENZA force: non c'è niente da preservare", async () => {
-      const { projectId } = await seedProjectWithBrief({ status: "failed", error: "boom" });
-      const res = await app.inject({
-        method: "POST",
-        url: `/api/projects/${projectId}/briefs/generate`,
-        headers: { cookie: adminCookie },
-        payload: {},
-      });
-      expect(res.statusCode).toBe(200);
-      expect((res.json() as { status: string }).status).toBe("queued");
-    });
-
-    it("nessun brief ancora: ne crea uno `queued` per l'ultima settimana chiusa", async () => {
-      const { projectId } = await seedProjectWithBrief();
-      const res = await app.inject({
-        method: "POST",
-        url: `/api/projects/${projectId}/briefs/generate`,
-        headers: { cookie: adminCookie },
-        payload: {},
-      });
-      expect(res.statusCode).toBe(201);
-      const body = res.json() as { status: string; periodStart: string; periodEnd: string };
-      expect(body.status).toBe("queued");
-      // Sette giorni di calendario, estremi inclusi.
-      const days =
-        (Date.parse(`${body.periodEnd}T00:00:00Z`) - Date.parse(`${body.periodStart}T00:00:00Z`)) /
-        86_400_000;
-      expect(days).toBe(6);
-    });
-
-    it("un member senza project.settings.manage non rigenera: 403 (è un run AI, lo decide un maintainer)", async () => {
-      const { projectId } = await seedProjectWithBrief();
-      await addMember(app, projectId, memberId);
-      const res = await app.inject({
-        method: "POST",
-        url: `/api/projects/${projectId}/briefs/generate`,
-        headers: { cookie: memberCookie },
-        payload: { force: true },
-      });
-      expect(res.statusCode).toBe(403);
-    });
-  });
-
   describe("GET /api/briefs/:briefId", () => {
     it("l'admin legge un brief per id", async () => {
       const { projectId, briefId, period } = await seedProjectWithBrief({});
@@ -1280,265 +1212,6 @@ describe("registro decisioni", () => {
         payload: { supersededById: foreign },
       });
       expect(res.statusCode).toBe(400);
-    });
-  });
-});
-
-/**
- * REGOLE DI ROUTING DELLA POSTA (Fase 6, Task 6).
- *
- * Le tre rotte hanno suffisso letterale su `/:projectId` e sono registrate
- * PRIMA della parametrica: il caso "un member non è membro del progetto" qui sotto
- * risponde 404 dall'handler giusto, non dalla validazione UUID di
- * `GET /:projectId` (che darebbe 400 e nasconderebbe il bug di ordine).
- */
-describe("regole di routing della posta", () => {
-  async function routesOf(projectId: string): Promise<{ kind: string; value: string }[]> {
-    return testDb.db
-      .select({ kind: projectEmailRoutes.kind, value: projectEmailRoutes.value })
-      .from(projectEmailRoutes)
-      .where(eq(projectEmailRoutes.projectId, projectId));
-  }
-
-  function putRoutes(projectId: string, routes: unknown, cookie = adminCookie) {
-    return app.inject({
-      method: "PUT",
-      url: `/api/projects/${projectId}/email-routes`,
-      headers: { cookie },
-      payload: { routes },
-    });
-  }
-
-  describe("GET /api/projects/:projectId/email-routes", () => {
-    it("un progetto senza regole risponde con un insieme vuoto, non 404", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      const res = await app.inject({
-        method: "GET",
-        url: `/api/projects/${projectId}/email-routes`,
-        headers: { cookie: adminCookie },
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ routes: [] });
-    });
-
-    it("un member che non ne è membro: 404 (dall'hook, non dalla validazione)", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      const res = await app.inject({
-        method: "GET",
-        url: `/api/projects/${projectId}/email-routes`,
-        headers: { cookie: memberCookie },
-      });
-      expect(res.statusCode).toBe(404);
-      expect(res.json().code).toBe("not_found");
-    });
-
-    it("un membro del progetto legge le regole", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      await addMember(app, projectId, memberId);
-      await putRoutes(projectId, [{ kind: "keyword", value: "portale" }]);
-
-      const res = await app.inject({
-        method: "GET",
-        url: `/api/projects/${projectId}/email-routes`,
-        headers: { cookie: memberCookie },
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.json().routes).toEqual([{ kind: "keyword", value: "portale" }]);
-    });
-  });
-
-  describe("PUT /api/projects/:projectId/email-routes", () => {
-    it("normalizza i valori come li normalizzerà il poller", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      const res = await putRoutes(projectId, [
-        { kind: "sender_domain", value: "@Acme.COM" },
-        { kind: "sender_address", value: "Mario Rossi <Mario@Acme.com>" },
-        { kind: "gmail_label", value: " Clienti " },
-        { kind: "keyword", value: "Portale Clienti" },
-      ]);
-
-      expect(res.statusCode).toBe(200);
-      expect(res.json().routes).toEqual([
-        { kind: "gmail_label", value: "clienti" },
-        { kind: "keyword", value: "portale clienti" },
-        { kind: "sender_address", value: "mario@acme.com" },
-        { kind: "sender_domain", value: "acme.com" },
-      ]);
-    });
-
-    it("SOSTITUISCE l'insieme: le regole assenti dal corpo spariscono", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      await putRoutes(projectId, [
-        { kind: "keyword", value: "vecchia" },
-        { kind: "gmail_label", value: "clienti" },
-      ]);
-
-      const res = await putRoutes(projectId, [{ kind: "keyword", value: "nuova" }]);
-      expect(res.statusCode).toBe(200);
-      expect(await routesOf(projectId)).toEqual([{ kind: "keyword", value: "nuova" }]);
-    });
-
-    it("un insieme vuoto cancella tutte le regole", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      await putRoutes(projectId, [{ kind: "keyword", value: "portale" }]);
-      const res = await putRoutes(projectId, []);
-      expect(res.statusCode).toBe(200);
-      expect(await routesOf(projectId)).toEqual([]);
-    });
-
-    it("due grafie della stessa regola diventano una riga sola (unique)", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      const res = await putRoutes(projectId, [
-        { kind: "sender_domain", value: "acme.com" },
-        { kind: "sender_domain", value: "ACME.com" },
-      ]);
-      expect(res.statusCode).toBe(200);
-      expect(await routesOf(projectId)).toEqual([{ kind: "sender_domain", value: "acme.com" }]);
-    });
-
-    it("le regole di un progetto NON toccano quelle di un altro", async () => {
-      const a = await seedRepository(testDb.db);
-      const b = await seedRepository(testDb.db);
-      await putRoutes(a.projectId, [{ kind: "keyword", value: "alfa" }]);
-      await putRoutes(b.projectId, [{ kind: "keyword", value: "beta" }]);
-
-      await putRoutes(a.projectId, []);
-      expect(await routesOf(b.projectId)).toEqual([{ kind: "keyword", value: "beta" }]);
-    });
-
-    it("un valore che si normalizza a vuoto: 400, e le regole di prima restano", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      await putRoutes(projectId, [{ kind: "keyword", value: "portale" }]);
-
-      const res = await putRoutes(projectId, [{ kind: "sender_domain", value: "@" }]);
-      expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe("invalid_route_value");
-      expect(await routesOf(projectId)).toEqual([{ kind: "keyword", value: "portale" }]);
-    });
-
-    it("una keyword più corta di 3 caratteri: 400, e le regole di prima restano", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      await putRoutes(projectId, [{ kind: "keyword", value: "portale" }]);
-
-      const res = await putRoutes(projectId, [{ kind: "keyword", value: "IT" }]);
-      expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe("keyword_too_short");
-      expect(await routesOf(projectId)).toEqual([{ kind: "keyword", value: "portale" }]);
-    });
-
-    it("una keyword di ESATTAMENTE 3 caratteri (dopo normalizzazione) è accettata", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      const res = await putRoutes(projectId, [{ kind: "keyword", value: " Api " }]);
-      expect(res.statusCode).toBe(200);
-      expect(await routesOf(projectId)).toEqual([{ kind: "keyword", value: "api" }]);
-    });
-
-    it("un criterio sconosciuto: 400 dalla validazione del corpo", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      const res = await putRoutes(projectId, [{ kind: "subject", value: "x" }]);
-      expect(res.statusCode).toBe(400);
-    });
-
-    it("un member NON puo scrivere le regole, nemmeno da membro (Legacy Member): 403", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      await addMember(app, projectId, memberId);
-      const res = await putRoutes(projectId, [{ kind: "keyword", value: "x" }], memberCookie);
-      expect(res.statusCode).toBe(403);
-      expect(await routesOf(projectId)).toEqual([]);
-    });
-
-    it("progetto inesistente: 404", async () => {
-      const res = await putRoutes("00000000-0000-4000-8000-000000000000", []);
-      expect(res.statusCode).toBe(404);
-    });
-  });
-
-  describe("GET /api/projects/:projectId/email-labels", () => {
-    it("senza posta ingerita risponde con una lista vuota", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      const res = await app.inject({
-        method: "GET",
-        url: `/api/projects/${projectId}/email-labels`,
-        headers: { cookie: adminCookie },
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ labels: [] });
-    });
-
-    it("elenca le etichette DISTINTE della posta di chi chiede, non quelle altrui", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      const suffix = randomBytes(6).toString("hex");
-      const [workspace] = await testDb.db
-        .insert(googleWorkspaces)
-        .values({
-          name: `Acme ${suffix}`,
-          domains: ["acme.com"],
-          clientId: `client-${suffix}`,
-          clientSecretEncrypted: "cifrato",
-        })
-        .returning({ id: googleWorkspaces.id });
-
-      async function seedAccount(userId: string, email: string): Promise<string> {
-        const [account] = await testDb.db
-          .insert(googleAccounts)
-          .values({
-            userId,
-            workspaceId: workspace!.id,
-            email,
-            googleSub: `sub-${email}`,
-            refreshTokenEncrypted: "cifrato",
-          })
-          .returning({ id: googleAccounts.id });
-        return account!.id;
-      }
-
-      const mine = await seedAccount(adminId, `admin-${suffix}@acme.com`);
-      const others = await seedAccount(memberId, `member-${suffix}@acme.com`);
-
-      await testDb.db.insert(emailMessages).values([
-        {
-          accountId: mine,
-          gmailMessageId: `m1-${suffix}`,
-          threadId: `t1-${suffix}`,
-          fromAddress: "cliente@acme.com",
-          receivedAt: new Date(),
-          labels: ["INBOX", "Label_clienti"],
-        },
-        {
-          accountId: mine,
-          gmailMessageId: `m2-${suffix}`,
-          threadId: `t2-${suffix}`,
-          fromAddress: "cliente@acme.com",
-          receivedAt: new Date(),
-          labels: ["INBOX"],
-        },
-        {
-          accountId: others,
-          gmailMessageId: `m3-${suffix}`,
-          threadId: `t3-${suffix}`,
-          fromAddress: "cliente@acme.com",
-          receivedAt: new Date(),
-          labels: ["Label_segreta"],
-        },
-      ]);
-
-      const res = await app.inject({
-        method: "GET",
-        url: `/api/projects/${projectId}/email-labels`,
-        headers: { cookie: adminCookie },
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.json().labels).toEqual(["INBOX", "Label_clienti"]);
-    });
-
-    it("un member che non ne è membro: 404", async () => {
-      const { projectId } = await seedRepository(testDb.db);
-      const res = await app.inject({
-        method: "GET",
-        url: `/api/projects/${projectId}/email-labels`,
-        headers: { cookie: memberCookie },
-      });
-      expect(res.statusCode).toBe(404);
     });
   });
 });

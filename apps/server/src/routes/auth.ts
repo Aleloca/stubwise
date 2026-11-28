@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, asc, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -65,11 +65,6 @@ import { sendEmailChangeError } from "./me-email-change.js";
 import { personObject, recordChange } from "../services/change-log.js";
 import { inviteObject, inviteParams } from "../services/invite-change.js";
 import { inviteIdOf } from "../services/admin-people.js";
-import {
-  loadSlackCreds,
-  defaultSlackClientFactory,
-  type SlackClientFactory,
-} from "../slack/creds.js";
 
 export interface AuthRoutesOptions {
   /**
@@ -85,13 +80,6 @@ export interface AuthRoutesOptions {
    * credenziali e sta nel bucket condiviso con `/login`.
    */
   rateLimit: RateLimitConfig;
-  /**
-   * Fabbrica del client Slack, per gli inviti originati dal workspace Slack
-   * (POST /invites con slackUserId): email/avatar sono derivati server-side dal
-   * profilo Slack, mai dal client. Default: client reale via fetch globale.
-   * Fake nei test.
-   */
-  slackClientFactory?: SlackClientFactory;
 }
 
 /** Validità di un link di invito: 7 giorni. */
@@ -239,7 +227,6 @@ export async function authRoutes(
   opts: AuthRoutesOptions,
 ): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
-  const slackClientFactory = opts.slackClientFactory ?? defaultSlackClientFactory;
 
   /**
    * UN SOLO limiter, condiviso da `/login` e `/mobile-login`.
@@ -600,15 +587,11 @@ export async function authRoutes(
       // (una sessione rubata o un PAT non coniano un invito privilegiato).
       config: { access: { kind: "instance", permission: "users.invite" }, reauth: true },
       schema: {
-        // slackUserId opzionale: l'invito originato dal picker del workspace
-        // porta con sé l'identità Slack, propagata all'utente alla
-        // registrazione. L'email resta obbligatoria (il picker la precompila).
         // instanceRoleId (assente = `User`) e projects: ruolo d'istanza e
         // progetti che l'invitato riceve all'accettazione, con le regole di
         // chi invita (anti-escalation, `project.members.manage` per progetto).
         body: z.object({
           email: z.email(),
-          slackUserId: z.string().min(1).optional(),
           instanceRoleId: z.uuid().optional(),
           projects: z.array(inviteProjectSchema).max(200).optional(),
           // Workspace (D9): le workspace in cui l'invitato entra (senza ruolo: il Viewer, D3).
@@ -632,27 +615,8 @@ export async function authRoutes(
       },
     },
     async (request, reply) => {
-      const { email, slackUserId, instanceRoleId } = request.body;
+      const { email, instanceRoleId } = request.body;
       const grants = request.body.projects ?? [];
-      // Avatar derivato server-side dal profilo Slack, mai dal client.
-      let slackAvatarUrl: string | null = null;
-      if (slackUserId) {
-        const creds = await loadSlackCreds(instance);
-        if (!creds) {
-          return apiError(
-            reply,
-            400,
-            "slack_not_configured",
-            "Slack integration is not configured",
-          );
-        }
-        const client = slackClientFactory(creds.botToken);
-        const profile = await client.getUserProfile(slackUserId);
-        if (!profile) {
-          return apiError(reply, 400, "slack_user_not_found", "Slack user not found");
-        }
-        slackAvatarUrl = profile.avatarUrl;
-      }
       const token = randomBytes(32).toString("base64url");
       const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
       let warnings: InviteWarning[] = [];
@@ -666,8 +630,6 @@ export async function authRoutes(
             token,
             email,
             expiresAt,
-            slackUserId: slackUserId ?? null,
-            slackAvatarUrl,
             instanceRoleId: roleId,
             invitedByUserId: request.user!.id,
           });
@@ -681,52 +643,6 @@ export async function authRoutes(
         return sendRoleRuleError(reply, error);
       }
       return reply.code(201).send({ id: inviteIdOf(token), token, expiresAt: expiresAt.toISOString(), warnings });
-    },
-  );
-
-  // Inviti ancora in sospeso: una riga in `invites` esiste solo finché il
-  // token non è stato consumato (la register la elimina), quindi la tabella
-  // coincide con la lista degli invitati che non si sono ancora registrati.
-  // Solo admin: il token permette di registrarsi e non va esposto ai member.
-  app.get(
-    "/invites",
-    {
-      config: { mcp: { action: "auth.invites", summary: "Gli inviti emessi, col loro stato.", effect: "read", note: "Il token di ogni invito è nascosto (un link d'invito vale un account): per revocarne uno usa admin.revokeInvite, per id; l'elenco con gli id è admin.invites." }, access: { kind: "instance", permission: "users.invite" } },
-      schema: {
-        response: {
-          200: z.array(
-            z.object({
-              token: z.string(),
-              email: z.email(),
-              expiresAt: z.iso.datetime(),
-              createdAt: z.iso.datetime(),
-              // Identità Slack dell'invito (null se invito email classico),
-              // per mostrare l'avatar nella lista inviti della pagina Team.
-              slackUserId: z.string().nullable(),
-              slackAvatarUrl: z.string().nullable(),
-            }),
-          ),
-          ...authErrorResponses,
-        },
-      },
-    },
-    async () => {
-      const rows = await app.db
-        .select({
-          token: invites.token,
-          email: invites.email,
-          expiresAt: invites.expiresAt,
-          createdAt: invites.createdAt,
-          slackUserId: invites.slackUserId,
-          slackAvatarUrl: invites.slackAvatarUrl,
-        })
-        .from(invites)
-        .orderBy(desc(invites.createdAt));
-      return rows.map((row) => ({
-        ...row,
-        expiresAt: row.expiresAt.toISOString(),
-        createdAt: row.createdAt.toISOString(),
-      }));
     },
   );
 

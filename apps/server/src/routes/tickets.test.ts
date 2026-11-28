@@ -2442,7 +2442,7 @@ describe("POST /api/tickets/:id/approve-plan", () => {
   // La pagina ticket è la superficie più probabile per un maintainer, ed è
   // quella che NON passa da `executeAction`: se la propagazione vivesse solo lì,
   // decidere da qui lascerebbe le copie aperte e i DM Slack coi bottoni.
-  it("chiude le copie job.plan_review di tutti i destinatari e ne accoda l'aggiornamento Slack", async () => {
+  it("chiude le copie job.plan_review di tutti i destinatari, senza aggiornamenti Slack (R2)", async () => {
     const created = (
       await postTicket({ projectId, title: "Approve propaga", type: "bug" })
     ).json() as { id: string };
@@ -2487,7 +2487,8 @@ describe("POST /api/tickets/:id/approve-plan", () => {
           inArray(notificationDeliveries.notificationId, [mine!.id, theirs!.id]),
         ),
       );
-    expect(updates.map((u) => u.notificationId).sort()).toEqual([mine!.id, theirs!.id].sort());
+    // Il rispecchiamento sui DM Slack non c'è più (R2): nessun aggiornamento in coda.
+    expect(updates).toEqual([]);
   });
 });
 

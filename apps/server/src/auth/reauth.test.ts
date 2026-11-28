@@ -186,15 +186,6 @@ const ROUTES: [string, SensitiveRoute][] = [
     { method: "POST", url: () => `/api/users/${memberId}/password-reset` },
   ],
   [
-    "PUT /api/users/:id/slack",
-    {
-      method: "PUT",
-      url: () => `/api/users/${memberId}/slack`,
-      payload: () => ({ slackUserId: "U1" }),
-    },
-  ],
-  ["DELETE /api/users/:id/slack", { method: "DELETE", url: () => `/api/users/${memberId}/slack` }],
-  [
     "POST /api/users/:id/git-identities",
     {
       method: "POST",

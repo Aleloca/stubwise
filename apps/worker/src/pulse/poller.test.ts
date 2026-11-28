@@ -753,7 +753,7 @@ describe("pollPulseOnce — cadenza", () => {
 });
 
 describe("pollPulseOnce — sostituzione dei ping precedenti", () => {
-  it("chiude le copie del pulse precedente — anche quelle SNOOZATE — e ne accoda l'aggiornamento su Slack", async () => {
+  it("chiude le copie del pulse precedente — anche quelle SNOOZATE — senza aggiornamenti Slack (R2)", async () => {
     // Due destinatari: uno lascia la sua copia aperta, l'altro la rinvia. La
     // copia snoozata deve chiudersi come le altre: un pulse rinviato che
     // riemergesse dopo essere stato sostituito inviterebbe a scegliere da una
@@ -810,7 +810,7 @@ describe("pollPulseOnce — sostituzione dei ping precedenti", () => {
       expect(row.snoozedUntil).toBeNull();
     }
 
-    // I DM già inviati vanno riscritti: una consegna `slack_update` per copia.
+    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
     const updates = await db
       .select({
         notificationId: notificationDeliveries.notificationId,
@@ -823,10 +823,7 @@ describe("pollPulseOnce — sostituzione dei ping precedenti", () => {
           inArray(notificationDeliveries.notificationId, [openCopy.id, snoozedCopy.id]),
         ),
       );
-    expect(updates).toHaveLength(2);
-    for (const update of updates) {
-      expect(String((update.event as { note: string }).note)).toContain("Sostituita");
-    }
+    expect(updates).toEqual([]);
   });
 
   it("non tocca i pulse di ALTRI progetti", async () => {

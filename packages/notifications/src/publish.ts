@@ -12,7 +12,7 @@ import {
   users,
 } from "@stubwise/db";
 import { alertTypeOf, isLiveAlertType, type AlertType, type MandatoryReason } from "@stubwise/shared";
-import { and, eq, exists, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, exists, inArray, isNull } from "drizzle-orm";
 import { catalogRecipients } from "./alert-recipients.js";
 import { isPersonalWebhookAudience, type DbOrTx } from "./dispatch.js";
 import { webhookIdsForKind } from "./webhooks.js";
@@ -238,13 +238,10 @@ export async function publishNotification(
               .returning({ id: notifications.id, userId: notifications.userId })
           : [];
 
-      // Outbox. Ogni canale per-destinatario ha il suo sottoinsieme di
-      // raggiungibili (vedi i docblock di `slackRecipients` e
-      // `pushRecipients`): chi non ne fa parte non genera riga, e lo stato
-      // `skipped` resta del poller, per ciò che si scopre solo al momento
-      // dell'invio (il bot Slack non configurato).
+      // Outbox. Il push ha il suo sottoinsieme di raggiungibili (vedi il
+      // docblock di `pushRecipients`): chi non ne fa parte non genera riga.
+      // I DM Slack non ci sono più dal ritiro del web vecchio (R2).
       const mandatory = MANDATORY_KINDS.has(event.kind);
-      const slackReady = catalog ? new Set<string>() : await slackRecipients(inner, recipients, mandatory);
       // Catalogo: il push a chi ha il Telefono acceso (e un device attivo), a
       // prescindere da `notify_push` — `pushRecipients(…, true)` salta la
       // preferenza e tiene il device.
@@ -269,7 +266,6 @@ export async function publishNotification(
           .filter((row) => ready.has(row.userId))
           .map((row) => ({ notificationId: row.id, channel }));
       const deliveries: (typeof notificationDeliveries.$inferInsert)[] = [
-        ...perRecipient(slackReady, "slack_dm"),
         ...perRecipient(pushReady, "push").map((d) => (opts.pushGroup ? { ...d, event: { pushGroup: opts.pushGroup } } : d)),
       ];
       for (const webhookId of webhookIds) {
@@ -567,35 +563,12 @@ async function resolveRequestedBy(db: DbOrTx, jobId?: string): Promise<string | 
  */
 
 /**
- * Sottoinsieme dei destinatari raggiungibili via DM Slack (identità Slack
- * presente e preferenza attiva). UNA query per tutti, non una per destinatario.
- *
- * `mandatory` (un kind di {@link MANDATORY_KINDS}) salta la preferenza, non
- * l'identità Slack.
- */
-async function slackRecipients(db: DbOrTx, recipients: string[], mandatory: boolean): Promise<Set<string>> {
-  if (recipients.length === 0) return new Set();
-  const rows = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(
-      and(
-        inArray(users.id, recipients),
-        isNotNull(users.slackUserId),
-        mandatory ? undefined : eq(users.notifySlackDm, true),
-      ),
-    );
-  return new Set(rows.map((row) => row.id));
-}
-
-/**
  * Sottoinsieme dei destinatari raggiungibili via push: preferenza accesa E
- * almeno un device non disattivato. Gemella di {@link slackRecipients}, con la
- * stessa promessa — UNA query per tutti i destinatari.
+ * almeno un device non disattivato. UNA query per tutti i destinatari (era la
+ * gemella del canale Slack, tolto col ritiro del web vecchio, R2).
  *
- * ⚠️ Prima di copiarla per un TERZO canale: leggi la nota sopra
- * `slackRecipients`. Copiare non eredita l'early return sull'elenco vuoto,
- * e senza quello drizzle emette un `IN ()` che Postgres rifiuta.
+ * ⚠️ Prima di copiarla per un altro canale: tieni l'early return sull'elenco
+ * vuoto, senza il quale drizzle emette un `IN ()` che Postgres rifiuta.
  *
  * `exists` e non una join su `device_tokens`: qui interessa SE il destinatario
  * ha un recapito, non quanti — una join produrrebbe una riga per device e da lì

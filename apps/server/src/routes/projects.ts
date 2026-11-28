@@ -8,9 +8,6 @@ import {
   decisionDraftSchema,
   decisionPatchSchema,
   decisionSourceSchema,
-  emailLabelsSchema,
-  emailRoutesPutSchema,
-  emailRoutesSchema,
   projectDecisionSchema,
   projectDetailSchema,
   projectListItemSchema,
@@ -64,7 +61,7 @@ import {
 } from "./shared.js";
 import { apiError } from "../errors.js";
 import { deleteStoredObjects, storageKeysOfProject } from "../chat/attachments.js";
-import { listProjectBriefs, queueBriefRegeneration } from "../services/project-briefs.js";
+import { listProjectBriefs } from "../services/project-briefs.js";
 import {
   createManualDecision,
   listProjectDecisions,
@@ -72,11 +69,6 @@ import {
 } from "../services/project-decisions.js";
 import { recordChange } from "../services/change-log.js";
 import { memberObject } from "../services/roles.js";
-import {
-  listEmailRoutes,
-  listObservedEmailLabels,
-  putEmailRoutes,
-} from "../services/email-routes.js";
 
 /**
  * Tentativi massimi di insert prima di arrendersi sulla generazione dello
@@ -508,102 +500,6 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   );
 
   /**
-   * LE REGOLE DI ROUTING DELLA POSTA (Fase 6): quali email parlano di questo
-   * progetto — dominio o indirizzo del mittente/destinatario, etichetta Gmail,
-   * parola chiave. Un messaggio che nessuna regola riconosce non viene nemmeno
-   * scaricato dal poller, quindi questa è, di fatto, la superficie che decide
-   * cosa Stubwise legge della posta di chi ha collegato una casella.
-   *
-   * ⚠️ Registrata PRIMA di `/:projectId`, come ogni rotta con suffisso
-   * letterale su questo prefisso (vedi il commento su `/pulse`).
-   *
-   * ACL di LETTURA come timeline, brief e decisioni: chi vede il progetto
-   * (membro o full admin); "non membro" e "inesistente" rispondono entrambi
-   * 404.
-   */
-  app.get(
-    "/:projectId/email-routes",
-    {
-      config: { mcp: { action: "projects.emailRoutes", summary: "Le regole che dicono quali email parlano di un progetto (dominio, indirizzo, etichetta Gmail).", effect: "read" }, access: onProject("member") },
-      schema: {
-        params: idParamsSchema,
-        response: { 200: emailRoutesSchema, 404: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request) => {
-      return { routes: await listEmailRoutes(app.db, request.params.projectId) };
-    },
-  );
-
-  /**
-   * SOSTITUISCE l'insieme completo delle regole (le assenti spariscono), come
-   * il PUT delle abilitazioni dei plugin: la UI ha davanti tutte le regole del
-   * progetto e salva la foto intera.
-   *
-   * `project.settings.manage`: allargare il perimetro di lettura della posta
-   * altrui è una decisione da maintainer, non un'impostazione di comodo.
-   *
-   * ⚠️ Registrata PRIMA di `/:projectId` (vedi il commento su `/pulse`).
-   */
-  app.put(
-    "/:projectId/email-routes",
-    {
-      config: { mcp: { action: "projects.setEmailRoutes", summary: "SOSTITUISCE le regole della posta di un progetto: quelle assenti spariscono.", effect: "destructive", note: "Cambia quali mail di tutti diventano proposte di questo progetto." }, access: onProject("project.settings.manage") },
-      schema: {
-        params: idParamsSchema,
-        body: emailRoutesPutSchema,
-        response: {
-          200: emailRoutesSchema,
-          400: errorSchema,
-          404: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { projectId } = request.params;
-      const result = await putEmailRoutes(app.db, projectId, request.body.routes);
-      if (!result.ok) {
-        // 400 e non una riga salvata in silenzio: un valore che si normalizza a
-        // vuoto ("@", "<>") non filtrerebbe nulla, ma nell'elenco della UI
-        // sembrerebbe una regola attiva.
-        return apiError(
-          reply,
-          400,
-          result.error,
-          `Not a usable routing value: ${JSON.stringify(result.detail)}`,
-        );
-      }
-      return { routes: result.routes };
-    },
-  );
-
-  /**
-   * Le ETICHETTE GMAIL già osservate nella posta delle caselle di chi chiede:
-   * alimentano il picker delle regole `gmail_label`, così una regola si sceglie
-   * da un elenco invece di indovinare il nome esatto di una label.
-   *
-   * Sono le etichette dell'UTENTE, non del progetto (vedi il docblock di
-   * `listObservedEmailLabels`): finché il poller non ha ingerito nulla la
-   * risposta è `[]`, ed è una risposta valida — il picker resta a testo libero.
-   *
-   * ⚠️ Registrata PRIMA di `/:projectId` (vedi il commento su `/pulse`).
-   */
-  app.get(
-    "/:projectId/email-labels",
-    {
-      config: { mcp: { action: "projects.emailLabels", summary: "Le etichette Gmail viste nelle tue caselle, per le regole della posta.", effect: "read" }, access: onProject("member") },
-      schema: {
-        params: idParamsSchema,
-        response: { 200: emailLabelsSchema, 404: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request) => {
-      return { labels: await listObservedEmailLabels(app.db, request.user!.id) };
-    },
-  );
-
-  /**
    * I BRIEF SETTIMANALI del progetto (Fase 5), dal più recente.
    *
    * ACL: `tickets.view_all` (ruling R49). Il brief racconta il progetto
@@ -630,51 +526,6 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => {
       return listProjectBriefs(app.db, request.params.projectId, request.query.limit ?? 20);
-    },
-  );
-
-  /**
-   * RIGENERA il brief dell'ultima settimana chiusa: mette la riga in coda, e a
-   * generarla sarà il poller del worker al tick successivo (non aspetta il
-   * giorno d'invio). `project.settings.manage`: è un run AI, e chi lo lancia
-   * spende.
-   *
-   * `force` è richiesto solo se il brief è già `done` — rifare un testo che
-   * qualcuno ha già letto, e che è già stato annunciato in inbox e su Slack, è
-   * una decisione. Un brief `failed` o ancora in coda si rigenera senza.
-   *
-   * 201 se la riga è stata creata, 200 se una esistente è tornata in coda: la
-   * UI distingue "ne parte uno nuovo" da "questo lo rifacciamo".
-   */
-  app.post(
-    "/:projectId/briefs/generate",
-    {
-      config: { access: onProject("project.settings.manage"), mcp: { action: "projects.generateBrief", summary: "Rigenera il brief dell'ultima settimana chiusa (un run AI, lo genera il worker).", effect: "write", note: "Spende budget AI." } },
-      schema: {
-        params: idParamsSchema,
-        body: z.object({ force: z.boolean().optional() }),
-        response: {
-          200: projectBriefWeeklySchema,
-          201: projectBriefWeeklySchema,
-          404: errorSchema,
-          409: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const result = await queueBriefRegeneration(app.db, request.params.projectId, {
-        ...(request.body.force !== undefined ? { force: request.body.force } : {}),
-      });
-      if (!result.ok) {
-        return apiError(
-          reply,
-          409,
-          "brief_already_done",
-          "This week's brief is already generated: pass force to regenerate it",
-        );
-      }
-      return reply.code(result.created ? 201 : 200).send(result.brief);
     },
   );
 

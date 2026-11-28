@@ -517,8 +517,8 @@ describe("answerGoogleProposal — create_backlog_item", () => {
     expect(proposal!.outcome).toMatchObject({ type: "backlog_item" });
 
     expect((await readNotification(notificationId))!.status).toBe("handled");
-    const notes = await readNotes(notificationId);
-    expect(notes[0]).toContain("Apri una voce di backlog: Export CSV");
+    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
+    expect(await readNotes(notificationId)).toEqual([]);
   });
 
   it("progetto sparito → target_gone, riga failed e riproponibile", async () => {
@@ -1604,11 +1604,8 @@ describe("answerGoogleProposal — più azioni insieme (optionIndices)", () => {
     expect(results.map((r) => r.type)).toEqual(["backlog_item", "backlog_item", "backlog_item"]);
 
     expect((await readNotification(notificationId))!.status).toBe("handled");
-    // La nota elenca TUTTE le etichette scelte, non solo la prima.
-    const notes = await readNotes(notificationId);
-    expect(notes[0]).toContain("Voce: strumento MCP");
-    expect(notes[0]).toContain("Voce: ricerca trattative");
-    expect(notes[0]).toContain("Voce: filtro sullo stato");
+    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
+    expect(await readNotes(notificationId)).toEqual([]);
   });
 
   it("un sottoinsieme crea solo quelle scelte", async () => {

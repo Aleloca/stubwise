@@ -698,7 +698,6 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
   // chiusura delle righe è un solo UPDATE guardato.
   const changedNotificationIds = await propagateDecision(db, {
     target: { jobId: resolved.id, kind: "job.plan_review" },
-    action: mode === "execute" ? "approve_plan" : "reject_plan",
     actorId: actor.id,
   });
   return { ok: true, jobId: resolved.id, changedNotificationIds };

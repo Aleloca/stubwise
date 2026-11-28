@@ -1,13 +1,12 @@
 import { appUrl } from "@stubwise/shared";
-import { notificationDeliveries, notifications, projects, users, type Db, projectNotArchived } from "@stubwise/db";
-import { t, type Language } from "@stubwise/i18n";
+import { notifications, projects, type Db, projectNotArchived } from "@stubwise/db";
 import {
   publishNotification,
   type ProjectPulseEvent,
   type PulseProposal,
   type PulseUrgency,
 } from "@stubwise/notifications";
-import { and, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { isProjectIdle, listCandidates, type PulseCandidate } from "./signals.js";
 
@@ -434,7 +433,7 @@ async function sendPulseForProject(
     // (`handled_by_user_id` null: non l'ha deciso nessuno, l'ha sostituito il
     // sistema). Anche le copie `snoozed`: un pulse rinviato che riemergesse dopo
     // essere stato sostituito sarebbe un invito a scegliere da una lista vecchia.
-    const superseded = await tx
+    await tx
       .update(notifications)
       .set({ status: "handled", handledAt: now, handledByUserId: null, snoozedUntil: null })
       .where(
@@ -443,9 +442,7 @@ async function sendPulseForProject(
           eq(notifications.kind, "project.pulse"),
           ne(notifications.status, "handled"),
         ),
-      )
-      .returning({ id: notifications.id, userId: notifications.userId });
-    await enqueueReplacedNotes(tx, superseded);
+      );
 
     // ZERO DESTINATARI CONSUMA COMUNQUE LA CADENZA, ed è voluto. `publish` è
     // best-effort per contratto (non lancia mai: su errore ritorna 0), quindi qui
@@ -466,40 +463,6 @@ async function sendPulseForProject(
     `pulse: progetto ${project.id} — ${ranked.length} proposte, ${sent} destinatari, fermo da ${idleDays} giorni (pulse ${pulseId})`,
   );
   return sent > 0;
-}
-
-/** Transazione o db: `publishNotification` accetta entrambi, e anche noi. */
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
-
-/**
- * Accoda la riscrittura dei DM Slack dei pulse sostituiti: senza di essa un
- * messaggio superato resterebbe su Slack coi suoi bottoni, che promettono
- * un'azione ormai impossibile (la notifica è chiusa: il "Procedi" risponderebbe
- * `already_handled`).
- *
- * Stessa forma delle consegne accodate dal server (`slack_update` +
- * `{ note }` già localizzata per il destinatario): il poller dell'outbox le
- * consuma senza sapere chi le ha scritte, e chiude `skipped` quelle di chi non
- * ha un DM da aggiornare.
- */
-async function enqueueReplacedNotes(
-  tx: Tx,
-  superseded: { id: string; userId: string }[],
-): Promise<void> {
-  if (superseded.length === 0) return;
-  const langs = await tx
-    .select({ id: users.id, language: users.language })
-    .from(users)
-    .where(inArray(users.id, [...new Set(superseded.map((row) => row.userId))]));
-  const byUser = new Map<string, Language>(langs.map((row) => [row.id, row.language]));
-
-  await tx.insert(notificationDeliveries).values(
-    superseded.map((row) => ({
-      notificationId: row.id,
-      channel: "slack_update" as const,
-      event: { note: t(byUser.get(row.userId) ?? "en", "notify.inbox.notePulseReplaced") },
-    })),
-  );
 }
 
 /** Messaggio d'errore leggibile (mirror degli altri poller). */

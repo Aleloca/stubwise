@@ -68,15 +68,6 @@ describe("endpoints projects: brief settimanale (fase 5)", () => {
     expect(lastUrl(fetchImpl)).toBe(`/api/projects/${ID}/briefs?limit=5`);
   });
 
-  it("generateBrief: POST col force nel corpo, non in querystring", async () => {
-    const { client, fetchImpl } = clientCon(BRIEF);
-    await client.projects.generateBrief(ID, { force: true });
-    expect(lastUrl(fetchImpl)).toBe(`/api/projects/${ID}/briefs/generate`);
-    const init = fetchImpl.mock.calls.at(-1)![1] as RequestInit;
-    expect(init.method).toBe("POST");
-    expect(JSON.parse(String(init.body))).toEqual({ force: true });
-  });
-
   it("brief: rotta di PRIMO LIVELLO per id, non annidata sotto il progetto", async () => {
     const { client, fetchImpl } = clientCon(BRIEF);
     await client.projects.brief(ID);
