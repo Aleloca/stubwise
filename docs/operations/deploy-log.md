@@ -7909,9 +7909,14 @@ deploy o di un rollback che la tocca.
 - **«Il taglio del web vecchio, R2» (28 nov 2026)**: ramo `feat/taglio-r2`
   (sopra `feat/taglio-r1`), piano
   `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md` §1.1 (R2) e §3. Solo
-  codice: **nessuna migrazione, nessuna env nuova**; le env `SLACK_*` non
-  le legge più nessuno (si possono togliere da `/opt/stubwise/.env` dopo
-  che R2 è stabile, non prima: servono a un rollback).
+  codice: **nessuna migrazione, nessuna env nuova**. Slack non ha env: le
+  credenziali (signing secret e bot token) stanno cifrate in
+  `instance_settings`, e da R2 nessuno le legge più (le colonne vanno via
+  con R3b, la 0247).
+  **Passo per il maintainer, dopo il deploy**: nell'app Slack del
+  workspace spegnere lo slash command `/stubwise`, l'interactivity e la
+  scorciatoia di messaggio (o disinstallare l'app). Le loro richieste ora
+  rispondono 404, e Slack mostrerebbe un errore a chi li usa.
   **Cosa si toglie** (le rotte che l'app non chiama, D4):
   - le 17 del web vecchio senza chiamanti (primo gruppo);
   - **Slack**: `/api/slack/*`, `PUT/DELETE /api/users/:id/slack`,
@@ -7939,6 +7944,12 @@ deploy o di un rollback che la tocca.
   dei Docs di prodotto e la cassaforte. Lo script delle rotte
   (`apps/server/scripts/route-callers.ts`) su R2 dà 12 «dell'MCP» e 2 senza
   chiamanti (i Docs di prodotto), e conta il worker fra i chiamanti.
+  **Effetto noto, deciso col gruppo (e)**: il worker legge ancora le
+  regole di posta dei progetti (`project_email_routes`,
+  `apps/worker/src/google/poller.ts`) e i filtri dell'ammissione della
+  posta (`instance_settings.email_admission_deny_*`). Le regole già salvate
+  continuano a valere, ma le rotte per vederle e cambiarle sono tolte: nella
+  nuova app non le vede né le cambia nessuno. Per cambiarle serve SQL.
   **Resta `GET /api/projects/pulse`**: la legge la chat del worker (le
   letture del polso), oltre alla mobile.
   **I campi Slack nelle risposte restano, inerti, fino a R3**
