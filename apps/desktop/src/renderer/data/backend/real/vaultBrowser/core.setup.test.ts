@@ -199,6 +199,12 @@ describe("l'attivazione col kit di recupero, nel worker (fase 2)", () => {
     expect(await core.handle({ t: "activate" })).toEqual({ ok: false, code: "no_kit" });
   });
 
+  it("prepare `activate`: a cassaforte non attiva, tutte le passkey; attiva, no", async () => {
+    expect(await core.handle({ t: "prepare", purpose: "activate" })).toMatchObject({ ok: true, onlyCredentialIds: [CRED, OTHER_CRED] });
+    activated = true;
+    expect(await core.handle({ t: "prepare", purpose: "activate" })).toEqual({ ok: false, code: "vault_already_active" });
+  });
+
   it("activate senza un kit generato qui non parte; `forgetKit` lo butta", async () => {
     expect(await core.handle({ t: "activate" })).toEqual({ ok: false, code: "no_kit" });
     await core.handle({ t: "kit", purpose: "activate" });

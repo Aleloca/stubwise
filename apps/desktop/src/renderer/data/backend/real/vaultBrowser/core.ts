@@ -88,9 +88,11 @@ export type CoreRequest =
    * sigillo della chiave viva. `create` (fase 2): la propria chiave da
    * creare, con TUTTE le passkey; con una chiave viva solo se `recreate`.
    * `seal` (fase 2): la sola passkey `passkeyId`, ancora senza sigillo, per
-   * la seconda cerimonia di `sealFinish`.
+   * la seconda cerimonia di `sealFinish`. `activate` (fase 2): la cerimonia
+   * PRIMA dell'attivazione, con tutte le passkey, così una senza PRF ferma
+   * tutto prima di attivare (la PRF poi la consuma `createKey`).
    */
-  | { t: "prepare"; purpose?: "open" | "create" | "seal"; recreate?: boolean; passkeyId?: string }
+  | { t: "prepare"; purpose?: "open" | "create" | "seal" | "activate"; recreate?: boolean; passkeyId?: string }
   /**
    * I-A: l'uscita PRF, TRASFERITA appena la cerimonia la dà, prima di ogni
    * altra lettura della pagina. Se ne tiene una sola, per {@link STASH_MS};
@@ -893,8 +895,9 @@ export class VaultCore {
         return { ok: true, status: await this.http<VaultStatusResponse>("GET", "/api/vault/status") };
       case "prepare": {
         const status = await this.http<VaultStatusResponse>("GET", "/api/vault/status");
-        if (!status.activated) return { ok: false, code: "inactive" };
-        const creating = req.purpose === "create";
+        if (req.purpose === "activate" && status.activated) return { ok: false, code: "vault_already_active" };
+        if (req.purpose !== "activate" && !status.activated) return { ok: false, code: "inactive" };
+        const creating = req.purpose === "create" || req.purpose === "activate";
         if (creating && hasLiveKey(status) && !req.recreate) return { ok: false, code: "has_key" };
         if (!creating && !hasLiveKey(status)) return { ok: false, code: "no_key" };
         let offered = creating ? (status.passkeys ?? []) : status.seals;
