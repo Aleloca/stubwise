@@ -71,27 +71,27 @@ const ROLES: TicketRole[] = ["open", "triaged", "in_progress", "in_review", "don
 
 /**
  * Le differenze fra lo scrittore vecchio e quello nuovo, per ogni ruolo da ogni
- * stato di partenza del progetto. Il percorso VECCHIO gira com'era prima di
- * 0240: senza `tickets_triaged_reset` (spento nella sua transazione) e con
- * `triaged_at` sempre NULL, «smistato» vive solo nell'enum. Il NUOVO usa
+ * stato di partenza del progetto. Il percorso VECCHIO è com'era prima di 0240,
+ * calcolato (vedi sotto): «smistato» viveva solo nell'enum. Il NUOVO usa
  * `roleUpdate`, e un todo smistato è `triaged_at`.
  */
 async function differencesIn(project: { projectId: string; statuses: Status[] }): Promise<string[]> {
   const cases = project.statuses.flatMap((start) =>
     (start.family === "todo" ? [false, true] : [false]).flatMap((triaged) => ROLES.map((role) => ({ start, triaged, role }))),
   );
-  const before = await db.transaction(async (tx) => {
-    await tx.execute(sql`alter table tickets disable trigger tickets_triaged_reset`);
-    const out = [];
-    for (const c of cases) {
-      const id = await ticketIn(tx as unknown as Db, project.projectId, c.start.id);
-      if (c.triaged) await tx.execute(sql`update tickets set status = 'triaged' where id = ${id}`);
-      await tx.execute(sql`update tickets set status = ${c.role}::"ticket_status" where id = ${id}`);
-      out.push(await observed(tx as unknown as Db, id));
-    }
-    await tx.execute(sql`alter table tickets enable trigger tickets_triaged_reset`);
-    return out;
-  });
+  // Il riferimento VECCHIO si CALCOLA, non si scrive: prima di 0240 lo
+  // scrittore dell'enum lasciava nella colonna il ruolo scritto (il trigger
+  // `tickets_status_sync` non la tocca quando cambia solo lei), e lo stato era
+  // `stubwise_status_for_legacy(progetto, ruolo, stato di partenza)`. Scriverlo
+  // davvero vorrebbe spegnere `tickets_triaged_reset`, e nessun codice spegne
+  // un trigger (`automation-triggers-bypass.test.ts`).
+  const before: { statusId: string; column: string }[] = [];
+  for (const c of cases) {
+    const [row] = await db.execute<{ sid: string }>(
+      sql`select stubwise_status_for_legacy(${project.projectId}::uuid, ${c.role}::"ticket_status", ${c.start.id}::uuid) as sid`,
+    );
+    before.push({ statusId: row!.sid, column: c.role });
+  }
   const differences: string[] = [];
   for (const [n, c] of cases.entries()) {
     const id = await ticketIn(db, project.projectId, c.start.id);
