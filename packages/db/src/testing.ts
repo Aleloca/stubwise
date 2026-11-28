@@ -6,7 +6,7 @@ import type { BacklogItemStatus, GitProviderKind } from "@stubwise/shared";
 import type postgres from "postgres";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql, type SQL } from "drizzle-orm";
-import type { TicketRole } from "./ticket-status.js";
+import { roleLiteral, type TicketRole } from "./ticket-status.js";
 import { createDb, runMigrations, type Db } from "./client.js";
 import {
   backlogItems,
@@ -238,7 +238,7 @@ export const legacyTicketStatus = pgTable("tickets", {
  * `.values({ projectId, ...roleInsert(projectId, "done"), ... })`.
  */
 export function roleInsert(projectId: string | SQL, role: TicketRole): { statusId: SQL<string>; triagedAt?: SQL<Date> } {
-  const statusId = sql<string>`stubwise_status_for_legacy(${projectId}::uuid, ${role}::"ticket_status", NULL)`;
+  const statusId = sql<string>`stubwise_status_for_legacy(${projectId}::uuid, ${roleLiteral(role)}, NULL)`;
   return role === "triaged" ? { statusId, triagedAt: sql<Date>`now()` } : { statusId };
 }
 
