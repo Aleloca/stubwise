@@ -1,12 +1,12 @@
 // La CSP dell'origine (indurimento di sicurezza, nota della cassaforte nel
 // browser §1-2, C1/M1). Caddy la manda come HEADER, mai come <meta> (un <meta>
 // lo toglie chi controlla il documento), su tutte le pagine statiche
-// dell'origine: il web vecchio (/), la nuova app (/app) e la guida (/guide).
+// dell'origine: la nuova app (/, da R1) e la guida (/guide).
 // Le risposte del server (/api, il widget, la vista del grafo) hanno le loro.
 //
 // Questo modulo fa due cose, e le fa nel build dell'immagine caddy
 // (Dockerfile.caddy), dove ci sono i bundle veri:
-//   1. CONTROLLA che il web vecchio e la nuova app non abbiano script inline
+//   1. CONTROLLA che la nuova app non abbia script inline
 //      (con `script-src 'self'` non girerebbero: la pagina si romperebbe in
 //      produzione, non nei test). Un attributo `on*=` è uno script inline.
 //   2. GENERA la direttiva della guida: Starlight scrive script inline (il tema,
@@ -14,7 +14,7 @@
 //      per uno, mai con `'unsafe-inline'`. Il file generato è un frammento
 //      Caddy importato dal blocco /guide del Caddyfile.
 //
-//   node scripts/caddy-csp.mjs --web <dir> --app <dir> --docs <dir> --out <file>
+//   node scripts/caddy-csp.mjs --app <dir> --docs <dir> --out <file>
 
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
@@ -25,8 +25,8 @@ import { pathToFileURL } from "node:url";
  * La base, uguale per tutte le pagine statiche:
  * - `script-src 'self'`: niente inline, niente `eval`;
  * - `object-src 'none'` e `base-uri 'none'`;
- * - `frame-ancestors 'none'`: nessuno ci incornicia (il web vecchio e l'app
- *   non si mettono in un iframe; la vista del grafo è una risposta del server);
+ * - `frame-ancestors 'none'`: nessuno ci incornicia (l'app non si mette in
+ *   un iframe; la vista del grafo è una risposta del server);
  * - `connect-src 'self'`: fetch, XHR, EventSource e WebSocket solo verso
  *   l'origine (gli scaricamenti presigned sono navigazioni o <img>, non fetch).
  * Immagini, font e stili restano liberi: le mail in UntrustedHtmlFrame (un
@@ -94,14 +94,10 @@ function args(argv) {
 // Lanciato come script (non importato dal test): il confronto passa per un URL
 // vero, così regge spazi, caratteri da codificare e symlink nel percorso.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  const { web, app, docs, out } = args(process.argv.slice(2));
-  const problems = [];
-  for (const [name, dir] of [["web", web], ["app", app]]) {
-    const { hashes, handlers } = inlineHashes(dir);
-    if (hashes.length > 0 || handlers > 0) problems.push(`${name} (${dir}): ${hashes.length} script inline e ${handlers} attributi on*= — con script-src 'self' non girano`);
-  }
-  if (problems.length > 0) {
-    console.error(`CSP: ${problems.join("; ")}`);
+  const { app, docs, out } = args(process.argv.slice(2));
+  const found = inlineHashes(app);
+  if (found.hashes.length > 0 || found.handlers > 0) {
+    console.error(`CSP: app (${app}): ${found.hashes.length} script inline e ${found.handlers} attributi on*= — con script-src 'self' non girano`);
     process.exit(1);
   }
   const guide = inlineHashes(docs);
@@ -110,5 +106,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     process.exit(1);
   }
   writeFileSync(out, guideSnippet(guide.hashes));
-  console.log(`CSP: web e app senza script inline; guida con ${guide.hashes.length} hash -> ${out}`);
+  console.log(`CSP: app senza script inline; guida con ${guide.hashes.length} hash -> ${out}`);
 }

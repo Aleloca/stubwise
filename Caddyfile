@@ -11,23 +11,25 @@
 #   - /widget/*                       -> reverse proxy al server (API pubblica
 #                                        del widget customer service).
 #   - /widget.js                      -> bundle IIFE embeddabile (da /srv/widget).
-#   - /app/*                          -> la nuova app (il renderer dell'app desktop
-#                                        in modo «app», da /srv/app), con fallback
-#                                        a index.html. Il web vecchio resta alla
-#                                        radice (integrazione area 2, fetta 1).
 #   - /guide/*                        -> statici della documentazione utente
-#                                        (sito Starlight). NB: NON /docs/*, che è
-#                                        una sezione della SPA (documentazione
-#                                        autogenerata per progetto).
-#   - tutto il resto (incl. /docs/*)  -> SPA (con fallback a index.html per il
-#                                        client-side routing).
+#                                        (sito Starlight).
+#   - /app, /app/*                    -> 308 alla radice, PER SEMPRE: i link già
+#                                        spediti (`/app/#/…`) e i Mac installati
+#                                        (`/app/#/desktop-login`); il browser
+#                                        tiene il frammento.
+#   - i percorsi del web vecchio      -> ai rimandi del server (`/go/…`) o alla
+#                                        pagina dell'app (ritiro del web, R1).
+#   - tutto il resto                  -> la nuova app (il renderer dell'app
+#                                        desktop in modo «app», da /srv/app), con
+#                                        fallback a index.html. Il router è a
+#                                        hash (`/#/p/…`).
 
 # La CSP delle pagine statiche dell'origine (indurimento di sicurezza, C1/M1):
 # un HEADER, mai un <meta>. La stessa base di `scripts/caddy-csp.mjs`
 # (BASE_DIRECTIVES), che il test `scripts/caddy-csp.test.mjs` tiene d'accordo
 # con questa riga. Niente `'unsafe-inline'` né `'unsafe-eval'` per gli script:
-# il web vecchio e l'app non hanno script inline (lo controlla il build), la
-# guida li ammette per hash (frammento generato, sotto).
+# l'app non ha script inline (lo controlla il build), la guida li ammette per
+# hash (frammento generato, sotto).
 (csp_strict) {
 	header Content-Security-Policy "script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; connect-src 'self'"
 }
@@ -46,7 +48,7 @@
 	}
 
 	# Eccezione al DENY globale: la vista HTML del grafo graphify DEVE stare
-	# nell'<iframe sandbox> della tab Grafo della SPA (same-origin). Il framing
+	# nell'<iframe sandbox> della tab Grafo dell'app (same-origin). Il framing
 	# resta comunque vincolato: il server manda `frame-ancestors 'self'` nella
 	# CSP di quella risposta, che nei browser moderni e la fonte di verita.
 	@graphHtml path_regexp ^/api/repositories/[0-9a-fA-F-]+/graph/html$
@@ -57,12 +59,11 @@
 	# Dentro un `handle` (mutuamente esclusivo con gli altri handle sotto) così
 	# ha la precedenza sul file_server della SPA.
 	# NB: di /monitor si proxano SOLO i due path API della superficie agente
-	# (esatti, niente wildcard): le route SPA sotto /monitor (lista e dettaglio
-	# server) devono cadere sul fallback SPA qui sotto. Gli id server sono uuid,
-	# quindi /monitor/servers/<uuid> non collide mai con ingest/config.
+	# (esatti, niente wildcard): /monitor/servers/<uuid> è un percorso del web
+	# vecchio, che va ai rimandi (sotto). Gli id server sono uuid, quindi non
+	# collide mai con ingest/config.
 	# /go/* sono i rimandi dei link del web vecchio verso la nuova app
-	# (`apps/server/src/routes/go.ts`): accesi già, nessun link ci porta finché
-	# non si accendono le regole del ritiro qui sotto.
+	# (`apps/server/src/routes/go.ts`).
 	@backend path /api/* /ingest/* /webhooks/* /widget/* /monitor/ingest /monitor/config /go/*
 	handle @backend {
 		reverse_proxy {$SERVER_UPSTREAM:server:3000}
@@ -73,7 +74,7 @@
 	# blocco SPA `handle` (i `handle` sono valutati in ordine e mutuamente
 	# esclusivi). NB: il matcher @backend usa /widget/* (richiede un segmento
 	# dopo /widget/) e NON intercetta /widget.js; in più questo handle viene
-	# comunque prima del fallback SPA. Cache moderata: i siti clienti non
+	# comunque prima del fallback dell'app. Cache moderata: i siti clienti non
 	# riscaricano il bundle a ogni pageview, ma gli update arrivano in 5 minuti.
 	handle /widget.js {
 		root * /srv/widget
@@ -83,11 +84,8 @@
 	}
 
 	# Documentazione utente statica (sito Starlight buildato in /srv/docs),
-	# servita sotto /guide/*. Deve restare PRIMA del blocco SPA `handle` qui
-	# sotto (i due `handle` sono mutuamente esclusivi e valutati nell'ordine).
-	# Sta su /guide e NON su /docs proprio per non intercettare i deep link
-	# della sezione "Docs" della SPA (/docs, /docs/:projectId, ...), che ora
-	# ricade nel fallback SPA.
+	# servita sotto /guide/*. Deve restare PRIMA del `handle` dell'app qui
+	# sotto (i `handle` sono mutuamente esclusivi e valutati nell'ordine).
 	handle_path /guide/* {
 		# La CSP della guida: la base più gli hash degli script inline di
 		# Starlight e WebAssembly per la ricerca (Pagefind). Il frammento lo
@@ -98,13 +96,42 @@
 		file_server
 	}
 
-	# La nuova app (integrazione area 2, fetta 1): lo stesso renderer dell'app
-	# desktop, buildato in modo «app» con `base: "/app/"` (in /srv/app), sulla
-	# stessa origine del web vecchio: le sue chiamate `/api/…` usano il cookie
-	# di sessione del web. Il router è a hash (`#/p/…`), quindi il fallback
-	# serve solo per `/app/` e i suoi asset. PRIMA del `handle` della SPA.
-	redir /app /app/ 308
+	# /app era l'ingresso della nuova app finché c'era il web vecchio (fino a
+	# R1). Resta un redirect PERMANENTE alla radice, che non si toglie: i link
+	# già spediti (card, email, push, webhook: `/app/#/…`) e i Mac installati
+	# (`browserLogin.ts` apriva `<istanza>/app/#/desktop-login`). Il frammento
+	# non arriva al server, e il browser lo tiene sul redirect. `handle_path`
+	# toglie il prefisso, quindi un asset vecchio (`/app/assets/x.js`) va al
+	# suo posto nuovo.
+	redir /app / 308
 	handle_path /app/* {
+		redir * {uri} 308
+	}
+
+	# --- Ritiro del web vecchio (R1) ----------------------------------------
+	# (design `docs/plans/2026-11-27-link-nuova-app-design.md`, «Da fare al
+	# ritiro»). Card, email, push e webhook già spediti portano i percorsi del
+	# web vecchio. Quelli con un ID vanno ai rimandi del server (`/go/…`), che
+	# risolvono l'id coi codici e rispondono 302 alla nuova app: Caddy i codici
+	# non li conosce. Gli altri vanno diretti. Va PRIMA del `handle` dell'app
+	# (i `handle` sono valutati in ordine).
+	@legacyById path /tickets/* /backlog /backlog/* /projects/* /docs/* /monitor/servers/* /agents/job/*
+	handle @legacyById {
+		rewrite * /go{uri}
+		reverse_proxy {$SERVER_UPSTREAM:server:3000}
+	}
+	redir /settings/security /#/preferences/security 302
+	redir /settings/account /#/preferences/account 302
+	redir /settings/notifications /#/preferences/notifications 302
+	redir /inbox /#/home 302
+	# -----------------------------------------------------------------------
+
+	# La nuova app alla radice (R1): lo stesso renderer dell'app desktop,
+	# buildato in modo «app» con `base: "/"` (in /srv/app). Le sue chiamate
+	# `/api/…` usano il cookie di sessione. Il router è a hash (`/#/p/…`),
+	# quindi il fallback serve solo per `/` e i suoi asset; un percorso che
+	# non è dell'app apre la Home.
+	handle {
 		import csp_strict
 		# COOP: una finestra aperta da un'altra origine non tiene un riferimento
 		# all'app (nota della cassaforte nel browser, §2.2 e M4).
@@ -114,37 +141,6 @@
 		@appDocument not path /assets/*
 		header @appDocument Cache-Control "no-store"
 		root * /srv/app
-		try_files {path} /index.html
-		file_server
-	}
-
-	# --- Ritiro del web vecchio: SPENTO, si accende al ritiro ---------------
-	# (design `docs/plans/2026-11-27-link-nuova-app-design.md`, «Da fare al
-	# ritiro»). Card, email, push e webhook già spediti portano i percorsi del
-	# web vecchio. Quelli con un ID vanno ai rimandi del server (`/go/…`), che
-	# risolvono l'id coi codici e rispondono 302 alla nuova app: Caddy i codici
-	# non li conosce. Gli altri vanno diretti. Al ritiro: togliere i `#` di
-	# questo blocco, e al posto del blocco SPA qui sotto mandare il resto del
-	# web vecchio alla nuova app (o portare /app alla radice).
-	# Va PRIMA del blocco SPA (i `handle` sono valutati in ordine).
-	#
-	# @legacyById path /tickets/* /backlog /backlog/* /projects/* /docs/* /monitor/servers/* /agents/job/*
-	# handle @legacyById {
-	# 	rewrite * /go{uri}
-	# 	reverse_proxy {$SERVER_UPSTREAM:server:3000}
-	# }
-	# redir /settings/security /app/#/preferences/security 302
-	# redir /settings/account /app/#/preferences/account 302
-	# redir /settings/notifications /app/#/preferences/notifications 302
-	# redir /inbox /app/#/home 302
-	# -----------------------------------------------------------------------
-
-	# SPA: tutto il resto (incluso /docs/* della sezione Docs) serve i file
-	# statici, con fallback a index.html per le route gestite dal router lato
-	# client.
-	handle {
-		import csp_strict
-		root * /srv/web
 		try_files {path} /index.html
 		file_server
 	}

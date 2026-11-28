@@ -39,13 +39,24 @@ describe("il Caddyfile", () => {
     assert.ok(!/unsafe-inline|unsafe-eval/.test(caddyfile.replace(/#.*$/gm, "")), "nessun unsafe-inline/unsafe-eval fuori dai commenti");
   });
 
-  it("le pagine statiche la mandano: il web vecchio, la nuova app (con COOP e index.html no-store), la guida (il frammento generato)", () => {
-    assert.ok(block("\thandle {").includes("import csp_strict"), "il web vecchio");
-    const app = block("handle_path /app/*");
+  it("le pagine statiche la mandano: la nuova app alla radice (con COOP e index.html no-store), la guida (il frammento generato)", () => {
+    const app = block("\thandle {");
+    assert.ok(app.includes("root * /srv/app"), "l'app alla radice (R1)");
     assert.ok(app.includes("import csp_strict"));
     assert.ok(app.includes('header Cross-Origin-Opener-Policy "same-origin"'));
     assert.ok(app.includes("@appDocument not path /assets/*") && app.includes('header @appDocument Cache-Control "no-store"'));
     assert.ok(block("handle_path /guide/*").includes("import /etc/caddy/csp-guide.caddy"));
+  });
+
+  it("il web vecchio non c'è più: /app è un redirect permanente alla radice, e i percorsi vecchi vanno ai rimandi", () => {
+    // Solo le righe di commento: un `#` dentro un indirizzo (`/#/preferences/…`) è un frammento.
+    const live = caddyfile.replace(/^\s*#.*$/gm, "");
+    assert.ok(!live.includes("/srv/web"), "nessun web vecchio servito");
+    assert.match(live, /redir \/app \/ 308/);
+    assert.ok(block("handle_path /app/*").includes("redir * {uri} 308"));
+    assert.ok(block("handle @legacyById").includes("rewrite * /go{uri}"));
+    assert.match(live, /redir \/settings\/security \/#\/preferences\/security 302/);
+    assert.match(live, /redir \/inbox \/#\/home 302/);
   });
 
   it("le risposte del server e il widget NON la ricevono (il grafo si incornicia, il widget si incorpora sui siti dei clienti)", () => {
@@ -60,8 +71,10 @@ describe("il Caddyfile", () => {
 
   it("il Dockerfile di caddy genera il frammento della guida e lo copia dove il Caddyfile lo importa", () => {
     const docker = readFileSync(join(here, "..", "Dockerfile.caddy"), "utf8");
-    assert.match(docker, /RUN node scripts\/caddy-csp\.mjs --web apps\/web\/dist --app apps\/desktop\/dist-web --docs apps\/docs\/dist --out \/repo\/csp-guide\.caddy/);
-    assert.match(docker, /COPY --from=web-build \/repo\/csp-guide\.caddy \/etc\/caddy\/csp-guide\.caddy/);
+    assert.match(docker, /RUN node scripts\/caddy-csp\.mjs --app apps\/desktop\/dist-web --docs apps\/docs\/dist --out \/repo\/csp-guide\.caddy/);
+    assert.match(docker, /COPY --from=static-build \/repo\/csp-guide\.caddy \/etc\/caddy\/csp-guide\.caddy/);
+    assert.match(docker, /COPY --from=static-build \/repo\/apps\/desktop\/dist-web \/srv\/app/);
+    assert.ok(!docker.replace(/#.*$/gm, "").includes("apps/web"), "il web vecchio non si builda più");
   });
 });
 
@@ -80,18 +93,18 @@ describe("gli script inline", () => {
     assert.ok(!snippet.includes("unsafe-inline"));
   });
 
-  it("il controllo del build: fallisce con uno script inline nel web o nell'app, passa e scrive gli hash della guida", () => {
+  it("il controllo del build: fallisce con uno script inline nell'app, passa e scrive gli hash della guida", () => {
     const dir = (name, html) => {
       const d = join(root, name);
       mkdirSync(d, { recursive: true });
       writeFileSync(join(d, "index.html"), html);
       return d;
     };
-    const clean = dir("web-ok", `<script type="module" src="/x.js"></script>`);
-    const dirty = dir("web-ko", `<script>inline()</script>`);
+    const clean = dir("app-ok", `<script type="module" src="/x.js"></script>`);
+    const dirty = dir("app-ko", `<script>inline()</script>`);
     const docs = dir("docs", `<script>theme()</script>`);
     const out = join(root, "guide.caddy");
-    const run = (web) => spawnSync(process.execPath, [join(here, "caddy-csp.mjs"), "--web", web, "--app", clean, "--docs", docs, "--out", out], { encoding: "utf8" });
+    const run = (app) => spawnSync(process.execPath, [join(here, "caddy-csp.mjs"), "--app", app, "--docs", docs, "--out", out], { encoding: "utf8" });
     assert.equal(run(dirty).status, 1);
     assert.equal(run(clean).status, 0);
     assert.ok(readFileSync(out, "utf8").includes(sha256("theme()")));
