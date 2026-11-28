@@ -289,10 +289,11 @@ senza chiamanti:
 - **9 della cassaforte nel browser ancora senza chiamante** (attivare,
   chiave, kit e recupero, lookup dell'accoppiamento): le chiama solo il web
   vecchio e **non si tolgono**, sono la funzione che la nuova app deve
-  ancora avere (§1.2 dell'inventario, 79);
+  ancora avere (§1.2 dell'inventario: la fase 2 della cassaforte, a 79);
 - 16 del gruppo (e), 12 dei tool dedicati dell'MCP (blocco P), 9 solo della
   mobile;
-- 2 dei Docs di prodotto toccati da Claude: restano;
+- 2 dei Docs di prodotto toccati da Claude: restano, per la parità MCP
+  (deciso il 28 nov 2026);
 - **17 da togliere con R2**, tutte del web vecchio e basta: nell'app la
   funzione c'è con un'altra rotta, o era già morta nel web.
 
