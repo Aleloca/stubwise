@@ -15,6 +15,8 @@ import process from "node:process";
 
 const here = import.meta.dirname;
 const DIST = resolve(here, "../dist-web");
+/** La pagina a sé della cassaforte (`pnpm build:vault`), su `/app/vault/` come la serve Caddy. */
+const VAULT_DIST = resolve(here, "../dist-vault");
 const PORT = Number(process.env.E2E_APP_PORT ?? 5220);
 const API = new URL(process.env.E2E_API_TARGET ?? "http://localhost:3220");
 
@@ -38,6 +40,21 @@ function headerLines(body) {
     name: m[2].toLowerCase(),
     value: m[3],
   }));
+}
+
+/**
+ * Le intestazioni della pagina a sé della cassaforte: il SUO blocco del
+ * Caddyfile (`handle_path /app/vault/*`), con la sua CSP sola (niente
+ * `csp_strict`) e la sua COOP.
+ */
+export async function vaultHeaders(caddyfilePath = resolve(here, "../../../Caddyfile")) {
+  const text = await readFile(caddyfilePath, "utf8");
+  const vault = block(text, "handle_path /app/vault/* {");
+  if (/import\s+csp_strict/.test(vault)) throw new Error("Caddyfile: /app/vault ha una CSP sola, la sua");
+  const headers = {};
+  for (const { name, value } of headerLines(vault)) headers[name] = value;
+  if (!headers["content-security-policy"]) throw new Error("Caddyfile: /app/vault senza CSP");
+  return headers;
 }
 
 export async function appHeaders(caddyfilePath = resolve(here, "../../../Caddyfile")) {
@@ -81,8 +98,32 @@ function proxy(req, res) {
   req.pipe(out);
 }
 
+/** Un file statico di `dist` sotto `prefix`, col fallback di `try_files {path} /<fallback>` e `no-store` fuori da `assets/`. */
+async function serveStatic(res, path, prefix, dist, fallback, headers) {
+  const rel = normalize(path.slice(prefix.length)).replace(/^(\.\.[/\\])+/, "");
+  let file = join(dist, rel);
+  let body;
+  try {
+    body = rel && extname(rel) ? await readFile(file) : null;
+  } catch {
+    body = null;
+  }
+  if (!body) {
+    file = join(dist, fallback);
+    body = await readFile(file);
+  }
+  const isAsset = path.startsWith(`${prefix}assets/`);
+  res.writeHead(200, {
+    ...headers,
+    "content-type": TYPES[extname(file)] ?? "application/octet-stream",
+    ...(isAsset ? {} : { "cache-control": "no-store" }),
+  });
+  res.end(body);
+}
+
 async function main() {
   const headers = await appHeaders();
+  const vault = await vaultHeaders();
   const server = createServer(async (req, res) => {
     const path = (req.url ?? "/").split("?")[0];
     if (path.startsWith("/api/")) return proxy(req, res);
@@ -91,36 +132,19 @@ async function main() {
       res.end("ok");
       return;
     }
-    if (path === "/app") {
-      res.writeHead(308, { location: "/app/" });
+    if (path === "/app" || path === "/app/vault") {
+      res.writeHead(308, { location: `${path}/` });
       res.end();
       return;
     }
+    // Prima di /app, come in Caddy.
+    if (path.startsWith("/app/vault/")) return serveStatic(res, path, "/app/vault/", VAULT_DIST, "vault.html", vault);
     if (!path.startsWith("/app/")) {
       res.writeHead(404);
       res.end();
       return;
     }
-    const rel = normalize(path.slice("/app/".length)).replace(/^(\.\.[/\\])+/, "");
-    let file = join(DIST, rel);
-    let body;
-    try {
-      body = rel && extname(rel) ? await readFile(file) : null;
-    } catch {
-      body = null;
-    }
-    // Il fallback di `try_files {path} /index.html`.
-    if (!body) {
-      file = join(DIST, "index.html");
-      body = await readFile(file);
-    }
-    const isAsset = path.startsWith("/app/assets/");
-    res.writeHead(200, {
-      ...headers,
-      "content-type": TYPES[extname(file)] ?? "application/octet-stream",
-      ...(isAsset ? {} : { "cache-control": "no-store" }),
-    });
-    res.end(body);
+    return serveStatic(res, path, "/app/", DIST, "index.html", headers);
   });
   server.listen(PORT, () => console.log(`[e2e app] /app su :${PORT}, /api → ${API.origin}`));
 }

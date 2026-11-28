@@ -42,7 +42,8 @@ export default defineConfig({
     },
     {
       // La build web vera, come la serve Caddy (non `vite dev`).
-      command: "pnpm build:web && node e2e/serve-app.mjs",
+      // E la pagina a sé della cassaforte (`dist-vault`, su /app/vault/).
+      command: "pnpm build:web && pnpm build:vault && node e2e/serve-app.mjs",
       cwd: desktop,
       url: "http://localhost:5220/health",
       timeout: 180_000,

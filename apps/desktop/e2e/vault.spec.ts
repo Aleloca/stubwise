@@ -1,20 +1,15 @@
 import { expect, test, type APIRequestContext, type BrowserContext, type CDPSession, type Page } from "@playwright/test";
-import { PRF_INPUT, generatePersonKeyPair, generateRecoveryKit, sealPrivateKey } from "@stubwise/vault-crypto";
 import { ADMIN_EMAIL, ADMIN_PASSWORD, ensureAdmin } from "./admin";
 import { clientIpHeaders, nextTotpCode, signInWithRequest } from "./second-factor";
 
 /*
  * La cassaforte nella nuova app nel browser (fase 1, #144), sullo stack vero:
  * una passkey registrata DALLA UI (Preferenze → Security) su un
- * autenticatore virtuale di Chromium con la PRF, la cerimonia `vault` e la
- * prima chiave (via API: la pagina che la crea dalla UI è la fase 2), una
- * credenziale creata dalla UI (cifrata nel worker), poi lo sblocco con la
- * passkey e «Show» dalla UI di `/app`.
- *
- * La cerimonia della prima chiave gira nel browser (la PRF la dà solo
- * l'autenticatore), ma su `/health`, fuori dall'app: la pagina di `/app`
- * congela le primitive della passkey al boot, ed è giusto così. La stessa
- * origine, quindi la stessa passkey e lo stesso `rpId`.
+ * autenticatore virtuale di Chromium con la PRF; l'attivazione e la prima
+ * chiave dalla pagina a sé della cassaforte (fase 2, `/app/vault/#/setup`,
+ * con la sua CSP: il kit e la chiave nascono nel worker); una credenziale
+ * creata dalla UI (cifrata nel worker), poi lo sblocco con la passkey e
+ * «Show» dalla UI di `/app`.
  */
 
 const PROJECT_CODE = "VAULT";
@@ -76,71 +71,43 @@ test("una passkey si registra dalla UI (Preferenze → Security), con la PRF del
   expect(credentials).toHaveLength(1);
 });
 
-test("la cerimonia `vault` e la prima chiave dell'admin (via API, la PRF dal browser)", async () => {
-  const request = context.request;
-  // L'istanza: la cassaforte si attiva con la sola pubblica di un kit di recupero.
-  const kit = await generateRecoveryKit();
-  const activate = await request.post("/api/vault/activate", { data: { recoveryPublicKey: kit.publicKey } });
-  expect(activate.ok(), await activate.text()).toBe(true);
-
-  // La cerimonia dello sblocco: le opzioni del server (`purpose: "vault"`, il salt PRF locale).
-  const options = (await (await request.post("/api/me/security/reauth/passkey/options", { data: { purpose: "vault" } })).json()) as {
-    challenge: string;
-    allowCredentials: { id: string }[];
-    rpId?: string;
-    extensions?: { prf?: { eval?: { first?: string } } };
-  };
-  expect(options.extensions?.prf?.eval?.first).toBe(Buffer.from(PRF_INPUT).toString("base64url"));
-  await page.goto("/health");
-  const touched = await page.evaluate(async (o) => {
-    const b64 = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
-    const out = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    const cred = (await navigator.credentials.get({
-      publicKey: {
-        challenge: b64(o.challenge),
-        ...(o.rpId ? { rpId: o.rpId } : {}),
-        allowCredentials: o.allowCredentials.map((c) => ({ type: "public-key" as const, id: b64(c.id) })),
-        userVerification: "preferred",
-        extensions: { prf: { eval: { first: b64(o.extensions!.prf!.eval!.first!) } } } as AuthenticationExtensionsClientInputs,
-      },
-    })) as PublicKeyCredential;
-    const r = cred.response as AuthenticatorAssertionResponse;
-    const prf = (cred.getClientExtensionResults() as { prf?: { results?: { first?: ArrayBuffer } } }).prf?.results?.first;
-    return {
-      credentialId: cred.id,
-      prf: prf ? out(prf) : null,
-      assertion: {
-        id: cred.id,
-        rawId: out(cred.rawId),
-        type: cred.type,
-        response: {
-          authenticatorData: out(r.authenticatorData),
-          clientDataJSON: out(r.clientDataJSON),
-          signature: out(r.signature),
-          ...(r.userHandle ? { userHandle: out(r.userHandle) } : {}),
-        },
-        clientExtensionResults: {},
-      },
-    };
-  }, options);
-  expect(touched.prf, "l'autenticatore virtuale dà la PRF").not.toBeNull();
-  const verify = await request.post("/api/me/security/reauth/passkey/verify", { data: { response: touched.assertion } });
-  expect(verify.status(), await verify.text()).toBe(204);
-
-  // La chiave: la coppia nasce qui, la privata si sigilla con la PRF della passkey usata.
-  const status = (await (await request.get("/api/vault/status")).json()) as { passkeys: { passkeyId: string; credentialIdB64url: string }[] };
-  const passkey = status.passkeys.find((p) => p.credentialIdB64url === touched.credentialId);
-  expect(passkey, "la passkey registrata dalla UI").toBeDefined();
-  const pair = await generatePersonKeyPair();
-  const prf = Uint8Array.from(Buffer.from(touched.prf!, "base64url"));
-  const sealedPrivateKey = await sealPrivateKey(prf.buffer, pair.privateKeyPkcs8, pair.publicKey);
-  pair.privateKeyPkcs8.fill(0);
-  const created = await request.post("/api/vault/keys", {
-    data: { publicKey: pair.publicKey, seals: [{ passkeyId: passkey!.passkeyId, sealedPrivateKey }], device: "Chromium E2E" },
+test("l'attivazione e la prima chiave dalla pagina a sé della cassaforte (/app/vault/, la sua CSP)", async () => {
+  // Una navigazione completa, come dalla barra: un documento suo, con la sua CSP e la sua COOP.
+  const response = await page.goto("/app/vault/#/setup");
+  const headers = response!.headers();
+  expect(headers["content-security-policy"]).toContain("default-src 'none'");
+  expect(headers["content-security-policy"]).toContain("trusted-types stubwise-vault-worker");
+  expect(headers["cross-origin-opener-policy"]).toBe("noopener-allow-popups");
+  const violations: string[] = [];
+  page.on("console", (m) => {
+    if (/Content Security Policy|Trusted Type/i.test(m.text())) violations.push(m.text());
   });
-  expect(created.status(), await created.text()).toBe(201);
-  // Il primo admin, che ha attivato: la sua chiave nasce confermata.
-  expect(((await created.json()) as { status: string }).status).toBe("confirmed");
+
+  await page.getByRole("button", { name: "Generate the recovery kit" }).click();
+  // Il kit nasce nel worker e si mostra una volta.
+  await expect(page.locator("pre[data-recovery-kit]")).toHaveText(/^[A-Z2-7]{5}(-[A-Z2-7]{1,5})+$/);
+  await page.getByRole("checkbox", { name: "I printed/saved the kit" }).check();
+  await page.getByRole("button", { name: "Activate the vault" }).click();
+  // La riconferma, se la pagina la chiede: la passkey (l'autenticatore la dà da sé).
+  const confirm = page.getByRole("dialog", { name: "Confirm it's you" });
+  await expect(page.getByText("The vault is active on this instance.").or(confirm)).toBeVisible();
+  if (await confirm.isVisible()) await confirm.getByRole("button", { name: "Confirm" }).click();
+
+  // Il primo admin, che ha attivato: la sua chiave nasce confermata, il kit è sparito.
+  await expect(page.getByText("The vault is active on this instance.")).toBeVisible();
+  await expect(page.getByText(/Your vault key is ready|You have a vault key\./)).toBeVisible();
+  await expect(page.locator("pre[data-recovery-kit]")).toHaveCount(0);
+  expect(violations).toEqual([]);
+
+  // Dal server: attiva, e la chiave della persona confermata con un sigillo della passkey.
+  const status = (await (await context.request.get("/api/vault/status")).json()) as {
+    activated: boolean;
+    myKey: { status: string } | null;
+    seals: unknown[];
+  };
+  expect(status.activated).toBe(true);
+  expect(status.myKey?.status).toBe("confirmed");
+  expect(status.seals).toHaveLength(1);
 });
 
 test("una credenziale si crea dalla UI (la cifra il worker, a cassaforte chiusa)", async () => {
