@@ -1,3 +1,4 @@
+import { seatsIn } from "./seats";
 import { seedAccessState } from "./seed";
 
 // Gli accessi come stato del livello dati (area 9a): ruoli, appartenenze ai
@@ -74,9 +75,43 @@ export interface FormerMembership {
   personId: string;
 }
 
+/**
+ * Una workspace (shape `workspaces.md`, decisioni del 27 nov 2026): un
+ * raggruppamento di PROGETTI per visibilità. Chi ne è membro vede tutti i
+ * suoi progetti col ruolo di workspace (un ruolo di progetto); non dà
+ * permessi d'istanza. Un progetto sta in al più una workspace (D2).
+ */
+export interface WorkspaceDef {
+  id: string;
+  /** Lo slug dell'indirizzo (`?workspace=`), nato dal nome. */
+  slug: string;
+  name: string;
+  createdAt: string;
+}
+
+/** Un progetto dentro una workspace (al più una riga per progetto, D2). */
+export interface WorkspaceProject {
+  workspaceId: string;
+  projectId: string;
+}
+
+/**
+ * Una persona in una workspace, col suo ruolo di workspace: un ruolo di
+ * PROGETTO, che vale in ogni progetto della workspace. Il ruolo per progetto
+ * resta un `Membership` normale, e i due si sommano (D1).
+ */
+export interface WorkspaceMember {
+  workspaceId: string;
+  personId: string;
+  roleId: string;
+}
+
 export interface AccessState {
   roles: RoleDef[];
   memberships: Membership[];
+  workspaces: WorkspaceDef[];
+  workspaceProjects: WorkspaceProject[];
+  workspaceMembers: WorkspaceMember[];
   formerMemberships: FormerMembership[];
   grants: PersonalGrant[];
   departments: DepartmentAccess[];
@@ -110,8 +145,14 @@ export function registerMembershipSync(next: MembershipSync): void {
   sync = next;
 }
 
+/**
+ * Chi vede ogni progetto da membro: le appartenenze esplicite E le persone
+ * delle workspace (shape `workspaces.md`). `project.memberIds` segue questo
+ * insieme, così ogni regola di visibilità che lo legge conta anche la
+ * workspace (D10, D17), e chi ne esce resta un ex membro (D19).
+ */
 const pairsOf = (s: AccessState) =>
-  new Set(s.memberships.map((m) => `${m.projectId}\u0000${m.personId}`));
+  new Set(seatsIn(s).map((m) => `${m.projectId}\u0000${m.personId}`));
 
 /** Chi è uscito da un progetto fra due fotografie resta un ex membro (r.1414). */
 function rememberLeavers(before: Set<string>, after: Set<string>): void {

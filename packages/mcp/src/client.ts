@@ -219,6 +219,8 @@ export interface TicketSummary {
    * `my_requests` usa proprio l'assenza per riconoscerlo.
    */
   requestedBy?: { id: string; email: string } | null;
+  /** La task nella nuova app, come percorso dell'istanza; assente da un server di prima. */
+  appPath?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -266,6 +268,8 @@ export interface BacklogItemSummary {
  * restano ignorati.
  */
 export interface BacklogItemDetail {
+  /** La voce nella nuova app, come percorso dell'istanza; assente da un server di prima. */
+  appPath?: string;
   id: string;
   projectId: string;
   title: string;
@@ -391,6 +395,8 @@ export interface BacklogJob {
   status: "queued" | "running" | "done" | "failed";
   resultItemId: string | null;
   error: string | null;
+  /** La voce nella nuova app, come percorso dell'istanza; assente da un server di prima. */
+  resultItemAppPath?: string;
 }
 
 // --- Schemi di validazione runtime delle risposte del flusso critico --------
@@ -409,10 +415,11 @@ const backlogJobResultSchema = z.object({
   status: backlogJobStatusSchema,
   resultItemId: z.uuid().nullable(),
   error: z.string().nullable(),
+  resultItemAppPath: z.string().optional(),
 });
 
 /** `POST /api/backlog/:id/convert` → ticket creato. */
-const convertResultSchema = z.object({ ticketId: z.uuid(), ticketNumber: z.number().int() });
+const convertResultSchema = z.object({ ticketId: z.uuid(), ticketNumber: z.number().int(), ticketAppPath: z.string().optional() });
 
 /** `POST /api/backlog/from-design` → voce creata sincrona (id + URL del dettaglio). */
 const fromDesignResultSchema = z.object({ itemId: z.uuid(), url: z.string() });
@@ -1198,7 +1205,7 @@ export class StubwiseClient {
     return this.parseResponse(backlogJobResultSchema, raw, "lo stato del job di backlog");
   }
 
-  async convertBacklogToTicket(id: string): Promise<{ ticketId: string; ticketNumber: number }> {
+  async convertBacklogToTicket(id: string): Promise<{ ticketId: string; ticketNumber: number; ticketAppPath?: string }> {
     const raw = await this.request<unknown>(`/api/backlog/${id}/convert`, { method: "POST" });
     return this.parseResponse(convertResultSchema, raw, "la conversione della voce in ticket");
   }

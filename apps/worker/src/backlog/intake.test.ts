@@ -863,7 +863,7 @@ describe("runIntake — chi ha chiesto", () => {
       title: "Voce generata",
       requesterEmail: member.email,
       merged: false,
-      url: `https://stubwise.test/backlog/${item!.id}`,
+      url: `https://stubwise.test/app/#/p/${(await db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId)))[0]!.code}/requests?request=${item!.id}`,
     });
   });
 

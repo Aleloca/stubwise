@@ -150,6 +150,44 @@ describe("le card dell'inbox", () => {
     expect(n.title).toBe(base.text);
   });
 
+  // Link della nuova app (54, feat/link-nuova-app): le card che l'app apre da sé.
+  it.each(["job.failed", "job.held", "job.budget_held", "job.pr_closed", "review.completed", "ticket.created"] as const)(
+    "%s apre il pannello della task (taskCode c'è già)",
+    (kind) => {
+      const n = presentInboxItem(inboxItemSchema.parse({ ...base, kind }), ctx);
+      expect(n.link).toBe("#/p/AUD/tasks?task=AUD-12");
+      expect(n.webHref).toBeUndefined();
+    },
+  );
+
+  it.each(["job.plan_review", "job.awaiting_input", "google.proposal"] as const)(
+    "%s chiede una decisione: apre la Home (Decide), mai il web vecchio",
+    (kind) => {
+      const n = presentInboxItem(inboxItemSchema.parse({ ...base, kind, jobId: "55555555-5555-4555-8555-555555555555" }), ctx);
+      expect(n.link).toBe("#/home");
+      expect(n.webHref).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ["project.brief", "/app/#/p/AUD/overview?brief=66666666-6666-4666-8666-666666666666"],
+    ["docs.nightly_attention", "/app/#/p/AUD/docs/audin-app"],
+    ["docs.limit_paused", "/app/#/p/AUD/docs/audin-app"],
+    ["security.alert", "/app/#/preferences/security"],
+  ] as const)("%s col link della nuova app (%s) apre lì", (kind, url) => {
+    const n = presentInboxItem(inboxItemSchema.parse({ ...base, kind, ticketId: null, url }), ctx);
+    expect(n.link).toBe(url.slice("/app/".length));
+    expect(n.webHref).toBeUndefined();
+  });
+
+  it("un link della nuova app con una forma che l'app non apre resta fuori", () => {
+    const n = presentInboxItem(
+      inboxItemSchema.parse({ ...base, kind: "project.brief", ticketId: null, url: "/app/#/p/AUD/overview?brief=<x>" }),
+      ctx,
+    );
+    expect(n.link).not.toBe("#/p/AUD/overview?brief=<x>");
+  });
+
   it("una card job.pr_opened apre l'URL della PR", () => {
     const item = inboxItemSchema.parse({
       ...base,
@@ -163,9 +201,10 @@ describe("le card dell'inbox", () => {
   });
 
   it("un URL dell'istanza diventa il suo percorso", () => {
+    // Un kind che l'app non apre da sé (le decisioni aprono la Home).
     const item = inboxItemSchema.parse({
       ...base,
-      kind: "job.plan_review",
+      kind: "job.pr_opened",
       url: "https://stubwise.example.com/tickets/44444444-4444-4444-8444-444444444444?tab=plan",
     });
     expect(presentInboxItem(item, { ...ctx, instanceOrigin: "https://stubwise.example.com" }).webHref).toBe(
@@ -309,14 +348,15 @@ describe("le card dell'inbox", () => {
     });
   });
 
-  it("una domanda di Claude apre la sessione nel web vecchio", () => {
+  it("una domanda di Claude non apre più la sessione nel web vecchio: si risponde in Home", () => {
     const item = inboxItemSchema.parse({
       ...base,
       kind: "job.awaiting_input",
       jobId: "55555555-5555-4555-8555-555555555555",
     });
-    expect(presentInboxItem(item, ctx).webHref).toBe(
-      "/agents/job/55555555-5555-4555-8555-555555555555?ticketId=44444444-4444-4444-8444-444444444444",
-    );
+    const n = presentInboxItem(item, ctx);
+    expect(n.webHref).toBeUndefined();
+    expect(n.link).toBe("#/home");
+    expect(n.objectCode).toBe("AUD-12");
   });
 });

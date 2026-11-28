@@ -1,4 +1,4 @@
-import { googleAccounts, projectMembers, users, type Db } from "@stubwise/db";
+import { googleAccounts, projectAccess, users, type Db } from "@stubwise/db";
 import { userIsFullAdmin } from "@stubwise/notifications";
 import type { MailRecipientSuggestion } from "@stubwise/shared";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
@@ -38,8 +38,9 @@ export async function suggestRecipients(
     : sql`(
         ${userIsFullAdmin(users.id)}
         or exists (
-          select 1 from ${projectMembers} theirs
-          inner join ${projectMembers} mine on mine.project_id = theirs.project_id
+          -- Un progetto in comune, membri espliciti o di workspace (0239).
+          select 1 from ${projectAccess} theirs
+          inner join ${projectAccess} mine on mine.project_id = theirs.project_id
           where theirs.user_id = ${users.id} and mine.user_id = ${viewer.id}
         )
       )`;

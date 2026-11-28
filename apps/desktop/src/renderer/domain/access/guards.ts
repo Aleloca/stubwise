@@ -1,4 +1,5 @@
 import { effectivePermissionsIn, isFullAdminIn } from "../../data/access/effectiveCore";
+import { seatsIn } from "../../data/access/seats";
 import type { AccessState } from "../../data/access/state";
 
 // Le due cose che restano sempre (area 9a, Global Constraints): un full admin
@@ -40,7 +41,8 @@ export function lastFullAdminBlock(
  * impliciti di ogni progetto (`docs/invariants/permissions.md`).
  */
 export function membersManagersOf(state: AccessState, projectId: string): string[] {
-  const members = state.memberships
+  // Anche chi gestisce dalla workspace (D18 del design delle workspace).
+  const members = seatsIn(state)
     .filter((m) => m.projectId === projectId && isActive(state, m.personId))
     .map((m) => m.personId)
     .filter((id) => effectivePermissionsIn(state, id, projectId).has(MEMBERS_MANAGE));

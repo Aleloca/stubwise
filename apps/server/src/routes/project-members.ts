@@ -86,11 +86,15 @@ export async function projectMemberRoutes(instance: FastifyInstance): Promise<vo
       },
       schema: {
         params: projectParamsSchema,
+        // M4 (revisione d'insieme): `include=workspace` aggiunge chi c'è solo per
+        // la workspace (`explicit: false`). Senza, i soli membri espliciti come
+        // prima: la sezione Membri del web vecchio li offre da togliere.
+        querystring: z.object({ include: z.enum(["workspace"]).optional() }),
         response: { 200: z.array(projectMemberSchema), 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request) =>
-      (await listProjectMembers(app.db, request.params.projectId)).map(toMemberView),
+      (await listProjectMembers(app.db, request.params.projectId, { includeWorkspace: request.query.include === "workspace" })).map(toMemberView),
   );
 
   app.put(

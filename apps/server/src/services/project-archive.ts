@@ -27,6 +27,7 @@ import {
   prReviews,
   projectEnvFiles,
   projectEnvironments,
+  projectAccess,
   projectMembers,
   projects,
   releases,
@@ -423,11 +424,13 @@ export async function deleteArchivedProject(
     if (confirmCode !== row.code) throw new ArchiveError(400, "code_mismatch", "The code does not match the project's code");
     const storageKeys = await storageKeysOf(tx, projectId);
     await tx.insert(deletedProjects).values({ id: row.id, code: row.code, name: row.name });
+    // D19 (workspace): chi lo conosceva è anche chi lo vedeva per workspace,
+    // una volta sola (`project_access` ha una riga per fonte).
     const formerMembers = await tx
-      .select({ userId: projectMembers.userId })
-      .from(projectMembers)
-      .innerJoin(users, eq(users.id, projectMembers.userId))
-      .where(and(eq(projectMembers.projectId, projectId), eq(users.isAgent, false)));
+      .selectDistinct({ userId: projectAccess.userId })
+      .from(projectAccess)
+      .innerJoin(users, eq(users.id, projectAccess.userId))
+      .where(and(eq(projectAccess.projectId, projectId), eq(users.isAgent, false)));
     if (formerMembers.length > 0) {
       await tx.insert(deletedProjectMembers).values(formerMembers.map((m) => ({ projectId: row.id, userId: m.userId })));
     }

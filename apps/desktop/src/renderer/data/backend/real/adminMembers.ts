@@ -88,6 +88,11 @@ export function createRealMembers(api: MembersApi) {
           },
           extra: (m.extra ?? []).map(extraOf),
           granted: m.granted ?? [],
+          // Le workspace (99be31cb8): chi la vede dalla workspace, anche solo da lì.
+          workspace: m.workspace
+            ? { ...m.workspace, workspaceSlug: m.workspace.workspaceId }
+            : null,
+          explicit: m.explicit ?? true,
         })),
       } as ProjectMembersView;
     },

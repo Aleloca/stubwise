@@ -4616,6 +4616,7 @@ export * from "./queries/support";
 export * from "./queries/servers";
 export * from "./queries/vault";
 export * from "./queries/admin";
+export * from "./queries/workspaces";
 export * from "./queries/docsDownloads";
 export * from "./queries/pulseProposals";
 export * from "./queries/entry";

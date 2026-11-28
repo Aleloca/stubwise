@@ -760,7 +760,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     projectName,
     ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
   };
-  const url = ticketUrl(deps.publicUrl, ticket.id);
+  const url = await ticketUrl(deps.db, deps.publicUrl, ticket.id);
   /** Riferimenti comuni a TUTTE le notifiche di questa fase: il fix conosce
    * progetto, ticket e job del run, e li porta su ogni evento. */
   const notifyRefs = { projectId: ticket.projectId, ticketId: ticket.id, jobId: job.id };

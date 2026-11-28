@@ -340,7 +340,10 @@ async function webhookDeliveriesForTicket(ticketId: string) {
     .select()
     .from(notificationDeliveries)
     .where(eq(notificationDeliveries.channel, "webhook"));
-  return rows.filter((r) => String((r.event as { ticketUrl?: string })?.ticketUrl ?? "").includes(ticketId));
+  // Il link è la task nella nuova app (`?task=<CODE>-<n>`), non più `/tickets/<id>`.
+  const [t] = await testDb.db.select({ code: projects.code, number: tickets.number }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, ticketId));
+  const task = t ? `task=${t.code}-${t.number}` : ticketId;
+  return rows.filter((r) => String((r.event as { ticketUrl?: string })?.ticketUrl ?? "").endsWith(task));
 }
 
 /** Progetto (gruppo) a cui appartiene un repository. */
@@ -982,8 +985,8 @@ describe("POST /webhooks/git/:projectSlug", () => {
       ticketTitle: "Ticket 1",
       projectName: "Webhook Notify Dispatch",
       prUrl: "https://github.com/acme/repo/pull/7",
-      // ticketUrl assoluto e ben formato a partire dal PUBLIC_URL dell'istanza.
-      ticketUrl: `${PUBLIC_URL}/tickets/${ticketId}`,
+      // ticketUrl assoluto, la task nella nuova app a partire dal PUBLIC_URL dell'istanza.
+      ticketUrl: expect.stringMatching(new RegExp(`^${PUBLIC_URL.replace(/[.]/g, "\\.")}/app/#/p/[A-Z0-9]+/tasks\\?task=[A-Z0-9]+-\\d+$`)),
     });
 
     // OUTBOX: il webhook che ha scelto `job.pr_closed` riceve la sua consegna

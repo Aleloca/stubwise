@@ -361,6 +361,13 @@ async function upstreamHead(f: Fixture): Promise<string> {
   return git(["rev-parse", `refs/heads/${f.branch}`], f.upstreamDir);
 }
 
+
+/** La task nella nuova app (`app-links`): il codice del progetto e il numero. */
+async function taskLink(ticketId: string): Promise<string> {
+  const [row] = await testDb.db.select({ code: projects.code, number: tickets.number }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, ticketId));
+  return `https://stubwise.example.com/app/#/p/${row!.code}/tasks?task=${row!.code}-${row!.number}`;
+}
+
 describe("runCorrection", () => {
   it("applica la review sul branch della PR: parte dalla head, pusha in avanti, riaccoda la review", async () => {
     const f = await makeFixture();
@@ -516,7 +523,7 @@ describe("runCorrection", () => {
 
     expect(provider.setCommitStatus.mock.calls[0]![2]).toMatchObject({
       state: "pending",
-      url: `https://stubwise.example.com/tickets/${f.ticket.id}`,
+      url: await taskLink(f.ticket.id),
     });
   });
 

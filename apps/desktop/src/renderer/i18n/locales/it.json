@@ -108,12 +108,15 @@
   "palette": {
     "label": "Cerca e comandi",
     "placeholder": "Cerca progetti, task, persone o scrivi un comando",
+    "workspaceProjects_other": "{{count}} progetti",
+    "workspaceProjects_one": "{{count}} progetto",
     "viewAsPlaceholder": "Scegli come chi vedere l'app",
     "groups": {
       "projects": "Progetti",
       "tasks": "Task",
       "requests": "Richieste",
       "people": "Persone",
+      "workspaces": "Workspace",
       "actions": "Azioni",
       "viewAs": "Vedi come",
       "filters": "Filtri",
@@ -2426,7 +2429,8 @@
       "projects": "Progetti",
       "stalled": "Ferme",
       "activity": "Attività",
-      "archived": "Archiviati"
+      "archived": "Archiviati",
+      "people": "Persone"
     },
     "groups": {
       "waiting": "Ti aspettano",
@@ -2507,6 +2511,9 @@
         "client": "Lavoro consegnato a un cliente"
       },
       "client": "Cliente",
+      "workspaceReauth": "mettere {{code}} in {{name}}",
+      "workspaceHint": "Le persone di {{name}} lo vedranno.",
+      "workspace": "Workspace",
       "clientPlaceholder": "Ragione sociale",
       "clientMissing": "Indica per quale cliente è il progetto.",
       "template": "Modello",
@@ -2726,6 +2733,133 @@
       }
     }
   },
+  "workspaces": {
+    "new": "Nuova workspace",
+    "none": "Nessuna workspace",
+    "column": {
+      "label": "Progetti e workspace",
+      "all": "Tutti i progetti",
+      "heading": "Workspace",
+      "empty": "Raggruppa i progetti per cliente o per area. Chi inviti in una workspace ne vede tutti i progetti.",
+      "error": "Impossibile caricare le workspace.",
+      "retry": "Riprova"
+    },
+    "page": {
+      "summary_one": "{{count}} progetto",
+      "summary_other": "{{count}} progetti",
+      "people_one": "{{count}} persona",
+      "people_other": "{{count}} persone",
+      "addProjects": "Aggiungi progetti",
+      "more": "Altro per {{name}}",
+      "rename": "Rinomina",
+      "delete": "Elimina…",
+      "noneIntro": "I progetti che non stanno in una workspace. Li vedono solo i loro membri e i full admin.",
+      "notFound": "Questa workspace non esiste o non puoi vederla.",
+      "back": "← Tutti i progetti",
+      "empty": "Ancora nessun progetto in {{name}}."
+    },
+    "people": {
+      "intro": "Chi è in {{name}} ne vede tutti i progetti col ruolo di workspace. Un ruolo in un singolo progetto può solo aggiungere.",
+      "invite": "Invita in {{name}}",
+      "inviteShort": "Invita",
+      "label": "Le persone di {{name}}",
+      "empty": "Ancora nessuno in {{name}}.",
+      "error": "Impossibile caricare le persone di {{name}}.",
+      "fullAdmins": "I full admin vedono tutti i progetti, per questo non sono in elenco.",
+      "deactivated": "(disattivato)",
+      "plusRole": "+ {{role}} in {{code}}",
+      "more_one": "+{{count}} altro",
+      "more_other": "+{{count}} altri"
+    },
+    "panel": {
+      "close": "Chiudi",
+      "role": "Ruolo in {{name}}",
+      "roleChoice": "{{name}} · {{count}} permessi",
+      "roleMissing": "{{name}}: non hai tutti questi permessi in {{codes}}",
+      "inEach": "In ogni progetto",
+      "fromWorkspace": "{{role}}, dalla workspace",
+      "fromProject": "{{role}}, membro di {{code}}",
+      "remove": "Togli da {{name}}…",
+      "removeStops": "{{name}} smetterà di vedere {{codes}}.",
+      "removeNothing": "{{name}} continua a vedere ogni progetto, da membro di ciascuno.",
+      "removeKeeps": "{{name}} resta membro di {{codes}}.",
+      "alsoProjects": "Togli {{name}} anche da {{codes}}",
+      "removeConfirm": "Togli",
+      "changes_one": "{{count}} modifica",
+      "changes_other": "{{count}} modifiche",
+      "discard": "Annulla le modifiche",
+      "reauthRole": "cambiare il ruolo di workspace di {{name}}",
+      "reauthRemove": "togliere {{name}} da {{workspace}}"
+    },
+    "invite": {
+      "person": "Persona",
+      "choose": "Scegli una persona",
+      "fullAdmin": "{{name}}: full admin, vede già tutto",
+      "departmentMissing": "{{name}}: il suo reparto dà permessi che non hai",
+      "role": "Ruolo",
+      "willSee_one": "{{name}} vedrà {{count}} progetto: {{codes}}.",
+      "willSee_other": "{{name}} vedrà {{count}} progetti: {{codes}}.",
+      "newAccount": "Invita nell'istanza chi non ha un account",
+      "submit": "Invita",
+      "reauth": "aggiungere {{name}} a {{workspace}}"
+    },
+    "dialog": {
+      "name": "Nome",
+      "projects": "Progetti",
+      "movesHere": "in {{name}}: si sposta qui",
+      "later": "Puoi aggiungere i progetti dopo.",
+      "cancel": "Annulla",
+      "create": "Crea",
+      "add": "Aggiungi",
+      "save": "Salva",
+      "delete": "Elimina",
+      "addTitle": "Aggiungi progetti a {{name}}",
+      "renameTitle": "Rinomina la workspace",
+      "deleteTitle": "Eliminare {{name}}?",
+      "deleteBody_one": "Il suo progetto resta, in Nessuna workspace.",
+      "deleteBody_other": "I suoi {{count}} progetti restano, in Nessuna workspace.",
+      "deleteLosing_one": "{{count}} persona smetterà di vederli: non è membro di nessuno.",
+      "deleteLosing_other": "{{count}} persone smetteranno di vederli: non sono membri di nessuno.",
+      "nothingDeleted": "Non è stato eliminato niente.",
+      "reauthCreate": "creare {{name}} coi suoi progetti",
+      "reauthAdd": "aggiungere progetti a {{name}}",
+      "reauthDelete": "eliminare {{name}}"
+    },
+    "effect": {
+      "start_one": "{{count}} persona comincerà a vedere {{code}}:",
+      "start_other": "{{count}} persone cominceranno a vedere {{code}}:",
+      "stop_one": "{{count}} persona smetterà di vedere {{code}}:",
+      "stop_other": "{{count}} persone smetteranno di vedere {{code}}:",
+      "and": " e ",
+      "namesMore_one": "{{names}} e {{count}} altra",
+      "namesMore_other": "{{names}} e altre {{count}}",
+      "who": "Chi?"
+    },
+    "refusals": {
+      "notManaged": "Non gestisci i membri di {{code}}, quindi non puoi cambiare chi lo vede.",
+      "escalation": "Non puoi dare questo ruolo: non hai tutti i suoi permessi in {{code}}.",
+      "escalationAny": "Non puoi dare questo ruolo: non hai tutti i suoi permessi in ogni progetto della workspace.",
+      "lastManager": "Nessuno potrebbe più gestire i membri di {{code}}. Prima dai quel ruolo a qualcuno in {{code}}.",
+      "last_manager": "Nessuno potrebbe più gestire i membri di uno di questi progetti.",
+      "name_taken": "C'è già una workspace con questo nome.",
+      "name_required": "Dai un nome alla workspace.",
+      "name_too_long": "Tieni il nome sotto i 60 caratteri.",
+      "already_member": "Questa persona è già nella workspace.",
+      "full_admin": "I full admin vedono già tutti i progetti.",
+      "deactivated": "Questa persona è disattivata.",
+      "forbidden": "Non puoi modificare le workspace.",
+      "generic": "Impossibile salvare. Riprova."
+    },
+    "toast": {
+      "created": "{{name}} creata.",
+      "added_one": "{{codes}} ora è in {{name}}.",
+      "added_other": "{{codes}} ora sono in {{name}}.",
+      "deleted": "Workspace eliminata.",
+      "joined": "{{name}} ora è in {{workspace}} come {{role}}.",
+      "removed": "{{name}} non è più in {{workspace}}.",
+      "saved": "Salvato"
+    }
+  },
   "settings": {
     "intro": "Come funziona {{project}}: i suoi stati e quando una task conta come ferma.",
     "statuses": {
@@ -2852,8 +2986,18 @@
         "givenNoName": "dato il {{date}}",
         "seed": "dati di esempio",
         "department": "reparto {{name}}",
+        "workspace": "{{role}} da {{workspace}}",
         "draft": "non ancora salvato"
       },
+      "workspacePeople": "Le persone di {{workspace}}",
+      "workspaceNote": "Le persone di {{workspace}} vedono {{code}} col loro ruolo di workspace.",
+      "source": {
+        "all": "Tutti",
+        "members": "Membri",
+        "workspace": "Dalla workspace"
+      },
+      "sourceFilter": "Chi mostrare",
+      "giveRole": "Dai un ruolo in {{code}}",
       "panel": {
         "label": "{{name}} in {{code}}",
         "close": "Chiudi",
@@ -2870,12 +3014,15 @@
         "source": {
           "role": "Dal ruolo {{name}}",
           "department": "Dal reparto {{name}}",
+          "workspace": "Dal ruolo {{role}} in {{workspace}}, in ogni progetto della workspace",
           "given": "Dato da {{name}} il {{date}}",
           "givenNoName": "Dato il {{date}}",
           "seed": "Dai dati di esempio",
           "draft": "Dato quando salvi",
           "removing": "Da togliere — {{source}}"
         },
+        "workspaceAdds": "{{workspace}} dà già {{role}}: un ruolo qui può solo aggiungere, non toglie mai niente.",
+        "seesBecause": "Vede {{code}} perché: membro di {{code}} · in {{workspace}}",
         "change": {
           "role": "ruolo {{role}}",
           "gives": "dà {{permission}}",
@@ -2959,6 +3106,9 @@
       "descriptionError": "Tieni la descrizione entro 1.000 caratteri.",
       "noDescription": "Nessuna descrizione.",
       "code": "Codice",
+      "workspaceReauth": "cambiare chi vede {{code}}",
+      "inWorkspace": "In {{name}}",
+      "workspace": "Workspace",
       "codeHint": "Il codice non cambia mai: è in ogni codice di task, come {{code}}-57, e nei link che le persone hanno salvato.",
       "modules": "Moduli",
       "docs": "Docs",
@@ -3048,6 +3198,16 @@
       "leaves": "Un repository lascia un progetto solo quando il progetto viene eliminato.",
       "empty": "{{code}} non ha ancora repository. Aggiungine uno perché Claude possa lavorare sul codice e si possano scrivere i Docs.",
       "emptyRead": "Può aggiungerne uno chi può gestire i repository di {{code}}.",
+      "addNeedsGitAccounts": "Aggiungere un repository vuol dire scegliere uno degli account git dell'istanza, e serve il permesso di gestire gli account git.",
+      "addedWithWarnings": "{{name}} è stato aggiunto, ma:",
+      "changedConcurrently": "Gli account git del repository sono cambiati mentre salvavi. Ricarica la pagina e riprova.",
+      "saveWarnings": {
+        "main_account_identity_unresolved": "Salvato, ma Stubwise non riesce a leggere dalla piattaforma chi è l'account principale: ogni «Request changes» fatto sulla PR verrà ignorato (la task lo dirà). Controlla il token dell'account.",
+        "mainIdentityBitbucket": "Su Bitbucket il token deve avere lo scope read:user:bitbucket.",
+        "default_review_account_invalid": "Salvato, ma il revisore predefinito non ha superato i controlli su questo repository, quindi il suo verdetto potrebbe non passare: allora la review è un commento dell'account principale. Controlla il suo accesso e il suo token, oppure scegli un account di revisione.",
+        "release_branch_not_set": "Il ramo che hai scelto non si è salvato come quello verso cui Claude apre le pull request: resta il predefinito. Impostalo nella sezione Releases del repository."
+      },
+      "accountNeedsGitAccounts": "Per cambiare l'account git o il revisore serve il permesso di gestire gli account git.",
       "loadError": "Impossibile caricare i repository di {{code}}.",
       "tests": "test:",
       "testsDetected": "test rilevati dal lockfile",
@@ -3165,6 +3325,10 @@
         },
         "stale": "La scelta è cambiata: verifica di nuovo.",
         "notVerified": "Verifica di nuovo gli accessi prima di creare.",
+        "undecryptable": "Stubwise non riesce a decifrare le credenziali di {{account}}: un admin deve reinserirle in Amministrazione → Integrazioni.",
+        "platformSays": "La piattaforma dice: {{detail}}",
+        "branchesNotVisible": "{{account}} non vede i rami di questo repository su {{platform}}: c'è solo il ramo predefinito.",
+        "branchesError": "Impossibile caricare i rami: c'è solo il ramo predefinito.",
         "commandHint": "Lascialo vuoto per rilevarlo dal lockfile.",
         "prototype": {
           "intro": "Non si contatta niente di vero. Scegli cosa risponde la prossima verifica.",
@@ -5852,7 +6016,11 @@
       "askBuild": "Chiedi a un maintainer di costruirlo.",
       "setupPrIs": "PR di setup: {{url}}",
       "setupPrIs_open": "PR di setup, aperta: {{url}}",
-      "setupPrIs_merged": "PR di setup, mergiata: {{url}}"
+      "setupPrIs_merged": "PR di setup, mergiata: {{url}}",
+      "htmlView": "Grafo interattivo",
+      "htmlFrame": "Grafo interattivo di {{name}}",
+      "expand": "Espandi",
+      "collapse": "Chiudi"
     },
     "chat": {
       "title": "Chiedi ai documenti",
@@ -10274,6 +10442,7 @@
       "manageGeneralAutomations": "gestire le automazioni generali",
       "manageSshAccess": "gestire gli accessi SSH",
       "manageDepartments": "gestire i reparti",
+      "manageWorkspaces": "gestire le workspace",
       "readChangeLog": "leggere il registro delle modifiche",
       "manageIntegrations": "gestire le integrazioni",
       "addRequests": "inviare richieste",
@@ -10335,6 +10504,8 @@
       "can": "Può",
       "never": "Mai",
       "notMember": "{{name}} non è membro di {{code}}.",
+      "seesThroughWorkspace": "{{name}} vede {{code}} dalla workspace {{workspace}}: non è membro di {{code}}.",
+      "seesBoth": "{{name}} vede {{code}} da membro e dalla workspace {{workspace}}.",
       "notMemberButAdmin": "{{name}} non è membro di {{code}}, ma da amministratore completo lì può fare tutto.",
       "alsoCant": "Mostra anche cosa non può fare {{name}}",
       "nothingHeld": "{{name}} qui non può fare niente.",
@@ -10347,6 +10518,7 @@
       "grant": "dato da {{name}} il {{date}}",
       "grantByHand": "dato a mano il {{date}}",
       "department": "reparto {{department}}",
+      "workspace": "{{role}} da {{workspace}}",
       "fullAdmin": "Amministratore completo"
     },
     "link": {
@@ -10725,6 +10897,8 @@
         "givenNoName": "dato il {{date}}",
         "seed": "dal seme",
         "department": "dal reparto {{name}}",
+        "workspace": "{{role}} da {{workspace}}",
+        "alsoWorkspace": "{{role}} · anche {{wsRole}} da {{workspace}}",
         "fullAdmin": "come amministratore completo",
         "role": "dal ruolo {{name}}",
         "edit": "Modifica",
@@ -10738,6 +10912,9 @@
         "managesHome": "gestisce la Home del reparto",
         "edit": "Modifica",
         "editLabel": "Modifica {{name}}"
+      },
+      "workspaces": {
+        "title": "Workspace"
       },
       "identities": {
         "title": "Identità collegate",
@@ -10816,6 +10993,11 @@
       "email": "Email",
       "instanceRole": "Ruolo d'istanza",
       "projects": "Progetti",
+      "addWorkspace": "Aggiungi una workspace",
+      "chooseWorkspace": "Scegli una workspace",
+      "removeWorkspace": "Togli {{name}}",
+      "workspaceRole": "Ruolo in {{name}}",
+      "workspaces": "Workspace",
       "projectsHint": "Entra in questi progetti quando accetta.",
       "noProjects": "Puoi invitare persone nell'istanza, ma non in un progetto: non gestisci i membri da nessuna parte.",
       "addProject": "Aggiungi un progetto",
@@ -10979,7 +11161,7 @@
       }
     },
     "departments": {
-      "intro": "I reparti raggruppano le persone fra i progetti. Un reparto può anche dare permessi in più alle sue persone — solo nei progetti di cui sono già membri.",
+      "intro": "I reparti raggruppano le persone fra i progetti. Un reparto può anche dare permessi in più alle sue persone — solo nei progetti che vedono, da membri o da una workspace.",
       "new": "Nuovo reparto",
       "loadError": "Non è stato possibile caricare i reparti.",
       "empty": "Ancora nessun reparto. I reparti raggruppano le persone e possono dar loro permessi in più.",
@@ -11040,7 +11222,7 @@
       },
       "permissions": {
         "title": "Permessi in più nei progetti",
-        "intro": "Le persone di questo reparto li ricevono in ogni progetto di cui sono già membri. Non le aggiunge a nessun progetto.",
+        "intro": "Le persone di questo reparto li ricevono in ogni progetto che vedono, da membri o da una workspace. Non le aggiunge a nessun progetto.",
         "tableLabel": "Permessi in più di {{name}}"
       },
       "changes_one": "{{count}} modifica",
@@ -12258,6 +12440,12 @@
         "hint": "Creare reparti, scegliere chi ci sta e cosa danno."
       }
     },
+    "workspaces": {
+      "manage": {
+        "label": "gestire le workspace",
+        "hint": "Creare le workspace e scegliere quali progetti ci stanno."
+      }
+    },
     "changelog": {
       "view": {
         "label": "leggere il registro delle modifiche",
@@ -12482,6 +12670,16 @@
         "permissions_changed": "<actor>{{actor}}</actor> ha cambiato i permessi che dà <object>{{object}}</object>.",
         "deleted": "<actor>{{actor}}</actor> ha eliminato il reparto <object>{{object}}</object>."
       },
+      "workspace": {
+        "created": "<actor>{{actor}}</actor> ha creato la workspace <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> ha rinominato la workspace <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> ha eliminato la workspace <object>{{object}}</object>.",
+        "project_added": "<actor>{{actor}}</actor> ha messo il progetto nella workspace <object>{{object}}</object>.",
+        "project_removed": "<actor>{{actor}}</actor> ha tolto il progetto dalla workspace <object>{{object}}</object>.",
+        "member_added": "<actor>{{actor}}</actor> ha aggiunto <object>{{object}}</object> a {{workspaceName}} come {{roleName}}.",
+        "member_role_changed": "<actor>{{actor}}</actor> ha cambiato il ruolo di <object>{{object}}</object> in {{workspaceName}}.",
+        "member_removed": "<actor>{{actor}}</actor> ha tolto <object>{{object}}</object> da {{workspaceName}}."
+      },
       "member": {
         "added": "<actor>{{actor}}</actor> ha aggiunto <object>{{object}}</object> a {{project}} come {{role}}.",
         "removed": "<actor>{{actor}}</actor> ha tolto <object>{{object}}</object> da {{project}}.",
@@ -12626,6 +12824,7 @@
       "roles": "Ruoli",
       "members": "Membri",
       "departments": "Reparti",
+      "workspaces": "Workspace",
       "security": "Sicurezza",
       "ai": "AI",
       "integrations": "Integrazioni",
@@ -12642,6 +12841,7 @@
       "roles": "ruoli",
       "members": "membri dei progetti",
       "departments": "reparti",
+      "workspaces": "workspace",
       "security": "azzeramenti di sicurezza",
       "ai": "impostazioni dell'AI",
       "integrations": "integrazioni",

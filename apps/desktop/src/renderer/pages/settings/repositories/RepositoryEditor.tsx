@@ -8,6 +8,7 @@ import {
   useProjectRepositories,
   useUpdateRepository,
   type RepositoryView,
+  type RepositorySaveWarning,
 } from "../../../data/queries";
 import type { Project } from "../../../data/types";
 import { AiSkeleton } from "../../admin/ai/parts";
@@ -26,6 +27,7 @@ import {
   useSettingsWrite,
 } from "../SettingsFrame";
 import { ViewOnlyLine } from "../ViewOnly";
+import { SaveWarnings } from "./SaveWarnings";
 import { EnvFilesSection } from "./EnvFiles";
 import { WebhookSection, WebhookState } from "./WebhookRow";
 
@@ -161,6 +163,7 @@ export function RepositoryEditor({
         project={project}
         repository={repository}
         canManage={data.canManage}
+        canChooseGitAccount={data.canChooseGitAccount}
         barSlot={barSlot}
         onReload={() => void repositories.refetch()}
       />
@@ -236,12 +239,14 @@ function Details({
   project,
   repository,
   canManage,
+  canChooseGitAccount,
   barSlot,
   onReload,
 }: {
   project: Project;
   repository: RepositoryView;
   canManage: boolean;
+  canChooseGitAccount: boolean;
   barSlot: HTMLElement | null;
   onReload: () => void;
 }) {
@@ -285,6 +290,7 @@ function Details({
           repository={repository}
           initial={initial}
           accounts={accountList}
+          canChooseGitAccount={canChooseGitAccount}
           write={write}
           barSlot={barSlot}
         />
@@ -359,12 +365,14 @@ function DetailsForm({
   repository,
   initial,
   accounts,
+  canChooseGitAccount,
   write,
   barSlot,
 }: {
   project: Project;
   repository: RepositoryView;
   initial: Draft;
+  canChooseGitAccount: boolean;
   accounts: {
     id: string;
     name: string;
@@ -377,8 +385,13 @@ function DetailsForm({
 }) {
   const { t } = useTranslation();
   const update = useUpdateRepository();
+  // Cambiare l'account git o il revisore è sceglierne uno: `git_accounts.manage`
+  // (la regola del server, decisa col ritiro del web vecchio). Lo dice la lettura.
+  const canChoose = canChooseGitAccount;
   const [edits, setEdits] = useState<Draft | null>(null);
   const [invalid, setInvalid] = useState<Invalid>(null);
+  // Gli avvisi dell'ultimo salvataggio riuscito (revisione M1).
+  const [saveWarnings, setSaveWarnings] = useState<RepositorySaveWarning[]>([]);
   const [busy, setBusy] = useState(false);
   const [justSaved, flash] = useFlash();
   const id = useId();
@@ -418,6 +431,7 @@ function DetailsForm({
     if (changes === 0 || busy) return;
     setBusy(true);
     setInvalid(null);
+    setSaveWarnings([]);
     await write.run(
       () =>
         update.mutateAsync({
@@ -437,10 +451,11 @@ function DetailsForm({
         }),
       (reason, line) => setInvalid({ reason, line }),
       // Il seguito sta in `onDone`: vale anche dopo un Retry riuscito.
-      () => {
+      (result) => {
         guard.clear();
         setEdits(null);
         flash();
+        setSaveWarnings(result.ok ? (result.warnings ?? []) : []);
       },
     );
     setBusy(false);
@@ -533,8 +548,9 @@ function DetailsForm({
                 <select
                   id={`${id}-account`}
                   value={draft.gitAccountId ?? ""}
+                  disabled={!canChoose}
                   aria-invalid={accountError ? true : undefined}
-                  aria-describedby={accountError ? `${id}-account-error` : undefined}
+                  aria-describedby={describe(accountError && `${id}-account-error`, !canChoose && `${id}-account-locked`)}
                   onChange={(e) => set({ gitAccountId: e.target.value })}
                   className={`${selectClass} h-9 w-full`}
                 >
@@ -552,6 +568,11 @@ function DetailsForm({
                     {t("settings.repos.gitAccountError")}
                   </ErrorLine>
                 )}
+                {!canChoose && (
+                  <p id={`${id}-account-locked`} className="text-xs text-pretty text-ink-muted">
+                    {t("settings.repos.accountNeedsGitAccounts")}
+                  </p>
+                )}
               </dd>
             ),
           }}
@@ -561,6 +582,7 @@ function DetailsForm({
             <select
               id={`${id}-review`}
               value={draft.reviewGitAccountId ?? ""}
+              disabled={!canChoose}
               aria-invalid={reviewError ? true : undefined}
               aria-describedby={describe(`${id}-review-hint`, reviewError && `${id}-review-error`)}
               onChange={(e) =>
@@ -650,6 +672,17 @@ function DetailsForm({
           </dd>
         </Row>
       </dl>
+      {/* 409 del server (revisione M7): gli account del repository sono cambiati mentre si salvava. */}
+      {invalid?.reason === "repository_changed_concurrently" && (
+        <div className="mt-4">
+          <ErrorLine>{t("settings.repos.changedConcurrently")}</ErrorLine>
+        </div>
+      )}
+      {saveWarnings.length > 0 && (
+        <div className="mt-4">
+          <SaveWarnings warnings={saveWarnings} provider={repository.provider} />
+        </div>
+      )}
       {barSlot &&
         (changes > 0 || justSaved || write.message) &&
         createPortal(

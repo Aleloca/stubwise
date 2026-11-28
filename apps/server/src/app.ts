@@ -1,3 +1,4 @@
+import { goRoutes } from "./routes/go.js";
 import fastifyCookie from "@fastify/cookie";
 import { uploadsOff } from "./services/storage-uploads-gate.js";
 import fastifyMultipart from "@fastify/multipart";
@@ -82,6 +83,7 @@ import { widgetRoutes } from "./routes/widget.js";
 import { monitorRoutes } from "./routes/monitor.js";
 import { milestoneRoutes } from "./routes/milestones.js";
 import { departmentRoutes } from "./routes/departments.js";
+import { workspaceRoutes } from "./routes/workspaces.js";
 import { peopleRoutes } from "./routes/people.js";
 import { projectStatusRoutes } from "./routes/project-statuses.js";
 import { taskRoutes } from "./routes/tasks.js";
@@ -853,6 +855,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(milestoneRoutes, { prefix: "/api/milestones" });
   // Integrazione area 2, fetta 1: reparti, persone, stati e soglie del progetto.
   void app.register(departmentRoutes, { prefix: "/api/departments" });
+  void app.register(workspaceRoutes, { prefix: "/api/workspaces" });
   void app.register(peopleRoutes, { prefix: "/api/people" });
   void app.register(projectStatusRoutes, { prefix: "/api/projects" });
   void app.register(taskRoutes, { prefix: "/api/tasks" });
@@ -1077,6 +1080,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(meCalendarRoutes, { prefix: "/api/me/calendar", ...(opts.calendarWriteClient ? { client: opts.calendarWriteClient } : {}) });
 
   app.get("/health", { config: { access: { kind: "public" }, mcp: { exclude: "infra" } } }, async () => ({ status: "ok" }));
+  // Ritiro del web vecchio: i rimandi dei link già spediti verso la nuova app (`routes/go.ts`).
+  void app.register(goRoutes, { prefix: "/go" });
 
   // Documento JSON puro, niente Swagger UI: il sito di documentazione
   // (Task 28) renderà questa spec. Non serve un db per servirla.

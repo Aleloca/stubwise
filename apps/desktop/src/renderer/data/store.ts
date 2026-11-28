@@ -191,6 +191,7 @@ import {
   accessState as accessStateNow,
   registerMembershipSync,
   resetAccessState,
+  seatsIn,
   subscribeAccess,
   writeAccess as writeAccessNow,
   type AccessState,
@@ -763,6 +764,18 @@ export type ApiFnName =
   | "auth.reauthenticate"
   | "auth.enrollDuringReauth"
   // Amministrazione (area 9a, Task 4): People, inviti, ruoli, reparti, membri
+  | "workspaces.list"
+  | "workspaces.get"
+  | "workspaces.ofProject"
+  | "workspaces.listMembers"
+  | "workspaces.preview"
+  | "workspaces.create"
+  | "workspaces.rename"
+  | "workspaces.delete"
+  | "workspaces.setProjectWorkspace"
+  | "workspaces.addMember"
+  | "workspaces.setMemberRole"
+  | "workspaces.removeMember"
   | "admin.listPeople"
   | "admin.getPerson"
   | "admin.setInstanceRole"
@@ -928,6 +941,7 @@ export type ApiFnName =
   // Repository, file d'ambiente, Integration, Plugins (Task 4)
   | "projectSettings.listProjectRepositories"
   | "projectSettings.listRemoteRepositories"
+  | "projectSettings.listRemoteBranches"
   | "projectSettings.checkRepositoryAccess"
   | "projectSettings.simulateNextRepositoryCheck"
   | "projectSettings.createRepository"
@@ -1409,6 +1423,19 @@ function withClaudeSeedActivity(task: Task): Task {
   return latest && latest > task.lastActivityAt ? { ...task, lastActivityAt: latest } : task;
 }
 
+/**
+ * `memberIds` del seme con anche chi vede il progetto dalla workspace
+ * (shape `workspaces.md`): le appartenenze del seme nascono da `memberIds`,
+ * le persone di workspace no, quindi si aggiungono qui, sugli accessi appena
+ * ripristinati. Dopo il seme le allinea `registerMembershipSync`.
+ */
+function withWorkspaceSeats(project: Project): Project {
+  const extra = seatsIn(accessStateNow())
+    .filter((x) => x.projectId === project.id && !project.memberIds.includes(x.personId))
+    .map((x) => x.personId);
+  return extra.length === 0 ? project : { ...project, memberIds: [...project.memberIds, ...extra] };
+}
+
 function freshState(): State {
   return {
     access: resetAccessState(),
@@ -1435,7 +1462,7 @@ function freshState(): State {
     instance: seedInstanceState(),
     googleWorkspaces: seedGoogleWorkspaces(),
     proposalsBeforeUnlink: new Map(),
-    projects: PROJECTS.map(copy),
+    projects: PROJECTS.map(copy).map(withWorkspaceSeats),
     statuses: PROJECT_STATUSES.map(copy),
     tasks: TASKS.map(copy).map(withClaudeSeedActivity),
     deletedTasks: [],
@@ -1692,6 +1719,9 @@ export function emptyStore(): void {
   writeAccessNow((a) => {
     a.roles = a.roles.filter((r) => r.preset);
     a.memberships = [];
+    a.workspaces = [];
+    a.workspaceProjects = [];
+    a.workspaceMembers = [];
     a.grants = [];
     a.departments = [];
     a.people = [];

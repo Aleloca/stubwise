@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import {
   comments,
   decrypt,
@@ -1021,7 +1022,7 @@ export async function runPrReview(
             prNumber: job.prNumber,
             prUrl: job.prUrl,
             title: job.prTitle,
-            url: `${base}/app/#/p/${proj?.code ?? ""}/releases?pr=${job.repositoryId}%23${job.prNumber}`,
+            url: appUrl(base, { to: "pullRequest", projectCode: proj?.code ?? "", repositoryId: job.repositoryId, prNumber: job.prNumber! }),
           },
           {
             projectId: ctx.projectId,

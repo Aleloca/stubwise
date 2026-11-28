@@ -133,6 +133,31 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   reparto eliminato (F8-5 = a). La riconferma sui reparti la chiede SOLO una
   scrittura che fa arrivare permessi a qualcuno: un permesso aggiunto, o una
   persona aggiunta a un reparto che ne dà (F8-3 = a del maintainer).
+- **Le workspace: chi accede a un progetto si legge da `project_access`,
+  mai da `project_members` da sola (27 nov 2026, design
+  `docs/plans/2026-11-27-workspace-design.md`, decisioni D1–D19).** Una
+  persona di una workspace vede ogni suo progetto col ruolo di workspace (un
+  ruolo di PROGETTO). La vista `project_access` (0239) ha una riga per FONTE,
+  `member` o `workspace`, e i permessi effettivi sono l'UNIONE delle fonti:
+  - i ruoli di tutte le righe;
+  - i permessi personali (solo con la riga esplicita);
+  - i permessi dei reparti, che valgono anche dove si è membri per workspace
+    (D10: è l'estensione di F8-1 = a, «un reparto non rende membri» resta vero);
+  - l'implicito del full admin.
+
+  È `projectAccessPermissionsSql` / `projectAccessSql` /
+  `projectAccessRowCounts` in `packages/db/src/member-permissions.ts`, sopra
+  cui stanno le funzioni centrali qui sopra. Conseguenze:
+  - un override per progetto AGGIUNGE soltanto (D1);
+  - un gestore dei membri per via di workspace conta per `last_manager` (D18);
+  - un ruolo usato da una workspace è «in uso» (`role_in_use`) e i suoi
+    progetti contano per l'anti-escalation di chi lo modifica;
+  - Claude non riceve niente per via di una workspace.
+
+  `apps/server/src/workspace-readers-registry.test.ts` fallisce se un file
+  nomina `project_members` fuori da un elenco CHIUSO di siti di gestione
+  (scritture, sezione Members, appartenenze esplicite). La riga da cambiare
+  è la query, non il test.
 - **Una persona disattivata non entra da nessuna porta, e non si
   disattiva l'ultimo full admin.** Disattivare cancella nella stessa
   transazione sessioni, PAT e `device_tokens`, e revoca gli inviti

@@ -55,6 +55,8 @@ export function useReasonWords() {
           : t("whoCan.reasons.grantByHand", { date: formatDate(r.at, i18n.language) });
       case "department":
         return t("whoCan.reasons.department", { department: r.departmentName });
+      case "workspace":
+        return t("whoCan.reasons.workspace", { role: r.roleName, workspace: r.workspaceName });
       case "full_admin":
         return t("whoCan.reasons.fullAdmin");
     }
@@ -597,12 +599,29 @@ function WhatAnswer({ answer }: { answer: WhatCanView }) {
 
   return (
     <div aria-live="polite" className="mt-6">
-      {answer.member === false && (
-        <p className="mb-4 text-md text-ink">
-          {held.length > 0
-            ? t("whoCan.page.notMemberButAdmin", { name: answer.name, code: answer.projectCode })
-            : t("whoCan.page.notMember", { name: answer.name, code: answer.projectCode })}
+      {answer.workspaceName ? (
+        // Shape `workspaces.md` [WS 3]: da dove si vede il progetto, per nome.
+        <p className="mb-4 text-md text-ink" data-sees-because>
+          {answer.member
+            ? t("whoCan.page.seesBoth", {
+                name: answer.name,
+                code: answer.projectCode,
+                workspace: answer.workspaceName,
+              })
+            : t("whoCan.page.seesThroughWorkspace", {
+                name: answer.name,
+                code: answer.projectCode,
+                workspace: answer.workspaceName,
+              })}
         </p>
+      ) : (
+        answer.member === false && (
+          <p className="mb-4 text-md text-ink">
+            {held.length > 0
+              ? t("whoCan.page.notMemberButAdmin", { name: answer.name, code: answer.projectCode })
+              : t("whoCan.page.notMember", { name: answer.name, code: answer.projectCode })}
+          </p>
+        )
       )}
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <p className="text-lg font-semibold text-ink">

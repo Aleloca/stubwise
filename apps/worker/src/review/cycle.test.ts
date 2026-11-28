@@ -901,7 +901,9 @@ describe("afterReviewCompleted — link dello status di commit (B14 §6a)", () =
     await afterReviewCompleted({ ...f.deps, publicUrl: "https://stubwise.example.com/" }, input(s));
 
     const status = f.setCommitStatus.mock.calls[0]![2] as { url?: string };
-    expect(status.url).toBe(`https://stubwise.example.com/tickets/${s.ticket.id}`);
+    // La task nella nuova app (`app-links`), col suo codice.
+    const [row] = await testDb.db.select({ code: projects.code, number: tickets.number }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, s.ticket.id));
+    expect(status.url).toBe(`https://stubwise.example.com/app/#/p/${row!.code}/tasks?task=${row!.code}-${row!.number}`);
   });
 
   it("URL pubblico http o localhost: lo status parte SENZA link", async () => {
@@ -918,12 +920,13 @@ describe("afterReviewCompleted — link dello status di commit (B14 §6a)", () =
   });
 
   it("commitStatusTargetUrl: i casi puri", () => {
-    expect(commitStatusTargetUrl(undefined, "t1")).toBeUndefined();
-    expect(commitStatusTargetUrl("", "t1")).toBeUndefined();
-    expect(commitStatusTargetUrl("http://s.example.com", "t1")).toBeUndefined();
-    expect(commitStatusTargetUrl("https://LOCALHOST", "t1")).toBeUndefined();
-    expect(commitStatusTargetUrl("https://[::1]:8443", "t1")).toBeUndefined();
-    expect(commitStatusTargetUrl("https://s.example.com", "t1")).toBe("https://s.example.com/tickets/t1");
+    const task = (base: string) => `${base}/app/#/p/ACQ/tasks?task=ACQ-1`;
+    expect(commitStatusTargetUrl(undefined, task(""))).toBeUndefined();
+    expect(commitStatusTargetUrl("", task(""))).toBeUndefined();
+    expect(commitStatusTargetUrl("http://s.example.com", task("http://s.example.com"))).toBeUndefined();
+    expect(commitStatusTargetUrl("https://LOCALHOST", task("https://LOCALHOST"))).toBeUndefined();
+    expect(commitStatusTargetUrl("https://[::1]:8443", task("https://[::1]:8443"))).toBeUndefined();
+    expect(commitStatusTargetUrl("https://s.example.com", task("https://s.example.com"))).toBe("https://s.example.com/app/#/p/ACQ/tasks?task=ACQ-1");
   });
 });
 

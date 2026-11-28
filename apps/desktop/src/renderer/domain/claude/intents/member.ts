@@ -23,7 +23,7 @@ const NAME =
 /** Il ruolo annunciato: «as Developer», «come Developer». */
 const AS_ROLE = /\b(as|come)\s+\S/;
 /** Un codice di progetto dopo una preposizione: «to ACQ», «ad ACQ», «in ACQ». */
-const TO_PROJECT = /\b(?:to|into|in|ad|a|al|nel|per)\s+([A-Z]{2,4})\b/;
+const TO_PROJECT = /\b(?:to|into|in|ad|a|al|nel|per)\s+([A-Z][A-Z0-9]{1,5})\b/;
 const TASK_CODE = /\b[a-z]{2,4}-\d+\b/i;
 
 /**

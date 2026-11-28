@@ -1499,7 +1499,7 @@ export async function markDepartmentHomeSeen(departmentId: string, updatedAt?: s
 
 // --- progetti ---------------------------------------------------------------------
 
-const CODE_PATTERN = /^[A-Z]{2,4}$/;
+const CODE_PATTERN = /^[A-Z][A-Z0-9]{1,5}$/;
 
 /**
  * L'id di un progetto nuovo non è mai quello di un progetto eliminato col
@@ -2059,7 +2059,7 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
     }
     // Area 10b (Task 9): il filtro della pagina mostra le task di un progetto.
     if (e.type === "pageAction" && e.action.kind === "filter") {
-      const code = /^\/p\/([A-Z]{2,4})\//.exec(e.action.route)?.[1];
+      const code = /^\/p\/([A-Z][A-Z0-9]{1,5})\//.exec(e.action.route)?.[1];
       add(state.projects.find((p) => p.code === code)?.id);
     }
     // Area 10b: una bozza legge l'oggetto del suo campo (il corpo di

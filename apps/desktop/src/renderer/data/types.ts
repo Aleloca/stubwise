@@ -66,11 +66,13 @@ export interface Viewer {
 }
 
 export interface SearchResult {
-  kind: "project" | "task" | "request" | "person";
+  kind: "project" | "task" | "request" | "person" | "workspace";
   id: string;
   code?: string;
   label: string;
   route: string;
+  /** Il testo minore accanto: la workspace di un progetto, i progetti di una workspace. */
+  detail?: string;
   /** Solo per le task: il reparto, per la striscia. */
   departmentId?: string;
 }
