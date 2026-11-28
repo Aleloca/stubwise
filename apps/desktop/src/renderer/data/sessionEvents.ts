@@ -16,3 +16,33 @@ export function onSessionLost(fn: () => void): () => void {
 export function emitSessionLost(): void {
   for (const fn of listeners) fn();
 }
+
+// «Esci» (cassaforte nel browser, design §8): chi tiene un segreto della
+// sessione lo butta. Lo emette il logout della build app, dopo la rotta.
+const loggedOut = new Set<() => void>();
+
+export function onLoggedOut(fn: () => void): () => void {
+  loggedOut.add(fn);
+  return () => {
+    loggedOut.delete(fn);
+  };
+}
+
+export function emitLoggedOut(): void {
+  for (const fn of loggedOut) fn();
+}
+
+// Una sessione NUOVA (cassaforte nel browser, revisione I-3): la build app la
+// vede quando `/api/auth/me` dà un `sessionTag` diverso dall'ultimo.
+const started = new Set<() => void>();
+
+export function onSessionStarted(fn: () => void): () => void {
+  started.add(fn);
+  return () => {
+    started.delete(fn);
+  };
+}
+
+export function emitSessionStarted(): void {
+  for (const fn of started) fn();
+}

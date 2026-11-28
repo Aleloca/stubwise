@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   DESCRIPTION_MAX,
@@ -6,14 +6,24 @@ import {
   useProjectSettings,
   useSetDocsModule,
   useUpdateProjectGeneral,
+  useSetProjectWorkspace,
+  useWorkspaceEffect,
+  useWorkspaceOfProject,
+  useWorkspaces,
+  workspacesAvailable,
   type ProjectSettingsView,
+  type WorkspaceOperation,
 } from "../../data/queries";
+import { useReauth } from "../../layout/useReauth";
+import { useToast } from "../../tasks-ui/Toast";
+import { useRefusalWords } from "../projects/workspaces/dialogs";
+import { EffectLine, blocks } from "../projects/workspaces/EffectLine";
 import type { Project } from "../../data/types";
 import { ErrorLine } from "../entry/parts";
 import { queryState } from "../home/blocks/BlockSection";
 import { useFlash } from "../preferences/parts";
 import { Switch } from "../preferences/SubscriptionRow";
-import { primaryButton } from "../tasks/controls";
+import { primaryButton, secondaryButton } from "../tasks/controls";
 import {
   LeaveConfirm,
   SavedNote,
@@ -53,6 +63,7 @@ export function GeneralSettings({ project }: { project: Project }) {
               onReload={() => void settings.refetch()}
             />
             <DocsModule view={settings.data} onReload={() => void settings.refetch()} />
+            {workspacesAvailable() && <WorkspaceRow project={project} />}
           </>
         )}
       </SettingsState>
@@ -239,6 +250,97 @@ function Row({
       </dt>
       {children}
     </div>
+  );
+}
+
+/**
+ * La workspace del progetto (shape `workspaces.md`): un menu con le
+ * workspace e «No workspace», e prima di salvare chi comincia o smette di
+ * vederlo. Serve `workspaces.manage` e la gestione dei membri del progetto
+ * (D4); altrimenti si legge soltanto.
+ */
+function WorkspaceRow({ project }: { project: Project }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const reauth = useReauth();
+  const list = useWorkspaces().data;
+  const of = useWorkspaceOfProject(project.id).data;
+  const current = of === undefined ? undefined : of.workspace;
+  const set = useSetProjectWorkspace();
+  const words = useRefusalWords();
+  const [choice, setChoice] = useState<string | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+  const selectId = useId();
+  const currentId = current?.id ?? null;
+  const chosen = choice === undefined ? currentId : choice;
+  const changed = choice !== undefined && choice !== currentId;
+  const op = useMemo<WorkspaceOperation | null>(
+    () =>
+      !changed
+        ? null
+        : chosen === null
+          ? { kind: "removeProject", projectId: project.id }
+          : { kind: "addProject", workspaceId: chosen, projectId: project.id },
+    [changed, chosen, project.id],
+  );
+  const effect = useWorkspaceEffect(op).data;
+  if (!list || current === undefined) return null;
+  const editable = of?.canChange === true;
+
+  async function save() {
+    const r = (await reauth(() => set.mutateAsync([project.id, chosen ?? null]), {
+      action: t("settings.general.workspaceReauth", { code: project.code }),
+    })) as { ok: boolean; error?: string; reason?: string };
+    if (!r.ok) return setError(words(r as never));
+    setChoice(undefined);
+    setError(null);
+    toast.show(t("workspaces.toast.saved"));
+  }
+
+  return (
+    <dl className="@container">
+      <Row label={t("settings.general.workspace")} htmlFor={editable ? selectId : undefined}>
+        <dd className="flex flex-col gap-2" data-workspace-row>
+          {editable ? (
+            <select
+              id={selectId}
+              value={chosen ?? ""}
+              onChange={(e) => setChoice(e.target.value === "" ? null : e.target.value)}
+              className="h-8 max-w-80 rounded-md border border-rule-strong bg-transparent px-2 text-md"
+            >
+              <option value="">{t("workspaces.none")}</option>
+              {list.workspaces.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-md text-ink @min-[720px]:pt-2">
+              {current ? t("settings.general.inWorkspace", { name: current.name }) : t("workspaces.none")}
+            </span>
+          )}
+          {changed && (
+            <>
+              <EffectLine effect={effect} />
+              <span className="flex gap-2">
+                <button type="button" className={secondaryButton} onClick={() => setChoice(undefined)}>
+                  {t("workspaces.panel.discard")}
+                </button>
+                <button type="button" className={primaryButton} disabled={blocks(effect)} onClick={() => void save()}>
+                  {t("workspaces.dialog.save")}
+                </button>
+              </span>
+            </>
+          )}
+          {error && (
+            <p role="alert" className="text-sm text-critical">
+              {error}
+            </p>
+          )}
+        </dd>
+      </Row>
+    </dl>
   );
 }
 

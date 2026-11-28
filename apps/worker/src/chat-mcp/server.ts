@@ -80,6 +80,10 @@ export const PROPOSABLE_FNS = [
   "addMember",
   "removeMember",
   "setMemberRole",
+  // Workspace (lotto 3, D14): entrare in una workspace e metterci un progetto
+  // (C, con la riconferma). Le remove esistono solo come inversi.
+  "addWorkspaceMember",
+  "addWorkspaceProject",
   "registerPlugin",
   "updatePluginRef",
   "archiveProject",

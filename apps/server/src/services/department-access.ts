@@ -1,4 +1,4 @@
-import { departmentMembers, departmentProjectPermissions, departments, projectMembers, users, type Db } from "@stubwise/db";
+import { departmentMembers, departmentProjectPermissions, departments, projectAccess, projectAccessRowCounts, users, type Db } from "@stubwise/db";
 import { PROJECT_PERMISSIONS } from "@stubwise/shared";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { projectPermissionsMap } from "../auth/access.js";
@@ -41,7 +41,8 @@ export interface DepartmentJudgement {
 export async function judgeDepartmentDraft(db: Db, actor: Actor, saved: DepartmentShape, draft: DepartmentShape): Promise<DepartmentJudgement> {
   const fullAdmin = actor.instancePermissions.has("instance.full_admin");
   const held = fullAdmin ? {} : await projectPermissionsMap(db, actor, { includeArchived: true });
-  const memberships = await db.select({ userId: projectMembers.userId, projectId: projectMembers.projectId }).from(projectMembers);
+  // I progetti dove ogni persona accede (membro esplicito o per workspace, 0239, D10): lì arriva il reparto.
+  const memberships = await db.selectDistinct({ userId: projectAccess.userId, projectId: projectAccess.projectId }).from(projectAccess).where(projectAccessRowCounts);
   // Una Map per persona (rimandi, lotto 4): prima ogni chiamata filtrava
   // tutte le appartenenze, e `missingToAdd` la chiama per ogni persona.
   const byUser = new Map<string, string[]>();

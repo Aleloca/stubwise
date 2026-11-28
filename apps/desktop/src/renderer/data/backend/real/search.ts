@@ -12,10 +12,16 @@ export const search: typeof Fake.search = async (q) => {
   const needle = q.trim();
   if (!needle) return [];
   const client = appClient();
-  const [hits, rows] = await Promise.all([
+  const [hits, rows, workspaces] = await Promise.all([
     // `citable`: niente note di rilascio nel gruppo Docs (area 5, fetta 1).
     citableSearch(needle),
     client.projects.list() as unknown as Promise<{ id: string; name: string; slug: string; code?: string }[]>,
+    // Le workspace (revisione d'insieme, M6): dall'elenco di chi guarda; un
+    // server senza workspace (o un errore) non toglie gli altri risultati.
+    client.workspaces
+      .list()
+      .then((r) => r.items)
+      .catch(() => [] as { id: string; name: string; projectIds: string[] }[]),
   ]);
   const codeOf = new Map(rows.map((p) => [p.id, p.code ?? p.slug.toUpperCase()]));
   const lower = needle.toLowerCase();
@@ -24,6 +30,19 @@ export const search: typeof Fake.search = async (q) => {
     const code = codeOf.get(p.id)!;
     if (p.name.toLowerCase().includes(lower) || code.toLowerCase().includes(lower)) {
       results.push({ kind: "project", id: p.id, code, label: p.name, route: `#/p/${code}/tasks` });
+    }
+  }
+  const visible = new Set(rows.map((p) => p.id));
+  for (const w of workspaces) {
+    if (w.name.toLowerCase().includes(lower)) {
+      results.push({
+        kind: "workspace",
+        id: w.id,
+        label: w.name,
+        route: `#/projects?workspace=${w.id}`,
+        // Il numero dei progetti VISIBILI (D5), come nella colonna.
+        detail: String(w.projectIds.filter((id) => visible.has(id)).length),
+      });
     }
   }
   for (const t of hits.tickets.items) {

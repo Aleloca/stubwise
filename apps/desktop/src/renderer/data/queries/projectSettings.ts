@@ -22,6 +22,7 @@ export type {
   ProjectSwitch,
   ProjectUsageDimension,
   RemoteRepository,
+  RepositorySaveWarning,
   RepositoryView,
 } from "../projectSettings";
 // Valori puri, ciascuno dal suo modulo: l'indice `../projectSettings` porta
@@ -196,6 +197,19 @@ export function useRemoteRepositories(accountId: string | null, projectId: strin
     queryKey: ["as", me, "projectSettings", "remote", accountId, projectId] as const,
     queryFn: () => api.projectSettings.listRemoteRepositories(accountId!, projectId),
     enabled: accountId !== null,
+  });
+}
+
+/**
+ * I rami del repository scelto nella creazione guidata (il predefinito per
+ * primo): sul server l'elenco dei repository della piattaforma non li porta.
+ */
+export function useRemoteBranches(accountId: string | null, fullName: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "projectSettings", "remoteBranches", accountId, fullName] as const,
+    queryFn: () => api.projectSettings.listRemoteBranches(accountId!, fullName!),
+    enabled: accountId !== null && fullName !== null,
   });
 }
 

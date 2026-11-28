@@ -41,6 +41,7 @@ import {
   useDayWord,
 } from "./parts";
 import { SecretOnce } from "./SecretOnce";
+import { QrImage } from "../../platform/qrImage";
 
 // Preferenze → Security (shape preferences-account.md): la riga di stato in
 // testa, l'app di autenticazione (configurazione in posto [PR 5]), le
@@ -343,11 +344,10 @@ function AppPart({
                 )}
                 <div className="flex flex-wrap items-start gap-6">
                   <figure className="flex flex-col items-start gap-1.5">
-                    <div
-                      className="size-40 rounded-md border border-rule bg-white p-2 text-black [&>svg]:size-full"
-                      role="img"
-                      aria-label={t("prefs.security.app.qrLabel")}
-                      dangerouslySetInnerHTML={{ __html: setup.qrSvg }}
+                    <QrImage
+                      svg={setup.qrSvg}
+                      label={t("prefs.security.app.qrLabel")}
+                      className="size-40 rounded-md border border-rule bg-white p-2"
                     />
                     <figcaption className="text-xs text-ink-muted">
                       {t("prefs.security.app.qrNote")}

@@ -82,6 +82,7 @@ import { widgetRoutes } from "./routes/widget.js";
 import { monitorRoutes } from "./routes/monitor.js";
 import { milestoneRoutes } from "./routes/milestones.js";
 import { departmentRoutes } from "./routes/departments.js";
+import { workspaceRoutes } from "./routes/workspaces.js";
 import { peopleRoutes } from "./routes/people.js";
 import { projectStatusRoutes } from "./routes/project-statuses.js";
 import { taskRoutes } from "./routes/tasks.js";
@@ -851,6 +852,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(milestoneRoutes, { prefix: "/api/milestones" });
   // Integrazione area 2, fetta 1: reparti, persone, stati e soglie del progetto.
   void app.register(departmentRoutes, { prefix: "/api/departments" });
+  void app.register(workspaceRoutes, { prefix: "/api/workspaces" });
   void app.register(peopleRoutes, { prefix: "/api/people" });
   void app.register(projectStatusRoutes, { prefix: "/api/projects" });
   void app.register(taskRoutes, { prefix: "/api/tasks" });

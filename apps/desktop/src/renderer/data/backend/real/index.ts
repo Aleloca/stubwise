@@ -5,9 +5,8 @@
 // tipata `typeof Fake.<nome>` con un `import type`, così il finto non entra
 // mai nel bundle.
 import type * as Fake from "../../api";
-import * as liveVaultDesktop from "./vaultDesktop";
-import * as liveVaultReads from "./vaultReads";
 import { liveAlerts } from "./alerts";
+import { liveSearchHistory } from "./searchHistory";
 import { liveSupport } from "./support";
 import { liveWidgets } from "./supportWidgets";
 import { liveServers } from "./servers";
@@ -30,13 +29,16 @@ import { liveIntegration } from "./projectIntegration";
 import { liveProjectArchive } from "./projectArchive";
 import { liveProjectAutomations } from "./projectAutomations";
 import { liveProjectGeneral } from "./projectGeneral";
-import { listMacsOf, removeMacOf } from "./vaultMacsOf";
 import { getProjectUsage } from "./usage";
 import { liveProjectPlugins } from "./projectPlugins";
+import { liveProjectRepositories } from "./projectRepositories";
 import { chatFunctions } from "./chat";
 import { channelStream, onChatChange, subscribeChat, threadStream } from "./chatStream";
 
 export * from "./stubs.generated";
+
+// Le workspace (shape workspaces.md) sulle rotte `/api/workspaces` (lotto 3 di 54).
+export { workspaces } from "./workspaces";
 
 // Task 16: sessione, persone, progetti, notifiche, ricerca, reparti.
 export { auth, getSessionPerson, getViewer, me } from "./session";
@@ -76,6 +78,9 @@ export const projectSettings: typeof Fake.projectSettings = partialNamespace<
   // Ritiro del web vecchio (inventario 1.3): Settings → General, AI e Usage.
   ...liveProjectGeneral,
   getProjectUsage,
+  // Ritiro del web vecchio (inventario §1.3): Repositories intera (elenco, pagina,
+  // webhook, file d'ambiente, creazione guidata), `projectRepositories.ts`.
+  ...liveProjectRepositories,
 });
 
 // Area 9, F2: il registro delle modifiche sulla lettura del server.
@@ -121,6 +126,12 @@ export const alerts: typeof Fake.alerts = partialNamespace<typeof Fake.alerts>("
  * scritture si accendono con le rotte (I1); finché sono spente nessuna
  * pagina chiama questo namespace.
  */
+/** I risultati aperti di recente nella ⌘K (shape `search-history.md`): la cronologia del server. */
+export const searchHistory: typeof Fake.searchHistory = partialNamespace<typeof Fake.searchHistory>(
+  "searchHistory",
+  liveSearchHistory,
+);
+
 export const support: typeof Fake.support = partialNamespace<typeof Fake.support>("support", {
   ...liveSupport,
   // I widget (R1/R2) sulle rotte di oggi, `supportWidgets.ts`.
@@ -136,15 +147,10 @@ export const support: typeof Fake.support = partialNamespace<typeof Fake.support
  * rotte del PAT desktop di 72); le pagine la raggiungono quando la shape
  * `vault.md` è costruita nel prototipo.
  */
-export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vault", {
-  // Fetta 1: stato, aprire e chiudere, associazione, i propri Mac (dal main).
-  ...liveVaultDesktop,
-  // Fetta 2b: elenchi, dettaglio ed entrate, dalle rotte.
-  ...liveVaultReads,
-  // Ritiro del web vecchio (inventario 1.2): i Mac di un'altra persona, dal browser.
-  listMacsOf,
-  removeMacOf,
-});
+// Cassaforte nel browser, fase 1 (design §4): il modulo lo sceglie il BUILD
+// (`@backend/vault`, target `electron` o `web`), mai una scelta a runtime.
+// I Mac di un'altra persona (inventario 1.2) stanno in tutti e due.
+export { vault } from "@backend/vault";
 
 // Ritiro del web vecchio (inventario 1.4): le proposte del polso, dalle card dell'inbox.
 export { pulse } from "./pulse";
@@ -212,6 +218,7 @@ export {
 export { createMilestone, deleteMilestone, updateMilestone } from "./milestones";
 export { createProject } from "./projects";
 export {
+  getBrief,
   getLatestBrief,
   decisionLogTruncated,
   listDecisionLog,

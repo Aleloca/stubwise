@@ -71,6 +71,13 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "admin.revokeMemberPermission",
   // Task 10: ruolo e permessi del membro in un colpo.
   "admin.saveMember",
+  // Le workspace (shape workspaces.md, D11, [WS 4]): ogni scrittura che apre o
+  // chiude un accesso. Rinominare no; creare una workspace vuota la salta
+  // (non apre accessi a nessuno): lo decide la scrittura.
+  "workspaces.create",
+  "workspaces.setProjectWorkspace",
+  "workspaces.addMember",
+  "workspaces.setMemberRole",
   // Task 5: le Preferenze personali
   "me.startTotpSetup",
   "me.addPasskey",

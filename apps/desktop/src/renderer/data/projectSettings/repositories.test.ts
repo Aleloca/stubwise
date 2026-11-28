@@ -2,14 +2,22 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { docs, instance, projectSettings, resetApi, setLatency } from "../api";
 import { setSessionPersonId } from "../session";
 import { state, visibleProjectIds } from "../store";
-import { grantProjectPermission, revokeProjectPermission, viewerFor } from "../viewer";
+import {
+  grantInstancePermission,
+  grantProjectPermission,
+  revokeInstancePermission,
+  revokeProjectPermission,
+  viewerFor,
+} from "../viewer";
 
 // I repository del progetto, livello dati (area 9c, Task 4): l'elenco, la
 // creazione guidata con la verifica degli accessi, la modifica e il
 // webhook git. Persone: Laura (Project Lead in ACQ, `repos.manage`), Sara
 // (Contributor in ACQ: `repos.view`, non `repos.manage`), Roberta (full
 // admin). ACQ ha `portale-utenti` su «Bitbucket Audin», col webhook da
-// configurare.
+// configurare. Scegliere un account git vuole anche `git_accounts.manage`
+// d'istanza (la regola del server, col ritiro del web vecchio): qui Laura lo
+// riceve in ogni test, e il blocco «senza git_accounts.manage» lo toglie.
 
 const LAURA = "p-laura";
 const SARA = "p-sara";
@@ -52,6 +60,7 @@ const verify = (over: Partial<typeof NEW> = {}) =>
 beforeEach(() => {
   setLatency(0);
   resetApi();
+  grantInstancePermission(LAURA, "git_accounts.manage");
   seeded = state.changelog.length;
 });
 afterEach(() => resetApi());
@@ -159,13 +168,13 @@ describe("la creazione guidata", () => {
   it("con la verifica invalid_credentials simulata la creazione resta rifiutata", async () => {
     as(LAURA);
     await projectSettings.simulateNextRepositoryCheck("invalid_credentials");
-    expect(await verify()).toEqual({ ok: true, outcome: "invalid_credentials" });
+    expect(await verify()).toEqual({ ok: true, outcome: "invalid_credentials", detail: null });
     expect(await projectSettings.createRepository(ACQ, NEW)).toMatchObject({
       error: "invalid",
       reason: "access_not_verified",
     });
     // La simulazione vale una volta: la verifica dopo è vera.
-    expect(await verify()).toEqual({ ok: true, outcome: "ok" });
+    expect(await verify()).toEqual({ ok: true, outcome: "ok", detail: null });
   });
 
   it("una verifica di un'altra terna, o di un'altra persona, non vale", async () => {
@@ -281,7 +290,7 @@ describe("la modifica di un repository", () => {
         graphEnabled: true,
         protectedBranches: ["main", "release/*"],
       }),
-    ).toEqual({ ok: true });
+    ).toEqual({ ok: true, warnings: [] });
     expect(repo("repo-acq")).toMatchObject({
       testCommand: "pnpm test",
       graphEnabled: true,
@@ -303,6 +312,7 @@ describe("la modifica di un repository", () => {
     );
     expect(await projectSettings.updateRepository("repo-stw", { name: "stubwise-core" })).toEqual({
       ok: true,
+      warnings: [],
     });
     expect(state.docSpaces.find((s) => s.repositoryId === "repo-stw")!.name).toBe("stubwise-core");
   });
@@ -329,7 +339,7 @@ describe("la modifica di un repository", () => {
       await projectSettings.updateRepository("repo-acq", {
         reviewGitAccountId: "git-bitbucket-review",
       }),
-    ).toEqual({ ok: true });
+    ).toEqual({ ok: true, warnings: [] });
     const voice = entries("repository.updated").at(-1)!;
     expect(voice.params.field).toBe("reviewGitAccount");
     expect(JSON.parse(voice.before!)).toEqual({ reviewGitAccount: null });
@@ -382,6 +392,7 @@ describe("la modifica di un repository", () => {
     grantProjectPermission(SARA, ACQ, "repos.manage" as never);
     expect(await projectSettings.updateRepository("repo-acq", { testCommand: "x" })).toEqual({
       ok: true,
+      warnings: [],
     });
   });
 });
@@ -393,6 +404,7 @@ describe("il webhook git", () => {
       ok: true,
       state: "configured",
       updated: false,
+      detail: null,
     });
     expect(repo("repo-acq").webhook!.state).toBe("configured");
     expect(repo("repo-acq").webhook!.configuredAt).not.toBeNull();
@@ -402,6 +414,7 @@ describe("il webhook git", () => {
       ok: true,
       state: "configured",
       updated: true,
+      detail: null,
     });
     const voices = entries("repository.webhook_configured");
     expect(voices.map((v) => [v.before, v.after])).toEqual([
@@ -417,6 +430,7 @@ describe("il webhook git", () => {
       ok: true,
       state: "failed",
       updated: false,
+      detail: null,
     });
     expect(
       (await projectSettings.listProjectRepositories(ACQ))!.repositories[0]!.webhook.state,
@@ -478,5 +492,34 @@ describe("le simulazioni stanno nello stato (P29)", () => {
       nextRepositoryCheck: null,
       nextWebhookSetup: null,
     });
+  });
+});
+
+describe("senza git_accounts.manage (la regola del server: scegliere un account è dell'istanza)", () => {
+  beforeEach(() => revokeInstancePermission(LAURA, "git_accounts.manage"));
+
+  it("Laura gestisce i repository di ACQ ma non sceglie account: lo dice l'elenco, e sfogliare, verificare e creare sono rifiutati senza effetti", async () => {
+    as(LAURA);
+    const list = await projectSettings.listProjectRepositories(ACQ);
+    expect([list!.canManage, list!.canChooseGitAccount]).toEqual([true, false]);
+    await expect(projectSettings.listRemoteRepositories(BITBUCKET, ACQ)).rejects.toThrow("forbidden");
+    await expect(projectSettings.listRemoteBranches(BITBUCKET, "audin/portale-utenti")).rejects.toThrow("forbidden");
+    const before = snapshot();
+    const check = await projectSettings.checkRepositoryAccess({ projectId: ACQ, gitAccountId: BITBUCKET, fullName: "audin/portale-utenti", branch: "main" });
+    expect(check).toEqual({ ok: false, error: "forbidden" });
+    const created = await projectSettings.createRepository(ACQ, { gitAccountId: BITBUCKET, fullName: "audin/altro", name: "altro", branch: "main", installCommand: null, testCommand: null });
+    expect(created).toEqual({ ok: false, error: "forbidden" });
+    expect(snapshot()).toBe(before);
+  });
+
+  it("cambiare l'account o il revisore è rifiutato; rimandare gli stessi valori, o toccare il resto, no", async () => {
+    as(LAURA);
+    const r = (await projectSettings.listProjectRepositories(ACQ))!.repositories[0]!;
+    expect(await projectSettings.updateRepository(r.id, { gitAccountId: GITHUB })).toEqual({ ok: false, error: "forbidden" });
+    expect(await projectSettings.updateRepository(r.id, { reviewGitAccountId: GITHUB })).toEqual({ ok: false, error: "forbidden" });
+    expect(
+      await projectSettings.updateRepository(r.id, { gitAccountId: r.gitAccount?.id, reviewGitAccountId: r.reviewAccount?.id ?? null, testCommand: "pnpm test:ci" }),
+    ).toEqual({ ok: true, warnings: [] });
+    expect(repo(r.id).testCommand).toBe("pnpm test:ci");
   });
 });

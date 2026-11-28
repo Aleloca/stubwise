@@ -12,6 +12,8 @@ import { CalendarColumn } from "../pages/calendar/CalendarColumn";
 import { AutomationsColumn } from "../pages/automations/AutomationsColumn";
 import { PreferencesColumn } from "../pages/preferences/PreferencesPage";
 import { AdminColumn } from "../pages/admin/AdminLayout";
+import { ProjectsColumn } from "../pages/projects/workspaces/ProjectsColumn";
+import { workspacesAvailable } from "../data/queries";
 import { ONE_LINE, columnItemClass } from "./ProjectColumn";
 
 export type Destination = (typeof APP_ROUTES)[number];
@@ -39,6 +41,9 @@ export function PersonalColumn({ destination }: { destination: Destination }) {
   if (destination === "automations") return <AutomationsColumn />;
   if (destination === "preferences") return <PreferencesColumn />;
   if (destination === "admin") return <AdminColumn />;
+  // Le workspace (shape `workspaces.md`); nella build app, finché il server
+  // non le ha, la colonna resta il segnaposto «in arrivo».
+  if (destination === "projects" && workspacesAvailable()) return <ProjectsColumn />;
   return <GenericColumn destination={destination} />;
 }
 

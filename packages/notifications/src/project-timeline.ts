@@ -1,3 +1,4 @@
+import { briefHeadline } from "@stubwise/shared";
 import {
   activityReports,
   aiJobs,
@@ -425,22 +426,6 @@ function inWindow(at: Date, window: TimelineWindow): boolean {
   return at.getTime() >= window.from.getTime() && at.getTime() <= window.to.getTime();
 }
 
-/**
- * L'incipit di un brief: la prima sezione ("dove siamo") se il parse dei
- * marcatori l'ha prodotta, altrimenti l'inizio del markdown. Null se il brief
- * è `done` ma senza testo (provider assente: caso previsto, non un errore).
- *
- * Esportata perché la usa anche il poller del brief per la `headline` della
- * notifica `project.brief`: la riga che si legge nella card d'inbox e quella
- * che si legge sul separatore della roadmap devono essere LA STESSA, o lo
- * stesso brief sembrerebbe due brief diversi.
- */
-export function briefHeadline(
-  sections: Record<string, string> | null,
-  summary: string | null,
-): string | null {
-  const first = sections?.whereWeAre ?? Object.values(sections ?? {})[0];
-  const text = (first ?? summary ?? "").trim();
-  if (!text) return null;
-  return text.length > 400 ? `${text.slice(0, 400)}…` : text;
-}
+// L'incipit di un brief sta in `@stubwise/shared` (lo legge anche la nuova
+// app): qui si ri-esporta, così nessun import esistente cambia.
+export { briefHeadline } from "@stubwise/shared";

@@ -36,6 +36,7 @@ import {
 import { loadTaskViews } from "../services/task-view.js";
 import { createTask, planTask, updateTask } from "../services/task-writes.js";
 import { AREA9_ENTRIES } from "./catalog-area9.js";
+import { WORKSPACE_ENTRIES } from "./catalog-workspaces.js";
 import { INSTANCE_ENTRIES } from "./catalog-instance.js";
 import { AUTOMATION_ENTRIES } from "./catalog-automations.js";
 import { PRODUCT_ENTRIES } from "./catalog-product.js";
@@ -65,7 +66,7 @@ export type ActionObject = {
    * della scrittura; «Annulla» guarda le voci del registro arrivate DOPO sullo
    * stesso soggetto (`changed_after`), solo dei tipi in `changeTypes` se c'è.
    */
-  kind: "task" | "request" | "milestone" | "filter" | "comment" | "subscription" | "member" | "project" | "setting" | "automation" | "product_page";
+  kind: "task" | "request" | "milestone" | "filter" | "comment" | "subscription" | "member" | "project" | "setting" | "automation" | "product_page" | "workspace";
   /**
    * Area 9, F7, Task 4: per `setting`, il `subject_kind` delle sue voci del
    * registro (`ai_settings`, `provider`, `webhook`…); `id` vuoto = qualunque
@@ -79,6 +80,8 @@ export type ActionObject = {
   stamp?: string;
   /** Una iscrizione (S7): la riga `type` di chi chiede in `projectId`; `id` = `<projectId>:<type>`. */
   projectId?: string;
+  /** Workspace (D14): la workspace dell'oggetto (`workspace`), che «Annulla» blocca prima di giudicare. */
+  workspaceId?: string;
   type?: string;
 };
 
@@ -567,7 +570,7 @@ const ENTRIES: CatalogEntry[] = [
 ];
 
 /** Le voci per `fn`. Una `fn` dell'elenco condiviso senza voce qui non si esegue (ancora). */
-export const SERVER_CATALOG: ReadonlyMap<ClaudeActionFn, CatalogEntry> = new Map([...ENTRIES, ...AREA9_ENTRIES, ...INSTANCE_ENTRIES, ...AUTOMATION_ENTRIES, ...PRODUCT_ENTRIES].map((e) => [e.fn, e]));
+export const SERVER_CATALOG: ReadonlyMap<ClaudeActionFn, CatalogEntry> = new Map([...ENTRIES, ...AREA9_ENTRIES, ...WORKSPACE_ENTRIES, ...INSTANCE_ENTRIES, ...AUTOMATION_ENTRIES, ...PRODUCT_ENTRIES].map((e) => [e.fn, e]));
 
 export function declaredClassOf(fn: ClaudeActionFn): "A" | "B" | "C" {
   return CLAUDE_DECLARED_CLASS[fn];

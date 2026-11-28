@@ -108,6 +108,15 @@ export const projectMemberSchema = z.object({
    * manda.
    */
   permissions: z.array(z.object({ permission: z.string(), sources: z.array(memberPermissionSourceSchema) })).default([]),
+  /**
+   * Workspace (M4 della revisione d'insieme, additivo): `false` = nel progetto
+   * SOLO per una workspace (righe che arrivano con `?include=workspace`), col
+   * ruolo di workspace in `roleId`/`roleName`. Un membro esplicito non si
+   * toglie da qui se non è esplicito: si toglie dalla workspace.
+   */
+  explicit: z.boolean().default(true),
+  /** La workspace del progetto di cui la persona fa parte, o `null`. */
+  workspaceId: z.uuid().nullable().default(null),
 });
 export type ProjectMember = z.infer<typeof projectMemberSchema>;
 

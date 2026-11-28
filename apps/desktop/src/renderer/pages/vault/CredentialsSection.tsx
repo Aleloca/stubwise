@@ -1,5 +1,4 @@
 import { useTranslation } from "react-i18next";
-import { canEncryptHere } from "../../platform/vaultBridge";
 import { useNavigate } from "@tanstack/react-router";
 import { useCredentials, useCredentialsEntry, useProject } from "../../data/queries";
 import { itemClass } from "../../tasks-ui/Menu";
@@ -38,7 +37,7 @@ export function CredentialsSection({ projectCode }: { projectCode: string }) {
               {t("vault.subtitle", { code: projectCode })}
             </p>
           </div>
-          {entry?.canCreate && canEncryptHere() && (
+          {entry?.canCreate && (
             <button type="button" className={secondaryButton} onClick={newCredential}>
               {t("vault.new")}
             </button>

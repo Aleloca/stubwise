@@ -18,7 +18,9 @@
       "@backend/clock": ["./src/renderer/data/seed/dates.ts"],
       "@backend/access": ["./src/renderer/data/accessFacts.ts"],
       "@backend/runtime": ["./src/renderer/data/runtime.ts"],
-      "@backend/viewer": ["./src/renderer/data/viewer.ts"]
+      "@backend/viewer": ["./src/renderer/data/viewer.ts"],
+      "@backend/vault": ["./src/renderer/data/backend/real/vault/electron.ts"],
+      "@backend/vault-boot": ["./src/renderer/data/backend/real/vault/boot-none.ts"]
     }
   },
   "include": ["src/renderer", "vitest.config.ts"]

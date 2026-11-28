@@ -135,12 +135,6 @@ export interface AppNotification {
   /** Route hash. */
   link: string;
   /**
-   * Integrazione area 2, fetta 1 (solo build app): una card di un'area non
-   * ancora integrata non apre niente nell'app nuova, ma il web vecchio sì —
-   * il percorso dell'istanza («Open in web»). Il prototipo non la valorizza.
-   */
-  webHref?: string;
-  /**
    * Solo una menzione della Chat: il messaggio. Titolo e testo si derivano a
    * lettura dal messaggio di adesso (eliminato o non più leggibile: la
    * notifica non c'è più), mai salvati qui.
@@ -232,6 +226,13 @@ export interface AppNotification {
    * nome nuovo); `null` se il ruolo non esiste più [SC 15]. Mai salvato.
    */
   roleName?: string | null;
+  /**
+   * D13 delle workspace: `member.added` di chi entra in una workspace (stesso
+   * kind, apposta per il rollback). Salvato l'id; il nome si deriva a lettura.
+   */
+  workspaceId?: string;
+  /** Solo a lettura: il nome di adesso della workspace di `workspaceId`. */
+  workspaceName?: string | null;
   /**
    * Area 10b, solo a lettura: chi guarda non vede più il progetto della
    * notifica (un `member.added` annullato, [SC 16]). La notifica resta, ma

@@ -318,6 +318,7 @@
     "second_factor_stage_mismatch": "Questo passaggio non vale più: accedi di nuovo",
     "second_factor_done": "Hai già eseguito l'accesso",
     "reauth_required": "Per questa azione conferma di nuovo con il secondo fattore",
+"vault_unlock_required": "Per questa azione della cassaforte serve uno sblocco recente con la passkey",
     "second_factor_setup_required": "Per questa azione configura prima l'app di autenticazione",
     "no_passkeys": "Nessuna passkey registrata",
     "cannot_reset_own_second_factor": "Per cambiare la tua verifica in due passaggi usa Impostazioni → Sicurezza",
@@ -417,7 +418,11 @@
       "setupSubtitle": "Questa azione richiede la verifica in due passaggi: inquadra il codice QR con un'app di autenticazione, poi inserisci il primo codice che mostra.",
       "confirm": "Conferma",
       "confirmPending": "Conferma in corso…",
-      "cancel": "Annulla"
+      "cancel": "Annulla",
+      "vaultTitle": "Sblocca la cassaforte",
+      "vaultSubtitle": "Questa azione della cassaforte vuole uno sblocco recente: conferma con la passkey.",
+      "vaultUnlock": "Sblocca con la passkey",
+      "vaultPending": "Sblocco in corso…"
     },
     "totpEnrollment": {
       "qrAlt": "QR code per l'app di autenticazione",
@@ -3457,6 +3462,9 @@
       "departments": {
         "manage": "Gestire i reparti"
       },
+      "workspaces": {
+        "manage": "Gestire le workspace"
+      },
       "people": {
         "activity": {
           "view": "Vedere l'attività del giorno delle persone"
@@ -3621,7 +3629,8 @@
       "open_failed": "La passkey non ha aperto la tua chiave, oppure la chiave che il server indica come tua non è quella sigillata: non è stato cifrato niente. Riprova o usa un’altra passkey; se si ripete, avvisa un admin.",
       "new_passkey_unsupported": "Questa passkey non supporta la PRF: non può aprire la cassaforte. Non è stato aggiunto niente.",
       "stale_key": "La tua chiave della cassaforte è cambiata in un’altra scheda: richiudi la cassaforte e riaprila.",
-      "nothing_opened": "Nessuna delle credenziali si è aperta in questo browser: la conferma non è partita. Aspetta un altro lettore, o usa il kit di recupero."
+      "nothing_opened": "Nessuna delle credenziali si è aperta in questo browser: la conferma non è partita. Aspetta un altro lettore, o usa il kit di recupero.",
+      "unlock_unsupported": "Questa passkey non sa aprire la cassaforte in questo browser: usane una che lo supporti."
     },
     "kit": {
       "intro": "Questo è il kit di recupero della cassaforte. Si mostra ora e mai più: stampalo o salvalo fuori da Stubwise (non sullo stesso server). Serve solo a un full admin per confermare gli accessi in attesa se nessun altro può farlo.",

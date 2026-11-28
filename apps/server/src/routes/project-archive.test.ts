@@ -406,3 +406,29 @@ describe("elimina (Task 5): solo un archiviato, solo un full admin", () => {
     expect(former.entries.find((e) => e.type === "project.deleted" && e.data.object.id === p.projectId)).toMatchObject({ hidden: false, data: { object: { label: `${p.code} · Progetto di test` } } });
   });
 });
+
+describe("workspace, D19: un progetto eliminato ricorda anche chi lo vedeva per workspace", () => {
+  it("la persona della workspace entra in deleted_project_members, una volta sola anche se era pure membro esplicito; Claude no", async () => {
+    const { workspaces, workspaceMembers, workspaceProjects, roles: rolesTable } = await import("@stubwise/db");
+    const { projectId } = await seedRepository(db);
+    const [p] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
+    const viaWs = await member((await seedRepository(db)).projectId, "viewer");
+    const both = await member(projectId, "developer");
+    const [viewer] = await db.select({ id: rolesTable.id }).from(rolesTable).where(eq(rolesTable.presetKey, "viewer"));
+    const [w] = await db.insert(workspaces).values({ name: "Da eliminare", colorToken: "--dept-1" }).returning();
+    await db.insert(workspaceProjects).values({ workspaceId: w!.id, projectId });
+    const [claude] = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
+    await db.insert(workspaceMembers).values([
+      { workspaceId: w!.id, userId: viaWs.id, roleId: viewer!.id },
+      { workspaceId: w!.id, userId: both.id, roleId: viewer!.id },
+      { workspaceId: w!.id, userId: claude!.id, roleId: viewer!.id },
+    ]);
+    expect((await call("POST", projectId, "archive")).statusCode).toBe(204);
+    const res = await app.inject({ method: "DELETE", url: `/api/projects/${projectId}`, headers: { cookie: adminCookie }, payload: { confirmCode: p!.code } });
+    expect(res.statusCode, res.body).toBe(204);
+    const remembered = (await db.select().from(deletedProjectMembers).where(eq(deletedProjectMembers.projectId, projectId))).map((m) => m.userId);
+    expect(remembered).toContain(viaWs.id);
+    expect(remembered.filter((id) => id === both.id)).toHaveLength(1);
+    expect(remembered).not.toContain(claude!.id);
+  });
+});

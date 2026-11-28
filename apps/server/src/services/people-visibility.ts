@@ -1,6 +1,6 @@
-import { projectMembers, type Db } from "@stubwise/db";
+import { projectAccess, projectAccessRowCounts, type Db } from "@stubwise/db";
 import { userIdsWithPermission } from "@stubwise/notifications";
-import { inArray } from "drizzle-orm";
+import { and, inArray } from "drizzle-orm";
 import { isAllProjects, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 
@@ -17,7 +17,8 @@ export async function visiblePersonIds(db: Db, viewer: Pick<SessionUser, "id" | 
   if (isAllProjects(visible)) return "all";
   const rows =
     visible.length > 0
-      ? await db.selectDistinct({ userId: projectMembers.userId }).from(projectMembers).where(inArray(projectMembers.projectId, visible))
+      ? // Membri espliciti e persone di workspace dei progetti visti (0239).
+        await db.selectDistinct({ userId: projectAccess.userId }).from(projectAccess).where(and(inArray(projectAccess.projectId, visible), projectAccessRowCounts))
       : [];
   const admins = visible.length > 0 ? await userIdsWithPermission(db, null, null) : [];
   return [...new Set([viewer.id, ...rows.map((r) => r.userId), ...admins])];

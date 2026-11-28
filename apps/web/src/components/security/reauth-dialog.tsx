@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useSyncExternalStore } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { unlockForVaultRoute } from "../../lib/vault/unlock";
+import { vaultErrorMessage } from "../vault/unlock-dialog";
 import {
   postReauth,
   postReauthPasskeyOptions,
@@ -59,6 +61,18 @@ function ReauthModal({ request }: { request: ReauthRequest }) {
     );
   }
 
+  if (request.reason === "vault_unlock_required") {
+    return (
+      <ModalShell titleId="reauth-title" onClose={cancel}>
+        <h2 id="reauth-title" className="text-lg font-semibold">
+          {t("auth:reauth.vaultTitle")}
+        </h2>
+        <p className="mt-1 text-sm text-fg-muted">{t("auth:reauth.vaultSubtitle")}</p>
+        <VaultUnlockForm onCancel={cancel} />
+      </ModalShell>
+    );
+  }
+
   if (request.reason === "second_factor_setup_required") {
     return (
       <ModalShell titleId="reauth-title" onClose={cancel}>
@@ -94,6 +108,44 @@ function ReauthModal({ request }: { request: ReauthRequest }) {
       <p className="mt-1 text-sm text-fg-muted">{t("auth:reauth.subtitle")}</p>
       <ReauthCodeForm onCancel={cancel} />
     </ModalShell>
+  );
+}
+
+/**
+ * Lo sblocco della cassaforte che chiede una sua rotta (403
+ * `vault_unlock_required`, I-3): solo la passkey, perché un codice dell'app
+ * non apre la cassaforte. La cerimonia è quella dello sblocco
+ * (`unlockForVaultRoute`, PRF tolta prima dell'invio).
+ */
+function VaultUnlockForm({ onCancel }: { onCancel: () => void }) {
+  const { t } = useTranslation();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function unlock() {
+    setError(null);
+    setPending(true);
+    try {
+      await unlockForVaultRoute();
+      settleReauth(true);
+    } catch (cause) {
+      setError(vaultErrorMessage(cause, t));
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 flex flex-col gap-4">
+      <FormError message={error} />
+      <div className="flex items-center justify-end gap-3">
+        <button type="button" onClick={onCancel} className={actionButtonClass}>
+          {t("auth:reauth.cancel")}
+        </button>
+        <button type="button" onClick={() => void unlock()} disabled={pending} className={actionPrimaryClass}>
+          {pending ? t("auth:reauth.vaultPending") : t("auth:reauth.vaultUnlock")}
+        </button>
+      </div>
+    </div>
   );
 }
 
