@@ -343,20 +343,6 @@ async function readCalendarEvent(id: string) {
   return row;
 }
 
-/** Note `slack_update` accodate per la notifica data (vedi `pulse.test.ts`). */
-async function readNotes(notificationId: string): Promise<string[]> {
-  const rows = await db
-    .select({ event: notificationDeliveries.event })
-    .from(notificationDeliveries)
-    .where(
-      and(
-        eq(notificationDeliveries.notificationId, notificationId),
-        eq(notificationDeliveries.channel, "slack_update"),
-      ),
-    );
-  return rows.map((row) => String((row.event as { note?: unknown }).note ?? ""));
-}
-
 // ---------------------------------------------------------------------------
 // Guardie d'ingresso
 // ---------------------------------------------------------------------------
@@ -516,8 +502,6 @@ describe("answerGoogleProposal — create_backlog_item", () => {
     expect(proposal!.outcome).toMatchObject({ type: "backlog_item" });
 
     expect((await readNotification(notificationId))!.status).toBe("handled");
-    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
-    expect(await readNotes(notificationId)).toEqual([]);
   });
 
   it("progetto sparito → target_gone, riga failed e riproponibile", async () => {
@@ -1603,8 +1587,6 @@ describe("answerGoogleProposal — più azioni insieme (optionIndices)", () => {
     expect(results.map((r) => r.type)).toEqual(["backlog_item", "backlog_item", "backlog_item"]);
 
     expect((await readNotification(notificationId))!.status).toBe("handled");
-    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
-    expect(await readNotes(notificationId)).toEqual([]);
   });
 
   it("un sottoinsieme crea solo quelle scelte", async () => {

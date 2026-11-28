@@ -58,7 +58,7 @@ const failed = (projectId: string): NotificationEvent => ({
 });
 const monitor = (): NotificationEvent => ({ kind: "monitor.alert", serverName: "web-1", condition: "disk", detail: "disco al 95%", url: "https://s.example/monitor/servers/x" });
 const cardsOf = async (kind: string) => (await db.select({ userId: notifications.userId }).from(notifications).where(eq(notifications.kind, kind as never))).map((r) => r.userId).sort();
-const deliveriesOf = async (channel: "push" | "slack_dm" | "webhook") =>
+const deliveriesOf = async (channel: "push" | "webhook") =>
   db.select({ id: notificationDeliveries.id, notificationId: notificationDeliveries.notificationId, webhookId: notificationDeliveries.webhookId }).from(notificationDeliveries).where(eq(notificationDeliveries.channel, channel));
 
 async function scenario() {
@@ -104,13 +104,6 @@ describe("avvisi del catalogo alla pubblicazione (area 8, F2)", () => {
     const hooks = await deliveriesOf("webhook");
     expect(hooks.map((d) => d.webhookId)).toEqual([chosen!.id]);
     await db.delete(outgoingWebhooks);
-  });
-
-  it("M3: nessun avviso va su Slack (DM), né del catalogo né del monitor: i DM non ci sono più (R2)", async () => {
-    const s = await scenario();
-    await publishNotification(db, failed(s.projectId), { projectId: s.projectId });
-    await publishNotification(db, monitor(), {});
-    expect(await deliveriesOf("slack_dm")).toEqual([]);
   });
 
   it("M-2 = b: il push segue il Telefono del tipo, non `notify_push` della persona", async () => {

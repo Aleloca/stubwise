@@ -152,7 +152,7 @@ describe("schema: fondamenta dell'inbox di notifiche", () => {
     expect(delivery.event).toEqual({ kind: "ticket.created" });
   });
 
-  it("consegna slack_dm: legata a una notifica, cascata sul delete della notifica", async () => {
+  it("consegna push: legata a una notifica, cascata sul delete della notifica", async () => {
     const { projectId, ticketId } = await seedTicket(db);
     const userId = await seedUser();
     const [notifica] = await db
@@ -169,10 +169,10 @@ describe("schema: fondamenta dell'inbox di notifiche", () => {
 
     const [delivery] = await db
       .insert(notificationDeliveries)
-      .values({ notificationId: notifica.id, channel: "slack_dm" })
+      .values({ notificationId: notifica.id, channel: "push" })
       .returning();
     if (!delivery) throw new Error("insert della consegna non ha restituito la riga");
-    // Il DM non duplica l'evento: lo legge dalla notifica.
+    // La push non duplica l'evento: lo legge dalla notifica.
     expect(delivery.event).toBeNull();
 
     await db.delete(notifications).where(eq(notifications.id, notifica.id));
@@ -218,9 +218,9 @@ describe("schema: fondamenta dell'inbox di notifiche", () => {
       ),
       "23514",
     );
-    // DM SENZA notifica: non saprebbe né a chi recapitare né cosa.
+    // Push SENZA notifica: non saprebbe né a chi recapitare né cosa.
     await expectSqlState(
-      db.execute(sql`insert into notification_deliveries (channel) values ('slack_dm')`),
+      db.execute(sql`insert into notification_deliveries (channel) values ('push')`),
       "23514",
     );
   });

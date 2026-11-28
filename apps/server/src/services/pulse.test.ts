@@ -6,7 +6,6 @@ import {
   backlogItems,
   backlogItemTickets,
   instanceSettings,
-  notificationDeliveries,
   notifications,
   projectDecisions,
   projectMembers,
@@ -169,20 +168,6 @@ async function readNotifications(ids: string[]) {
     })
     .from(notifications)
     .where(inArray(notifications.id, ids));
-}
-
-/** Note `slack_update` accodate per la notifica data. */
-async function readNotes(notificationId: string): Promise<string[]> {
-  const rows = await db
-    .select({ event: notificationDeliveries.event })
-    .from(notificationDeliveries)
-    .where(
-      and(
-        eq(notificationDeliveries.notificationId, notificationId),
-        eq(notificationDeliveries.channel, "slack_update"),
-      ),
-    );
-  return rows.map((row) => String((row.event as { note?: unknown }).note ?? ""));
 }
 
 /** L'ultimo job del ticket, per verificare come è nato il run. */
@@ -367,8 +352,6 @@ describe("proceedWithProposal — successo", () => {
     // chi ricarica, alla tab "Gestite", e al collega che non ha premuto lui.
     expect(rows.every((row) => row.ticketId === result.ticketId)).toBe(true);
 
-    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
-    expect(await readNotes(ids[1]!)).toEqual([]);
   });
 
   it("voce senza piano: job queued con planApprovalRequired e nota diversa", async () => {
@@ -389,8 +372,6 @@ describe("proceedWithProposal — successo", () => {
     // Il gate resta: sarà il worker a fermarsi a piano pronto.
     expect(job!.planApprovalRequired).toBe(true);
 
-    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
-    expect(await readNotes(ids[0]!)).toEqual([]);
   });
 
   it("un member destinatario può procedere (il pulse è una proposta, non un gate)", async () => {
@@ -506,8 +487,6 @@ describe("proceedWithProposal — corse e proposte scadute", () => {
     // Nessun ticket è nato, quindi NIENTE da ancorare: la riga chiusa non deve
     // portare il link a un ticket che non esiste.
     expect(rows.every((row) => row.ticketId === null)).toBe(true);
-    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
-    expect(await readNotes(ids[1]!)).toEqual([]);
 
     // Nessun ticket è nato dalla voce.
     const links = await db
@@ -569,8 +548,6 @@ describe("proceedWithProposal — convertito ma run non partito", () => {
     // proprio il caso in cui ritrovarlo conta di più (va lanciato a mano).
     expect((await readNotifications(ids)).every((row) => row.ticketId === ticketId)).toBe(true);
 
-    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
-    expect(await readNotes(ids[0]!)).toEqual([]);
   });
 });
 

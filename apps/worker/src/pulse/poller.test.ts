@@ -3,7 +3,6 @@ import {
   aiJobs,
   backlogItems,
   backlogJobs,
-  notificationDeliveries,
   notifications,
   projects,
   ticketRepositories,
@@ -810,20 +809,6 @@ describe("pollPulseOnce — sostituzione dei ping precedenti", () => {
       expect(row.snoozedUntil).toBeNull();
     }
 
-    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
-    const updates = await db
-      .select({
-        notificationId: notificationDeliveries.notificationId,
-        event: notificationDeliveries.event,
-      })
-      .from(notificationDeliveries)
-      .where(
-        and(
-          eq(notificationDeliveries.channel, "slack_update"),
-          inArray(notificationDeliveries.notificationId, [openCopy.id, snoozedCopy.id]),
-        ),
-      );
-    expect(updates).toEqual([]);
   });
 
   it("non tocca i pulse di ALTRI progetti", async () => {

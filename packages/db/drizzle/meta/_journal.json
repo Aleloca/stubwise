@@ -1688,6 +1688,13 @@
       "when": 1805673600000,
       "tag": "0246_slack_saved_views_inviti",
       "breakpoints": true
+    },
+    {
+      "idx": 247,
+      "version": "7",
+      "when": 1805760000000,
+      "tag": "0247_slack_colonne",
+      "breakpoints": true
     }
   ]
 }

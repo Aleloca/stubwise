@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   agentQuestions,
   aiJobs,
   comments,
-  notificationDeliveries,
   notifications,
   projectDecisions,
   projectMembers,
@@ -180,19 +179,6 @@ async function readJob(id: string) {
 /** Commenti del ticket, dal più vecchio. */
 async function readComments(ticketId: string) {
   return db.select().from(comments).where(eq(comments.ticketId, ticketId));
-}
-
-/** Consegne `slack_update` accodate per la notifica data. */
-async function readSlackUpdates(notificationId: string) {
-  return db
-    .select()
-    .from(notificationDeliveries)
-    .where(
-      and(
-        eq(notificationDeliveries.notificationId, notificationId),
-        eq(notificationDeliveries.channel, "slack_update"),
-      ),
-    );
 }
 
 describe("answerQuestion — risoluzione dell'ancora", () => {
@@ -634,9 +620,6 @@ describe("answerQuestion — effetti", () => {
     expect(byId.get(theirs)?.status).toBe("handled");
     expect(byId.get(other)?.status).toBe("open");
 
-    // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
-    expect(await readSlackUpdates(theirs)).toEqual([]);
-    expect(await readSlackUpdates(other)).toHaveLength(0);
   });
 });
 
@@ -725,7 +708,6 @@ describe("answerQuestion — residuo e round", () => {
         })
       ).ok,
     ).toBe(false);
-    expect(await readSlackUpdates(theirs)).toHaveLength(0);
   });
 
   it("una card di un round precedente NON risponde alla domanda nuova", async () => {

@@ -90,7 +90,9 @@ describe("migrazione 0246: via le consegne Slack e saved_views, il token degli i
       insert into "notification_deliveries" ("notification_id", "channel", "status", "external_ref")
       values (${notificationId}, 'slack_dm', 'skipped', '1700000000.000100'), (${notificationId}, 'slack_update', 'pending', null), (${notificationId}, 'push', 'pending', null)`);
 
-    await migrate(db, { migrationsFolder: DRIZZLE_DIR });
+    // Fino alla 0246 compresa, non oltre: la 0247 (R3b) toglie le colonne che
+    // qui devono ancora esserci.
+    await migrate(db, { migrationsFolder: await migrationsFolderUpTo(IDX + 1) });
   }, 180_000);
 
   afterAll(async () => {

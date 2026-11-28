@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { t } from "@stubwise/i18n";
@@ -9,7 +9,6 @@ import {
   aiJobs,
   backlogJobs,
   comments,
-  notificationDeliveries,
   notifications,
   planDigest,
   prCorrections,
@@ -18,7 +17,10 @@ import {
   ticketEvents,
   ticketLinks,
   ticketRepositories,
-  tickets, roleUpdate, ticketColumns } from "@stubwise/db";
+  tickets,
+  roleUpdate,
+  ticketColumns,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicketRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -2477,17 +2479,6 @@ describe("POST /api/tickets/:id/approve-plan", () => {
       expect(after?.handledByUserId).toBe(users.adminId);
     }
 
-    const updates = await testDb.db
-      .select()
-      .from(notificationDeliveries)
-      .where(
-        and(
-          eq(notificationDeliveries.channel, "slack_update"),
-          inArray(notificationDeliveries.notificationId, [mine!.id, theirs!.id]),
-        ),
-      );
-    // Il rispecchiamento sui DM Slack non c'è più (R2): nessun aggiornamento in coda.
-    expect(updates).toEqual([]);
   });
 });
 

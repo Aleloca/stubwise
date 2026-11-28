@@ -459,10 +459,8 @@ describe("publishNotification", () => {
       expect(row.event).toEqual(awaitingInput);
       expect(row.jobId).toBe(job.id);
     }
-    // Outbox: la consegna del webhook che ha scelto `job.awaiting_input` (i DM
-    // Slack non ci sono più, R2).
+    // Outbox: la consegna del webhook che ha scelto `job.awaiting_input`.
     const deliveries = await db.select().from(notificationDeliveries);
-    expect(deliveries.filter((row) => row.channel === "slack_dm")).toEqual([]);
     expect(deliveries.filter((row) => row.channel === "webhook")).toHaveLength(1);
   });
 

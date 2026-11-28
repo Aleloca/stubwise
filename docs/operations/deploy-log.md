@@ -8105,3 +8105,44 @@ deploy o di un rollback che la tocca.
     da R2 non partivano comunque.
   Per tornare sotto R2 serve il backup fatto prima di R3, coi dati di dopo
   persi.
+
+- **«Il taglio del web vecchio, R3b»: le colonne Slack (28 nov 2026)**: ramo
+  `feat/taglio-r3b` (sopra `feat/taglio-r3-pulizia`), una PR a sé. Piano
+  `docs/plans/2026-11-28-ritiro-web-vecchio-piano.md` §1.1 e §3. Si
+  rilascia lo stesso giorno di R3, **DOPO** la verifica di R3 in produzione
+  (il controllo della voce di R3 tutto verde, e un giro della nuova app).
+  - **Migrazione `0247_slack_colonne`** (DISTRUTTIVA): via
+    `users.slack_user_id` (col suo unique), `users.slack_avatar_url`,
+    `users.notify_slack_dm`, `invites.slack_user_id`,
+    `invites.slack_avatar_url`, `instance_settings.slack_signing_secret_encrypted`
+    e `slack_bot_token_encrypted` (le credenziali Slack cifrate, che da R2
+    nessuno legge), `notification_deliveries.external_ref`; le consegne
+    Slack eventualmente rimaste; e l'enum `delivery_channel` RICREATO con i
+    soli `webhook` e `push` (il tipo vecchio rinominato, il nuovo col nome di
+    sempre, la colonna convertita per testo, i due CHECK della forma tolti e
+    rimessi identici, il tipo vecchio tolto). Nessun `ADD VALUE`.
+  - **Codice**: solo lo schema TypeScript dell'enum e i test che nominavano
+    i canali Slack. Server e worker di R3 non nominano nessuna delle colonne
+    tolte, quindi R3b è la sola migrazione: basta che il server la applichi.
+  **Prima del deploy**: un **backup del DB nuovo**, fatto dopo R3 (quello di
+  prima di R3 non ha i dati di R3). Tenere le immagini di R3:
+  ```sh
+  docker tag stubwise-server:latest stubwise-server:r3
+  docker tag stubwise-worker:latest stubwise-worker:r3
+  ```
+  **Deploy**: `server` (applica la 0247 all'avvio), healthy e migrazione
+  applicata, poi `worker` (senza lavoro dell'agente in corso). `caddy` no: il
+  renderer non cambia.
+  **Controllo dopo il deploy**:
+  ```sql
+  select table_name, column_name from information_schema.columns
+   where column_name like 'slack%' or column_name like 'notify_slack%' or column_name = 'external_ref';  -- nessuna riga
+  select unnest(enum_range(null::delivery_channel));   -- webhook, push
+  ```
+  Poi, nella nuova app: una notifica con push sul telefono (se c'è un
+  device), un webhook in uscita di prova, un invito nuovo.
+  **Rollback**: si scende **AL MASSIMO a R3**, sulle immagini `r3`: R3 non
+  nomina le colonne tolte ed è sicuro. **Sotto R3 non si scende**: il codice
+  di R2 nomina le colonne Slack a ogni richiesta autenticata, e darebbe 500.
+  Per tornare a R2 o prima serve il backup fatto prima di R3b (o quello di
+  prima di R3), coi dati di dopo persi.

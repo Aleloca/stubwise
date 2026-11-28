@@ -1,0 +1,11 @@
+--- a/CLAUDE.md	2026-11-28 18:01:21
++++ b/CLAUDE.md	2026-11-28 18:01:21
+@@ -510,6 +510,8 @@
+   - «La cassaforte nel browser, fase 2» (28 nov 2026; solo caddy, prima del pacchetto per Mac nuovo; rollback sicuro solo se nessun Mac nuovo è distribuito)
+   - «Il taglio del web vecchio, R1» (28 nov 2026; server e caddy insieme, nessuna migrazione, il Mac ribuildato; rollback con l'immagine caddy di prima, da TENERE: il web vecchio non è più nel repo)
+   - «Il taglio del web vecchio, R2» (28 nov 2026; server poi worker, nessuna migrazione; via Slack, il gruppo (e), le 9 rotte della sola mobile e le loro azioni MCP; campi Slack inerti nelle risposte fino a R3; rollback con le immagini `pre-r2`)
++  - «Il taglio del web vecchio, R3» (28 nov 2026; con la 0245 degli stati e la 0246: consegne Slack e saved_views via, token degli inviti come hash; backup prima, server poi worker e caddy; rollback fino a R2, gli inviti in sospeso non si aprono su R2; Mac e mobile fermi fino al pacchetto nuovo)
++  - «Il taglio del web vecchio, R3b» (28 nov 2026; la 0247: colonne Slack via ed enum `delivery_channel` ricreato; dopo la verifica di R3, backup nuovo prima; rollback solo fino a R3, sotto solo col backup)
+ - Verifica il bundle servito cercando una stringa nuova:
+   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/app'`.
+ - Backup del DB prima di operazioni rischiose.

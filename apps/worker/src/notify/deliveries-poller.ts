@@ -46,9 +46,9 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
  *    (nessuna istanza parla con APNs o FCM). Una consegna per destinatario,
  *    non per device: i device attivi si leggono al momento dell'invio.
  *
- * `slack_dm` e `slack_update` (i DM Slack) sono andati via con R2, le loro
- * righe con la 0246 (R3): un canale che il poller non conosce lo chiude
- * `skipped`.
+ * I DM Slack (`slack_dm`, `slack_update`) sono andati via con R2; la 0247
+ * (R3b) li ha tolti anche dall'enum. Un canale che il poller non conosce lo
+ * chiude `skipped`.
  *
  * SCELTA TRANSAZIONALE (il claim PRE-SCHEDULA il ritentativo, l'invio sta fuori
  * dalla transazione): {@link claimDue} è un UPDATE unico che, nello stesso atto
@@ -233,8 +233,7 @@ async function processDelivery(
     return;
   }
   if (row.channel !== "webhook") {
-    // Canale non gestito qui (uno aggiunto all'enum, o `slack_dm`/`slack_update`
-    // rimasti in coda dopo il ritiro di Slack, R2): meglio una consegna
+    // Canale non gestito qui (uno aggiunto all'enum senza un ramo qui): meglio una consegna
     // dichiaratamente non gestita che una riga pending che il poller riguarda
     // per sempre (o, peggio, trattata come un webhook).
     await finish(db, row.id, "skipped", "channel_not_implemented");

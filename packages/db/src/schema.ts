@@ -1983,20 +1983,13 @@ export const notificationStatus = pgEnum("notification_status", ["open", "handle
 
 // Canale di recapito di una consegna: `webhook` (il webhook d'istanza di
 // notification_settings, per EVENTO) o `push` (notifica ai device mobili del
-// destinatario, fase 4). `slack_dm` e `slack_update` erano i DM Slack, tolti
-// con R2: la 0246 ne ha cancellato le righe, e i due valori restano nel tipo
-// solo perché togliere un valore da un enum vuol dire ricrearlo. Nessuno li
-// scrive; il poller chiude come `skipped` un canale che non conosce.
+// destinatario, fase 4). `slack_dm` e `slack_update` (i DM Slack, tolti con
+// R2) non ci sono più: la 0247 ha ricreato il tipo senza di loro.
 // Lista LETTERALE per scelta: questi valori non escono mai dall'API — vivono
 // solo in `notification_deliveries`, che nessuna rotta serializza. Se un giorno
 // lo stato di recapito comparisse in una risposta, la regola di `enumValues`
 // qui sopra impone di far nascere lo schema Zod in `@stubwise/shared`.
-export const deliveryChannel = pgEnum("delivery_channel", [
-  "webhook",
-  "slack_dm",
-  "slack_update",
-  "push",
-]);
+export const deliveryChannel = pgEnum("delivery_channel", ["webhook", "push"]);
 
 // Stato di una consegna in outbox: `pending` (da tentare, non prima di
 // `nextAttemptAt`), `sent`, `failed` (tentativi esauriti, `error` valorizzato) o

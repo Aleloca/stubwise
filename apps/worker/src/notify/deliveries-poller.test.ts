@@ -1,5 +1,4 @@
 import {
-  aiJobs,
   deviceTokens,
   notificationDeliveries,
   notificationSettings,
@@ -8,7 +7,6 @@ import {
   encrypt,
   projectMembers,
   roles,
-  tickets,
   users,
   type Db,
   type NotificationDelivery,
@@ -84,87 +82,6 @@ async function insertWebhookDelivery(
     })
     .returning({ id: notificationDeliveries.id });
   return row!.id;
-}
-
-interface SlackDeliveryOpts {
-  /** Ruolo d'istanza del destinatario (`admin` = full admin). */
-  role?: "admin" | "member";
-  /**
-   * Ruolo di progetto (chiave del preset) del destinatario nel progetto di
-   * test, a cui la notifica è ancorata: decide le azioni offerte dai bottoni.
-   * Default `legacy_member`; `null` = non membro.
-   */
-  projectRole?: string | null;
-  /** `false` = card vecchia con `project_id` NULL (R34): il progetto è quello del ticket. */
-  cardWithProject?: boolean;
-  language?: "en" | "it";
-  event?: NotificationEvent;
-  /** Se dato, ancora la notifica a un ticket con un job in questo stato. */
-  jobStatus?: "queued" | "awaiting_plan_approval" | "awaiting_input";
-  /** Payload della riga (usato dal canale `slack_update`: `{ note }`). */
-  deliveryEvent?: Record<string, unknown>;
-  status?: "pending" | "sent";
-}
-
-/** Consegna per-destinatario (canali Slack): serve una notifica in inbox. */
-async function insertSlackDelivery(
-  channel: "slack_dm" | "slack_update",
-  opts: SlackDeliveryOpts = {},
-): Promise<{ deliveryId: string; notificationId: string; userId: string }> {
-  const [user] = await db
-    .insert(users)
-    .values({
-      email: `${randomUUID()}@example.com`,
-      passwordHash: "hash",
-      role: opts.role ?? "admin",
-      language: opts.language ?? "it",
-    })
-    .returning({ id: users.id });
-
-  let ticketId: string | null = null;
-  if (opts.jobStatus) {
-    const [ticket] = await db
-      .insert(tickets)
-      .values({
-        projectId,
-        number: Math.floor(Math.random() * 1_000_000),
-        title: "Ticket di prova",
-        type: "bug",
-        priority: "medium",
-        source: "manual",
-      })
-      .returning({ id: tickets.id });
-    ticketId = ticket!.id;
-    await db.insert(aiJobs).values({ ticketId, status: opts.jobStatus });
-  }
-  const projectRole = opts.projectRole === undefined ? "legacy_member" : opts.projectRole;
-  if (projectRole !== null) {
-    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, projectRole));
-    await db.insert(projectMembers).values({ projectId, userId: user!.id, roleId: role!.id });
-  }
-
-  const [notification] = await db
-    .insert(notifications)
-    .values({
-      userId: user!.id,
-      // Ancorata al progetto di test: i bottoni dipendono dai permessi del
-      // destinatario lì.
-      projectId: opts.cardWithProject === false ? null : projectId,
-      ticketId,
-      kind: (opts.event ?? sampleEvent()).kind,
-      event: (opts.event ?? sampleEvent()) as unknown as Record<string, unknown>,
-    })
-    .returning({ id: notifications.id });
-  const [row] = await db
-    .insert(notificationDeliveries)
-    .values({
-      channel,
-      notificationId: notification!.id,
-      ...(opts.deliveryEvent ? { event: opts.deliveryEvent } : {}),
-      ...(opts.status ? { status: opts.status } : {}),
-    })
-    .returning({ id: notificationDeliveries.id });
-  return { deliveryId: row!.id, notificationId: notification!.id, userId: user!.id };
 }
 
 async function readDelivery(id: string): Promise<NotificationDelivery> {
@@ -338,21 +255,6 @@ describe("processDeliveriesOnce", () => {
     expect(row.status).toBe("pending");
     expect(row.attempts).toBe(0);
   });
-});
-
-describe("canali Slack, dopo il ritiro (R2)", () => {
-  it.each(["slack_dm", "slack_update"] as const)(
-    "una consegna %s rimasta in coda si chiude skipped, senza invio e senza ritentare",
-    async (channel) => {
-      const { deliveryId } = await insertSlackDelivery(channel);
-      await processDeliveriesOnce(deps(async () => {
-        throw new Error("nessun invio");
-      }));
-      const row = await readDelivery(deliveryId);
-      expect(row.status).toBe("skipped");
-      expect(row.error).toBe("channel_not_implemented");
-    },
-  );
 });
 
 describe("webhook in uscita (area 9, F3)", () => {

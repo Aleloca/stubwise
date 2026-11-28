@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   aiJobs,
   comments,
   instanceSettings,
-  notificationDeliveries,
   notifications,
   planDigest,
   prCorrections,
@@ -1209,19 +1208,6 @@ describe("resolvePlan", () => {
     return row!.id;
   }
 
-  /** Consegne `slack_update` accodate per le notifiche date. */
-  async function slackUpdatesFor(notificationIds: string[]) {
-    return db
-      .select()
-      .from(notificationDeliveries)
-      .where(
-        and(
-          inArray(notificationDeliveries.notificationId, notificationIds),
-          eq(notificationDeliveries.channel, "slack_update"),
-        ),
-      );
-  }
-
   // La decisione sul piano chiude l'inbox di TUTTI, non solo di chi decide e non
   // solo sulla superficie da cui ha deciso. Questi test guardano la via DIRETTA
   // — `resolvePlan` senza passare da `executeAction` — che è quella della pagina
@@ -1251,8 +1237,6 @@ describe("resolvePlan", () => {
 
       // Ogni copia ha il suo aggiornamento in coda: il poller riscriverà quel DM
       // togliendo i bottoni e aggiungendo la nota.
-      // Il rispecchiamento sui DM Slack non c'è più (R2): nessuna nota in coda.
-      expect(await slackUpdatesFor([mine, theirs])).toEqual([]);
     });
   }
 
