@@ -7374,6 +7374,42 @@ deploy o di un rollback che la tocca.
   ```
   La colonna della 0238 può restare (il codice vecchio non la nomina).
   Scendendo, lo sblocco torna a rinnovare la riconferma.
+- **«La cassaforte nel browser, fase 2» (28 nov 2026)**: branch
+  `feat/cassaforte-browser-fase2`, sopra `feat/cassaforte-browser` (la voce
+  qui sotto va deployata prima, o insieme). Design
+  `docs/plans/2026-11-27-cassaforte-browser-design.md` §10 (I7): quello che
+  oggi fa solo il web vecchio, per poterlo ritirare.
+  - **La nuova app nel browser (`/app`, bundle di caddy)**: `#/vault-setup`,
+    una pagina dell'ingresso fuori dall'intelaiatura (attivare la cassaforte
+    col kit di recupero, creare o ricreare la propria chiave, rigenerare il
+    kit, il recupero col kit); `#/vault-pair?state=…`, la pagina che sigilla
+    un Mac; «Use for the vault» accanto a una passkey in Preferenze →
+    Security. Tutto nel worker della cassaforte, come la fase 1. Le rotte
+    esistono SOLO nella build web.
+  - **L'app per Mac**: «Pair this Mac» apre `<istanza>/app/#/vault-pair`
+    invece di `/vault-pair` del web vecchio; «Open in the browser» per
+    «nessuna chiave» e «non attiva» apre `/app/#/vault-setup`.
+  - **Server**: niente. Le tracce del §10 c'erano già: `vault_key_created`,
+    `vault_seal_added` (I7) e `vault_device_sealed`, ognuna col suo
+    `security.alert`.
+  **Deploy**: ribuildare **`caddy`**. Nessuna migrazione, nessuna env,
+  nessun `notification_kind` nuovo. **Ordine**: caddy PRIMA di distribuire
+  un pacchetto per Mac nuovo. Un Mac nuovo contro un caddy vecchio apre
+  `/app/#/vault-pair`, che lì non esiste: l'associazione non parte finché
+  caddy non è aggiornato. I Mac vecchi aprono ancora `/vault-pair` del web
+  vecchio, che finché c'è funziona.
+  ⚠️ **Al ritiro del web vecchio**: `/vault-pair?state=…` deve diventare un
+  redirect a `/app/#/vault-pair?state=…` (lo state passa nel frammento),
+  altrimenti un Mac non aggiornato non si associa più.
+  **Controllo dopo il deploy**: in `/app/#/vault-setup` un full admin di
+  un'istanza di prova attiva la cassaforte (il kit una volta, la passkey,
+  la riconferma), crea la chiave, rigenera il kit e usa il kit per
+  confermare una persona in attesa; un'altra persona crea la propria
+  chiave e, in Security, aggiunge una seconda passkey («Use for the
+  vault», due tocchi); dal Mac, «Pair this Mac» fino al ritorno all'app.
+  **Rollback**: sicuro, scendere caddy non lascia dati. Un Mac col
+  pacchetto nuovo resta senza pagina di associazione finché non si risale.
+
 - **«La cassaforte nella nuova app nel browser» (28 nov 2026)**: branch
   `feat/cassaforte-browser` (con dentro `feat/vault-session-tag`). Design
   `docs/plans/2026-11-27-cassaforte-browser-design.md`, tre revisioni di
