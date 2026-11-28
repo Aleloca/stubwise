@@ -106,32 +106,28 @@ prima ritrova la colonna giusta.
   scritto dopo R1 apre la Home del web vecchio invece della pagina: un
   degrado, non un errore, che dura finché non si risale.
 
-### P — il plugin e i tool MCP sulle rotte dell'app (D10, prima di R2)
+### P — le rotte dei tool dedicati dell'MCP (D10, chiuso)
 
-Decisione del maintainer (D10, b): PRIMA della pulizia, i comandi del plugin
-(`/stubwise:run`, `/stubwise:start`) e i tool MCP dedicati che usano le 17
-rotte che l'app non chiama passano alle rotte dell'app. Chi:
-- design e piano di ticket e voci di backlog (`set_design`, `set_plan`,
-  `delete_design`, `delete_plan`);
-- `create_backlog_from_design`, `convert_backlog_to_ticket`;
-- `get_backlog_item`, `list_backlog`;
-- le azioni dell'inbox.
+**Decisione del maintainer (D10, rivista il 28 nov 2026)**: le 12 rotte che
+usano solo i tool dedicati dell'MCP e i comandi del plugin
+(`/stubwise:run`, `/stubwise:start`) **restano**, come superficie propria
+dell'MCP, e lo dichiarano sulla rotta: `config.mcp.owner: "mcp"` (PR #151,
+ramo `feat/mcp-rotte-app`, con un elenco chiuso in
+`apps/server/src/mcp/mcp-owned.test.ts`). Sono: design e piano di ticket e
+voci di backlog, `from-design`, `convert`, la lettura e la modifica di una
+voce di backlog, il job del backlog, il catalogo MCP (`/api/mcp/catalog` e
+`…/:action`) e l'elenco dei brief.
 
-Il catalogo MCP (`/api/mcp/catalog`) è dell'MCP e resta.
-
-- Dove l'app non ha ancora la rotta (Remove design e Remove plan,
-  inventario 1.6), la si aggiunge prima, ADDITIVA, sulle rotte della nuova app.
-- Una versione nuova del plugin, con il changeset di `@stubwise/mcp` e di
-  `@stubwise/claude-plugin` (gruppo `fixed`), pubblicata dal workflow
-  Release; si verifica con `npm view @stubwise/mcp version`.
-- **Compatibilità**: un plugin vecchio deve continuare a funzionare finché le
-  rotte vecchie esistono. Quindi l'ordine è: rotte dell'app (se mancano), poi
-  plugin nuovo pubblicato e aggiornato, poi R2, che toglie le 17 rotte. Fra P
-  e R2 passa abbastanza tempo perché l'avviso «plugin vecchio» del server MCP
-  arrivi a chi lo usa.
-- **Rollback**: P è additivo. Si torna alla versione precedente del plugin,
-  o si lascia quella nuova, che funziona anche con le rotte vecchie
-  presenti.
+- **I comandi del plugin NON si spostano** sulle rotte dell'app: nessuna
+  versione nuova del plugin per questo, nessuna attesa dell'avviso «plugin
+  vecchio» prima di R2.
+- **R2 non tocca queste 12.** Lo script delle rotte
+  (`apps/server/scripts/route-callers.ts`) le mette in un gruppo a sé,
+  «dell'MCP per scelta», mai fra quelle «senza chiamanti»; il test
+  (`route-callers.test.ts`) fallisce se una rotta con `owner: "mcp"` ci
+  finisce.
+- Il blocco è chiuso col merge della #151: niente da deployare a parte, la
+  dichiarazione viaggia con le rotte.
 
 ### R2 — la pulizia del server (solo codice)
 
@@ -157,6 +153,8 @@ Il catalogo MCP (`/api/mcp/catalog`) è dell'MCP e resta.
     (le richieste non li accettano); escono con le colonne in R3.
   - Le consegne `slack_*` rimaste in coda le chiude il poller come
     `skipped`, `channel_not_implemented`.
+  - **Le 12 rotte dei tool dedicati dell'MCP non si toccano** (D10, blocco
+    P): restano, dichiarate `owner: "mcp"`.
   - **Le 9 rotte della sola mobile** tolte anch'esse (D4): `POST
     /api/auth/mobile-login`, `PUT /api/me/devices`, `POST
     /api/me/devices/delete`, `GET /api/me/mail/:source/:id`, `GET
@@ -291,7 +289,8 @@ senza chiamanti**. Le 100, divise:
   - Per design e piano l'app non ha ancora «Remove design» e «Remove plan»
     (inventario 1.6).
 
-  Deciso (D10, b): passano alle rotte dell'app nel blocco P, prima di R2.
+  Deciso (D10, rivista): restano, dichiarate `config.mcp.owner: "mcp"`
+  (blocco P); i comandi del plugin non si spostano, e R2 non le tocca.
 - **9 le usa solo la mobile di oggi**: si accetta (D5).
 - **34 sono le candidate vere**, da rivedere una per una prima di togliere:
   - alcune arrivano forse per un'altra strada, per esempio le azioni sulle
@@ -316,8 +315,8 @@ senza chiamanti:
   chiave, kit e recupero, lookup dell'accoppiamento): le chiama solo il web
   vecchio e **non si tolgono**, sono la funzione che la nuova app deve
   ancora avere (§1.2 dell'inventario: la fase 2 della cassaforte, a 79);
-- 16 del gruppo (e), 12 dei tool dedicati dell'MCP (blocco P), 9 solo della
-  mobile;
+- 16 del gruppo (e), 12 dei tool dedicati dell'MCP (blocco P: restano,
+  `owner: "mcp"`), 9 solo della mobile;
 - 2 dei Docs di prodotto toccati da Claude: restano, per la parità MCP
   (deciso il 28 nov 2026);
 - **17 da togliere con R2**, tutte del web vecchio e basta: nell'app la
@@ -369,8 +368,9 @@ Le voci già note:
 4. **R1**, lo spegnimento con `/app` alla radice: `server` e `caddy`, e la
    cancellazione di `apps/web`. Rollback: le immagini di prima (quella di
    caddy TENUTA).
-5. **P**, il plugin e i tool MCP sulle rotte dell'app (D10), pubblicato
-   PRIMA di R2.
+5. **P**, chiuso (D10 rivista): le 12 rotte dei tool dedicati restano,
+   dichiarate `config.mcp.owner: "mcp"` con la #151; i comandi del plugin
+   non si spostano.
 6. **R2**, la pulizia del server dall'elenco dello script: `server`,
    `worker`, `caddy`. Rollback: le immagini di prima.
 7. La guida riscritta (D6), subito dopo R1.
@@ -441,6 +441,10 @@ consiglio, vale §1.
     `/stubwise:start`.
   - (b) I tool passano alle rotte dell'app prima del taglio, e queste
     rotte si tolgono con R2.
+
+  **Deciso alla fine**: restano, come superficie propria dell'MCP,
+  dichiarate `config.mcp.owner: "mcp"` (PR #151); i comandi del plugin non
+  si spostano. Vedi il blocco P.
 - **[D 9] La fonte dei token di design.**
   - (a) **`packages/shared/src/design-tokens.ts` diventa la fonte** —
     *consigliata*.
