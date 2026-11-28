@@ -6,6 +6,7 @@
 // mai nel bundle.
 import type * as Fake from "../../api";
 import { liveAlerts } from "./alerts";
+import { liveSearchHistory } from "./searchHistory";
 import { liveSupport } from "./support";
 import { liveWidgets } from "./supportWidgets";
 import { liveServers } from "./servers";
@@ -30,10 +31,14 @@ import { liveProjectAutomations } from "./projectAutomations";
 import { liveProjectGeneral } from "./projectGeneral";
 import { getProjectUsage } from "./usage";
 import { liveProjectPlugins } from "./projectPlugins";
+import { liveProjectRepositories } from "./projectRepositories";
 import { chatFunctions } from "./chat";
 import { channelStream, onChatChange, subscribeChat, threadStream } from "./chatStream";
 
 export * from "./stubs.generated";
+
+// Le workspace (shape workspaces.md) sulle rotte `/api/workspaces` (lotto 3 di 54).
+export { workspaces } from "./workspaces";
 
 // Task 16: sessione, persone, progetti, notifiche, ricerca, reparti.
 export { auth, getSessionPerson, getViewer, me } from "./session";
@@ -73,6 +78,9 @@ export const projectSettings: typeof Fake.projectSettings = partialNamespace<
   // Ritiro del web vecchio (inventario 1.3): Settings → General, AI e Usage.
   ...liveProjectGeneral,
   getProjectUsage,
+  // Ritiro del web vecchio (inventario §1.3): Repositories intera (elenco, pagina,
+  // webhook, file d'ambiente, creazione guidata), `projectRepositories.ts`.
+  ...liveProjectRepositories,
 });
 
 // Area 9, F2: il registro delle modifiche sulla lettura del server.
@@ -118,6 +126,12 @@ export const alerts: typeof Fake.alerts = partialNamespace<typeof Fake.alerts>("
  * scritture si accendono con le rotte (I1); finché sono spente nessuna
  * pagina chiama questo namespace.
  */
+/** I risultati aperti di recente nella ⌘K (shape `search-history.md`): la cronologia del server. */
+export const searchHistory: typeof Fake.searchHistory = partialNamespace<typeof Fake.searchHistory>(
+  "searchHistory",
+  liveSearchHistory,
+);
+
 export const support: typeof Fake.support = partialNamespace<typeof Fake.support>("support", {
   ...liveSupport,
   // I widget (R1/R2) sulle rotte di oggi, `supportWidgets.ts`.
@@ -204,6 +218,7 @@ export {
 export { createMilestone, deleteMilestone, updateMilestone } from "./milestones";
 export { createProject } from "./projects";
 export {
+  getBrief,
   getLatestBrief,
   decisionLogTruncated,
   listDecisionLog,

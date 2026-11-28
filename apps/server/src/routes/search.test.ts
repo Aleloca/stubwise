@@ -650,6 +650,15 @@ async function record(
 }
 
 describe("cronologia unificata /api/search/history", () => {
+  it("la POSTA non entra mai nella cronologia: POST con type \"mail\" (o \"email\") è 400 e non scrive niente", async () => {
+    for (const type of ["mail", "email"]) {
+      const res = await record(memberCookie, { type, entityId: "m1", title: "Oggetto di un'email", route: "#/mail/m1" });
+      expect(res.statusCode).toBe(400);
+    }
+    const list = await app.inject({ method: "GET", url: "/api/search/history", headers: { cookie: memberCookie } });
+    expect(JSON.stringify(list.json())).not.toContain("Oggetto di un'email");
+  });
+
   it("POST registra e GET ritorna i recenti dell'utente", async () => {
     // Una voce si mostra solo se l'entità è visibile: un ticket vero, di un
     // progetto di cui il member è membro.

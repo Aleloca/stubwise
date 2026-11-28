@@ -39,6 +39,7 @@ export interface AdminPeopleApi {
     email: string;
     instanceRoleId: string;
     projects: { projectId: string; roleId: string }[];
+    workspaces?: { workspaceId: string; roleId?: string }[];
   }): Promise<{
     id: string;
     token: string;
@@ -101,6 +102,15 @@ export function sourceOf(s: Any): SourceView | null {
       departmentName: s.departmentName ?? "",
     };
   if (s.kind === "full_admin") return { kind: "full_admin" };
+  // Le workspace (99be31cb8): il ruolo di workspace, in ogni progetto della workspace.
+  if (s.kind === "workspace")
+    return {
+      kind: "workspace",
+      workspaceId: s.workspaceId ?? "",
+      workspaceName: s.workspaceName ?? "",
+      roleId: s.roleId ?? "",
+      roleName: s.roleName ?? "",
+    };
   return null;
 }
 
@@ -207,6 +217,8 @@ export function createRealAdminPeople(api: AdminPeopleApi) {
           ...p,
           extra: (p.extra ?? []).map(extraOf),
         })),
+        // Le workspace (99be31cb8): nell'indirizzo lo slug è l'id.
+        workspaces: ((d.workspaces ?? []) as Any[]).map((w) => ({ id: w.id, slug: w.id, name: w.name, roleName: w.roleName })),
         identities: d.identities ?? { gitEmails: [], bitbucketUsername: null },
         openTasks: d.openTasks ?? [],
         addableTo: d.addableTo ?? [],
@@ -321,6 +333,8 @@ export function createRealAdminPeople(api: AdminPeopleApi) {
           email: input.email.trim(),
           instanceRoleId: input.instanceRoleId,
           projects: input.projects,
+          // D9 (ffa070791): le workspace in cui entra chi accetta.
+          ...(input.workspaces && input.workspaces.length > 0 ? { workspaces: input.workspaces } : {}),
         });
         // Review F1, I2: l'id opaco lo dà il server; il token resta solo nel link.
         return {

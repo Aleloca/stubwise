@@ -50,8 +50,6 @@ interface Props {
    * perché è il motivo dell'avviso. Apre la parte SSH e chiude il pannello.
    */
   onLinkAccess?: (() => void) | undefined;
-  /** Una card che apre nel web vecchio (`webHref`, build app): «Open in web». */
-  onOpenWeb?: (() => void) | undefined;
 }
 
 /**
@@ -70,7 +68,6 @@ export function NotificationItem({
   onOpen,
   onChange,
   onLinkAccess,
-  onOpenWeb,
 }: Props) {
   const { t, i18n } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -201,17 +198,6 @@ export function NotificationItem({
         </span>
         <DeptStrip departmentId={n.departmentId} />
       </Main>
-      {onOpenWeb && (
-        <div className="-mt-1 pr-4 pb-2.5 pl-9">
-          <button
-            type="button"
-            onClick={onOpenWeb}
-            className="inline-flex h-7 items-center rounded-md border border-rule-strong px-2.5 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
-          >
-            {t("notifications.actions.openInWeb")}
-          </button>
-        </div>
-      )}
       {onLinkAccess && (
         <div className="-mt-1 pr-4 pb-2.5 pl-9">
           <button
@@ -416,10 +402,12 @@ function composedOf(
   // Area 10b (D4): `member.added`, col nome di adesso del ruolo ([SC 15]:
   // eliminato, la frase lo dice) e «ad» davanti a una vocale in italiano.
   if (n.kind === "member.added" && n.roleName !== undefined && (n.viaClaude || byHand)) {
+    // D13: entrando in una workspace, la card nomina la workspace.
+    const where = n.workspaceName ?? n.objectCode;
     const params = {
-      code: n.objectCode,
+      code: where,
       role: n.roleName ?? t("notifications.memberAdded.noRole"),
-      ...vowelContext(n.objectCode),
+      ...vowelContext(where),
     };
     // Per chi gestisce i membri (19 nov 2026): chi è entrato, per nome se lo
     // vede (R-G5), altrimenti «Someone».

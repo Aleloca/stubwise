@@ -45,6 +45,20 @@ describe("i progetti dal server", () => {
     expect(project).not.toHaveProperty("clientName");
   });
 
+  it("M4: senza `memberIds` sull'elenco, i membri si chiedono con le persone di workspace (`?include=workspace`)", async () => {
+    const p = serverProject();
+    delete (p as { memberIds?: unknown }).memberIds;
+    const { seen } = installFakeServer({
+      "GET /api/projects": { body: [p] },
+      [`GET /api/projects/${p.id}/members?include=workspace`]: {
+        body: [{ userId: ME_ID, email: "me@x.test", roleId: "r", roleName: "Viewer", explicit: false, workspaceId: "w" }],
+      },
+    });
+    const [project] = await listProjects();
+    expect(seen.some((r) => r.path === `/api/projects/${p.id}/members?include=workspace`)).toBe(true);
+    expect(project!.memberIds).toEqual([ME_ID]);
+  });
+
   it("Nuovo progetto: codice, modello, cliente e moduli al server; chi lo crea è membro", async () => {
     const { seen } = installFakeServer({
       "GET /api/auth/me": { body: me() },

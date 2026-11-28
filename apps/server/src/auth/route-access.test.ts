@@ -262,6 +262,9 @@ describe("rotte con riconferma recente", () => {
       "PUT /api/repositories/:id/env-files/:fileId/vars/:key",
       "PUT /api/users/:id/bitbucket",
       "PUT /api/users/:id/slack",
+      // Workspace, lotto 3 (D11): fanno arrivare permessi a qualcuno.
+      "PUT /api/workspaces/:id/members/:userId",
+      "PUT /api/workspaces/:id/projects/:projectId",
     ]);
   });
 

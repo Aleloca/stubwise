@@ -184,10 +184,15 @@ export * as access from "./access/whoCanApi";
 export * as auth from "./auth";
 /** L'Amministrazione (area 9a): `api.admin.listPeople(…)`, `api.admin.addMember(…)`… */
 export * as admin from "./admin";
+/** Le workspace (shape `workspaces.md`): `api.workspaces.listWorkspaces()`… */
+export * as workspaces from "./workspaces/index";
+import { workspacesForSearch } from "./workspaces/index";
 /** Le Preferenze personali (area 9a): `api.me.getMySecurity()`, `api.me.createToken(…)`… */
 export * as me from "./me";
 // Lotto 10: la Cassaforte delle credenziali e la chiave del Mac (shape `vault.md`).
 export * as vault from "./vault";
+// I risultati aperti di recente nella ⌘K (shape `search-history.md`).
+export * as searchHistory from "./searchHistory";
 /** L'istanza (area 9b): `api.instance.listProviders()`, `api.instance.getUsage(…)`… */
 export * as instance from "./instance";
 /** Progetto → Settings (area 9c): `api.projectSettings.getProjectSettings(…)`… */
@@ -832,6 +837,22 @@ export async function getLatestBrief(projectId: string): Promise<WeeklyBrief | n
 }
 
 /**
+ * UN brief per id, anche uno che non è più l'ultimo (ritiro del web vecchio:
+ * la card `project.brief` di una settimana fa, la roadmap). `null` se non
+ * c'è o è di un progetto che chi guarda non vede: niente contenuto, come il
+ * 404 del server.
+ */
+export async function getBrief(briefId: string): Promise<WeeklyBrief | null> {
+  const me = await gate("getBrief");
+  const brief = state.briefs.find((b) => b.id === briefId);
+  if (!brief || !visibleProjectIds(me).has(brief.projectId)) return null;
+  // Come `getLatestBrief`: nel prototipo il brief lo legge chi vede il
+  // progetto. Il server chiede anche `tickets.view_all` (le due rotte), e la
+  // build app lo rispetta (403 → null): divergenza dichiarata nel registro.
+  return copy(brief);
+}
+
+/**
  * Le notifiche che arrivano a chi guarda, nei progetti che vede: per i kind
  * del catalogo degli avvisi (area 8a) i destinatari si calcolano adesso
  * (iscrizioni, obbligatori, permessi), per gli altri sono quelli fissi della
@@ -878,6 +899,9 @@ export async function listNotifications(): Promise<AppNotification[]> {
       // ([SC 16]).
       if (n.roleId !== undefined)
         out.roleName = accessState().roles.find((r) => r.id === n.roleId)?.name ?? null;
+      // D13: la card di chi è entrato in una workspace la nomina (derivata a lettura).
+      if (n.workspaceId !== undefined)
+        out.workspaceName = accessState().workspaces.find((w) => w.id === n.workspaceId)?.name ?? null;
       // `member.added` a chi gestisce i membri (19 nov 2026): chi è entrato,
       // per nome se chi guarda lo vede (R-G5); a chi è entrato niente.
       if (n.memberId !== undefined) {
@@ -1541,14 +1565,30 @@ export async function search(q: string): Promise<SearchResult[]> {
     fields.some((f) => f?.toLowerCase().includes(needle));
   const visible = visibleProjectIds(me);
   const results: SearchResult[] = [];
+  // Shape `workspaces.md`, ⌘K: la workspace come testo minore dei progetti, e
+  // il gruppo WORKSPACES che apre All projects filtrato.
+  const ws = workspacesForSearch(me);
   for (const p of state.projects) {
     if (visible.has(p.id) && has(p.code, p.name, p.clientName)) {
+      const workspaceName = ws.nameOfProject.get(p.id);
       results.push({
         kind: "project",
         id: p.id,
         code: p.code,
         label: p.name,
         route: `#/p/${p.code}`,
+        ...(workspaceName ? { detail: workspaceName } : {}),
+      });
+    }
+  }
+  for (const w of ws.workspaces) {
+    if (has(w.name)) {
+      results.push({
+        kind: "workspace",
+        id: w.id,
+        label: w.name,
+        route: `#/projects?workspace=${w.slug}`,
+        detail: String(w.projectCount),
       });
     }
   }

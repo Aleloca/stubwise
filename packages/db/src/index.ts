@@ -9,7 +9,7 @@ export { s3ConfigFromSettings, type S3Config, type S3SettingsLike } from "./stor
 export { ensureDocPageCodes } from "./doc-page-codes.js";
 export { liveSectionHolds, releaseSections, takeSection, type TakeSectionResult } from "./product-holds.js";
 // Area 9, F1: ruolo ∪ permessi personali di un membro, come SQL (una regola).
-export { memberPermissionsSql } from "./member-permissions.js";
+export { memberPermissionsSql, projectAccessPermissionsSql, projectAccessRowCounts, projectAccessSql } from "./member-permissions.js";
 export { projectNotArchived, projectQueueRunnable, repositoryQueueRunnable } from "./queue-pause.js";
 export { isAttachedRepository } from "./repository-attached.js";
 export {

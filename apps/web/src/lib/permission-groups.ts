@@ -25,6 +25,7 @@ export const INSTANCE_PERMISSION_GROUPS: readonly PermissionGroup<InstancePermis
       "users.invite",
       "users.manage",
       "departments.manage",
+      "workspaces.manage",
       "people.activity.view",
       // Fetta 5 della chat: leggere le conversazioni pubbliche con Claude.
       "claude.public.view",

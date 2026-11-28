@@ -146,6 +146,15 @@ function forgetClientCaches(): void {
  * (`docs/invariants/permissions.md`: il client li legge, non li deduce), e
  * dalla fetta 3 quelli di reparto (`department.home.manage`).
  */
+/**
+ * I permessi d'istanza di chi è dentro, dal viewer già letto (nessuna lettura
+ * in più di `/api/auth/me`); solo se non c'è ancora, si legge il viewer.
+ */
+export async function instancePermissionsNow(): Promise<readonly string[]> {
+  if (viewerMe) return viewerMe.instancePermissions as readonly string[];
+  return (await getViewer()).instancePermissions as readonly string[];
+}
+
 export const getViewer: typeof Fake.getViewer = async () => {
   // La lettura di `getSessionPerson` vale una volta sola (l'avvio): un viewer
   // riletto dopo un cambio di permessi chiede di nuovo `/api/auth/me`.

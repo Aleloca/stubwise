@@ -260,7 +260,7 @@ describe("i rilasci nella build app (area 8, F1, releases)", () => {
     expect(block.textContent).toContain("audin-app#246");
   });
 
-  it("Repositories ridotta (46): l'elenco in sola lettura e nell'editor SOLO «Releases»; la modalità si salva per slug", async () => {
+  it("Repositories intera (ritiro del web vecchio): senza git_accounts.manage «Add repository» è spento; nell'editor anche «Releases», e la modalità si salva per slug", async () => {
     install({
       routes: {
         "GET /api/auth/me": {
@@ -313,13 +313,13 @@ describe("i rilasci nella build app (area 8, F1, releases)", () => {
       { timeout: 3000 },
     );
     expect(list.textContent).toContain("audin/audin-app");
-    // Nella build app niente «nuovo repository» finché non arriva l'area 9.
-    expect(screen.queryByRole("button", { name: /Add repository/ })).toBeNull();
-    await userEvent.click(within(list).getByRole("button", { name: /Open/ }));
+    // La pagina intera (feat/repository-nuova-app): aggiungere vuole anche
+    // `git_accounts.manage` d'istanza, che qui manca, quindi il bottone c'è ma spento.
+    expect(screen.getByRole("button", { name: /Add repository/ })).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(within(list).getByRole("link", { name: /audin-app/ }));
     expect(await screen.findByRole("heading", { name: "Releases" })).toBeTruthy();
-    // Il resto dell'editor (dettagli, account git, file d'ambiente, webhook) non c'è.
-    expect(screen.queryByRole("heading", { name: "Details" })).toBeNull();
-    expect(screen.queryByText(/git account/i)).toBeNull();
+    // L'editor intero: i dettagli ci sono, accanto a «Releases».
+    expect(screen.getByRole("region", { name: "Details" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: /^Analysis only/ })).toBeChecked();
     await userEvent.click(screen.getByRole("radio", { name: /^Off/ }));
     await waitFor(() =>

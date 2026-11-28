@@ -32,6 +32,14 @@ COPY apps/worker/package.json apps/worker/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/shared/package.json packages/shared/package.json
+# `@stubwise/docs-engine` ed `@stubwise/embeddings`: dal 28 nov 2026
+# docs-engine importa `@stubwise/shared/app-links`, quindi ha una dipendenza
+# di workspace che si risolve SOLO se pnpm vede il suo manifest in questo
+# layer (sennò niente node_modules/@stubwise/shared nel package e il suo `tsc`
+# fallisce con «Cannot find module '@stubwise/shared/app-links'»). La CI non
+# lo vede: non costruisce le immagini.
+COPY packages/docs-engine/package.json packages/docs-engine/package.json
+COPY packages/embeddings/package.json packages/embeddings/package.json
 COPY packages/git/package.json packages/git/package.json
 # `@stubwise/google` è una dipendenza (non dev) del server dalla fase 6, e ha
 # dipendenze ESTERNE proprie (zod, drizzle-orm): senza il suo manifest in questo

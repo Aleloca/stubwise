@@ -98,8 +98,33 @@ export async function getInviteChoices(): Promise<InviteChoices> {
           .filter((r) => r.scope === "project")
           .map((r) => choice(r, roleMissingIn(me, [p.id], r))),
       })),
+    // D4: `workspaces.manage` e la gestione dei membri di ogni progetto della workspace.
+    workspaces: accessState()
+          .workspaces.filter(
+            (w) =>
+              canI(me, "workspaces.manage") &&
+              workspaceProjectIds(w.id).every((p) => visible.has(p) && canI(me, "project.members.manage", p)),
+          )
+          .map((w) => {
+            const ids = workspaceProjectIds(w.id);
+            return {
+              workspaceId: w.id,
+              name: w.name,
+              roles: roles
+                .filter((r) => r.scope === "project")
+                .map((r) => choice(r, ids.length === 0 ? [] : roleMissingIn(me, ids, r))),
+              // D3: di base Viewer.
+              defaultRoleId: roles.find((r) => r.scope === "project" && r.key === "viewer")?.id ?? "",
+            };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name)),
   };
 }
+
+const workspaceProjectIds = (workspaceId: string): string[] =>
+  accessState()
+    .workspaceProjects.filter((w) => w.workspaceId === workspaceId)
+    .map((w) => w.projectId);
 
 /**
  * Un progetto dell'invito dove i permessi del reparto di ripiego non varranno
@@ -122,6 +147,8 @@ export interface CreateInviteInput {
   email: string;
   instanceRoleId: string;
   projects: { projectId: string; roleId: string }[];
+  /** D9: le workspace, col ruolo di workspace (di base Viewer, D3). */
+  workspaces?: { workspaceId: string; roleId: string }[];
 }
 
 /**
@@ -149,6 +176,16 @@ export async function createInvite(
     return refuse.invalid("invite_exists");
   const instanceRole = roleById(input.instanceRoleId);
   if (!instanceRole || instanceRole.scope !== "instance") return refuse.invalid("role");
+  const workspaces = input.workspaces ?? [];
+  for (const w of workspaces) {
+    if (!accessState().workspaces.some((x) => x.id === w.workspaceId)) return refuse.notFound();
+    const manages =
+      canI(me, "workspaces.manage") &&
+      workspaceProjectIds(w.workspaceId).every((p) => canI(me, "project.members.manage", p));
+    if (!manages) return refuse.forbidden();
+    const role = roleById(w.roleId);
+    if (!role || role.scope !== "project") return refuse.invalid("role");
+  }
   const projectIds = input.projects.map((p) => p.projectId);
   if (new Set(projectIds).size !== projectIds.length) return refuse.invalid("project");
   for (const p of input.projects) {
@@ -160,6 +197,11 @@ export async function createInvite(
   for (const check of [
     missingIn(me, "instance", instanceRole.permissions),
     ...input.projects.map((p) => roleMissingIn(me, [p.projectId], roleById(p.roleId)!)),
+    // Il ruolo di workspace vale in tutti i suoi progetti: l'escalation su tutti.
+    ...workspaces.map((w) => {
+      const ids = workspaceProjectIds(w.workspaceId);
+      return ids.length === 0 ? [] : roleMissingIn(me, ids, roleById(w.roleId)!);
+    }),
   ])
     for (const m of check) missing.add(m);
   if (missing.size > 0) return { ok: false, error: "escalation", missing: [...missing] };
@@ -175,6 +217,7 @@ export async function createInvite(
     email,
     instanceRoleId: instanceRole.id,
     projects: input.projects.map((p) => ({ ...p })),
+    ...(workspaces.length > 0 ? { workspaces: workspaces.map((w) => ({ ...w })) } : {}),
     invitedById: me,
     createdAt: now(),
     expiresAt,

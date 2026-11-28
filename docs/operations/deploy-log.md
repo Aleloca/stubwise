@@ -7266,6 +7266,94 @@ deploy o di un rollback che la tocca.
   vecchio non le nomina e il DEFAULT vale null fuori dalle richieste
   dell'MCP. Le voci già scritte «via Claude Code» restano nel DB e tornano
   visibili risalendo. Nessun `notification_kind` nuovo.
+
+- **«Workspace» (27 nov 2026)**: design
+  `docs/plans/2026-11-27-workspace-design.md` (decisioni D1–D19), piano
+  `docs/plans/2026-11-27-workspace-piano.md`. Le workspace raggruppano
+  PROGETTI per visibilità: una persona di una workspace vede ogni suo
+  progetto col ruolo di workspace, e i permessi effettivi sono l'unione
+  delle fonti (`project_access`). Le invarianti in
+  `docs/invariants/permissions.md` e (D17) `docs/invariants/mail-calendar.md`.
+  **Cosa ribuildare, in ordine**:
+  1. `server`: applica la **0239** (tabelle `workspaces`,
+     `workspace_projects`, `workspace_members`, `invite_workspaces`, i due
+     trigger del ruolo di progetto e la vista `project_access`). Tutto
+     additivo, nessun dato: un'istanza senza workspace è identica a prima.
+     Aspetta che sia healthy.
+  2. `worker`: la regola condivisa (`packages/notifications`, chi riceve
+     le card, e i candidati di posta e calendario, D17) legge la vista. Va
+     aggiornato prima che esista una workspace con persone; finché non ce
+     n'è nessuna il comportamento è identico. Niente riavvii con lavoro
+     dell'agente in corso (le regole di sempre).
+  3. `caddy`: il renderer di `/app`, con la colonna delle workspace nella
+     pagina Progetti, Members, «Who can?», la pagina della persona e
+     l'invito.
+  4. `@stubwise/mcp`: nessun tool curato cambia, le rotte nuove arrivano dal
+     catalogo (`config.mcp`): nessun changeset necessario.
+  **Permesso nuovo**: `workspaces.manage` (d'istanza), in nessun preset: lo
+  ha solo il full admin finché un admin non lo dà a un ruolo. Senza, nessuno
+  vede differenze **di workspace**.
+  **Cosa cambia ANCHE su un'istanza senza workspace** (revisione d'insieme,
+  M5). Sono cambi veri, da sapere prima del deploy:
+  - **`PATCH /api/roles/:id` può rispondere 409 `last_manager`**: togliere
+    `project.members.manage` a un ruolo di progetto che è l'unica fonte di
+    quel permesso per i gestori di un progetto ora si rifiuta, col progetto
+    nel corpo (solo a chi lo vede). Prima passava e lasciava il progetto
+    senza gestori. Lo stesso per l'eliminazione di una persona che è l'ultima
+    gestrice di un progetto. L'anteprima del ruolo
+    (`POST /api/roles/:id/viewer-loses`) porta `lastManager`, additivo.
+  - **Le anteprime prendono i lock della scrittura.** `viewer-loses`, e le
+    anteprime di membro e di effetto, FANNO la scrittura in una transazione
+    annullata: prendono riga del ruolo, workspace e lock advisory dei membri
+    come il salvataggio, e lo dicono identico. Un salvataggio concorrente
+    sullo stesso ruolo o progetto aspetta l'anteprima, per pochi
+    millisecondi.
+  - **Il conteggio delle assegnazioni dei ruoli d'istanza era sempre 0**
+    (vecchio difetto, `assignmentCountSql`): l'elenco dei ruoli mostrava
+    «0 persone» anche per un ruolo in uso. Ora conta le persone vere.
+    Eliminare un ruolo d'istanza assegnato dava già 409 `role_in_use`, dal
+    vincolo e senza conteggio; ora lo dà prima, col `count`.
+  - **Il JIT di Postgres è spento su tutte le connessioni dell'app**
+    (`createDb`: server, worker e script), e la WHERE della visibilità
+    delle card legge i permessi una volta per riga (I1). Inbox e conteggio
+    dei non letti tornano ai tempi di main o meglio; nessun risultato
+    cambia.
+  - **`GET /api/projects/:id/members`** ha due campi additivi, `explicit` e
+    `workspaceId`. Il parametro opzionale `?include=workspace` aggiunge chi
+    vede il progetto solo per una workspace (M4). Senza il parametro, gli
+    stessi membri di prima. **`GET /api/workspaces`** ha `canManage` (I3).
+  - **Un invito con una workspace la perde in un rollback**: il codice
+    vecchio non legge `invite_workspaces`, quindi un invito accettato dopo
+    la discesa crea la persona senza la workspace promessa. La riga resta,
+    ma nessuno la rilegge: va rimessa a mano nella workspace.
+  **Rollback**:
+  - Prima che esista una workspace: sicuro scendere server, worker e caddy
+    insieme. Le tabelle vuote restano e il codice vecchio non le nomina.
+  - Con workspace in uso: scendere è sicuro per i DATI ma TOGLIE L'ACCESSO.
+    Il codice vecchio non conosce `project_access`, quindi chi vedeva un
+    progetto solo per una workspace smette di vederlo. Nessuna riga si
+    perde, e risalendo torna tutto. Prima di scendere, conta chi
+    perderebbe l'accesso:
+    ```sql
+    select count(distinct (wm.user_id, wp.project_id))
+    from workspace_members wm
+    join workspace_projects wp on wp.workspace_id = wm.workspace_id
+    left join project_members pm on pm.project_id = wp.project_id and pm.user_id = wm.user_id
+    where pm.user_id is null;
+    ```
+  - Il caddy e il worker scendono INSIEME al server: un worker vecchio con
+    un server nuovo consegnerebbe meno card di quante l'inbox ne mostri.
+  - Nessun `notification_kind` nuovo: l'ingresso in una workspace usa
+    `member.added` (con `workspaceId` nell'evento, additivo), quindi la
+    discesa non rompe `/api/inbox`.
+  - Non scendere sotto la 0239 con righe in `workspace_members`: la
+    migrazione non si toglie a mano (le tabelle restano, innocue).
+  - Gli inviti pendenti che promettono una workspace, da ricontrollare dopo
+    una discesa (vedi sopra):
+    ```sql
+    select i.email, w.name from invite_workspaces iw
+    join invites i on i.token = iw.invite_token join workspaces w on w.id = iw.workspace_id;
+    ```
 - **«Il filtro per progetto della Posta e la favicon di /app» (27 nov 2026)**:
   branch `fix/posta-filtro-progetto`. In `/app/#/mail` filtrare per un
   progetto dava «No mail for <codice>» anche per conversazioni etichettate
@@ -7302,6 +7390,28 @@ deploy o di un rollback che la tocca.
   elenchi più e che il loro dettaglio dica `ignored` (o `handed`).
   **Rollback**: sicuro, nessun dato toccato; scendendo, le 6 tornano visibili
   come prima.
+- **«Brief passati e risultati recenti nella ⌘K» (28 nov 2026)**: branch
+  `feat/ritiro-buchi-minori`, ritiro del web vecchio (inventario §1.6),
+  decisioni del maintainer del 27 nov. Nella nuova app (`/app`):
+  - qualunque brief del progetto si apre nel pannello di lettura
+    (`GET /api/briefs/:id`), con «Brief of <data> · not the latest» e il link
+    all'ultimo. `briefHeadline` passa da `@stubwise/notifications` a
+    `@stubwise/shared` (ri-esportata, nessun import cambia);
+  - la ⌘K a query vuota mostra i risultati aperti di recente
+    (`/api/search/history`): ✕ e ⌘⌫ per togliere una voce, «Clear all» senza
+    conferma. Si ricordano task, progetti e pagine Docs aperti dalla ⌘K, mai
+    la posta. Le voci registrate dal web vecchio non si mostrano.
+  **Server**: nessuna rotta nuova né migrazione (lo spostamento di
+  `briefHeadline` non cambia il comportamento). **Ordine**: `caddy` (e il
+  `server`/`worker` solo se si vuole il codice di `shared` allineato, senza
+  effetti). **Rollback**: sicuro.
+  **Dopo la revisione (28 nov 2026)**: la nuova app ricostruisce l'indirizzo
+  di un recente da tipo e oggetto (mai dalla `route` salvata), quindi si
+  aprono anche le voci scritte dal web vecchio; il web vecchio apre una
+  `route` `#/…` scritta dalla nuova app in `/app/`. Va quindi ribuildato
+  **anche il web vecchio** (`caddy`, che lo serve). Togliere un recente è
+  ottimistico. `latestWeeklyBrief` usa `briefSummaryText` di `shared`: il
+  `server` va ribuildato (nessun cambio di comportamento).
 
 - **«Indurimento di sicurezza dell'origine» (27 nov 2026)**: branch
   `fix/sicurezza-origine`. Il modello di minaccia («un XSS più un tocco
@@ -7339,9 +7449,9 @@ deploy o di un rollback che la tocca.
   - **M5, scritture col cookie dalla stessa origine**: 403
     `cross_origin_request` per `Sec-Fetch-Site` same-site o cross-site, o
     per un `Origin` estraneo. PAT, app mobile e desktop non sono toccati.
-  ⚠️ **La migrazione 0238 ha lo stesso numero di `0238_workspaces` di
-  `feat/workspace`**: il ramo che entra per secondo rinumera la sua (file
-  e `_journal.json`).
+  La migrazione è la **0238** (`0238_vault_unlock_window`); quella delle
+  workspace, che aveva lo stesso numero, è stata rinumerata **0239**
+  (`feat/workspace`, 28 nov 2026).
   **Ordine**: prima **`server`** (healthy, migrazione applicata), poi
   **`caddy`**. Il worker non cambia. Nessuna env nuova.
   **Controllo dopo il deploy**: gli header serviti, e una pagina per tipo
@@ -7565,3 +7675,36 @@ deploy o di un rollback che la tocca.
   **Al ritiro**: togliere i `#` del blocco «Ritiro del web vecchio» del
   `Caddyfile` (validato anche acceso) e mandare il resto del web vecchio
   alla nuova app.
+
+- **«I repository nella nuova app» (27 nov 2026)**: branch
+  `feat/repository-nuova-app`, ritiro del web vecchio (inventario §1.3).
+  Progetto → Settings → Repositories nella build app non è più ridotta al
+  blocco Releases: elenco, creazione guidata sugli account git (rami del
+  repository scelto, verifica dell'accesso), pagina del repository, webhook
+  git e file d'ambiente, sulle rotte che già usa il web vecchio
+  (`apps/desktop/src/renderer/data/backend/real/projectRepositories.ts`). Il
+  segreto del webhook e i valori delle variabili non passano dall'adattatore.
+  Le scritture dei file d'ambiente con riconferma passano da `useReauth`.
+  Server, cambi additivi: `GET /api/repositories/:id/env-files` dà
+  `setAt` per variabile; l'import dà anche `replaced` e `skipped` (righe
+  saltate, per sintassi o per chiave), con il nuovo `onSkip` di
+  `parseDotenv` (`packages/shared`). L'api-client ha i metodi nuovi
+  (`repositories.create`/`update`/`configureWebhook`/env-files,
+  `gitAccounts.repositories`/`branches`/`validateRepo`). Regola allineata
+  al server: scegliere un account git vuole `git_accounts.manage`, anche
+  nel prototipo (shape `project-repositories.md`, correzione del 27 nov).
+  **Ordine**: `server`, poi `caddy`. Nessuna migrazione, nessuna env.
+  **Controllo dopo il deploy**: da `/app`, in un progetto, aggiungere un
+  repository (account, repository, ramo, verifica, Create), poi aprirlo e
+  importare un `.env` nell'ambiente test. L'esito dice quante variabili
+  sono nuove, sostituite e saltate, e nessun valore ricompare.
+  Dopo la revisione: la creazione non rifiuta più dopo il 201 (un ramo di
+  rilascio che non si salva è un avviso, mai un doppione al Retry); la
+  verifica accetta sempre il ramo predefinito e non rifiuta un ramo con un
+  elenco al tetto (~200); gli avvisi del server (`warnings` di POST/PATCH)
+  e il messaggio della piattaforma (verifica, webhook) si mostrano.
+  **Rollback**: `caddy` scende da solo senza danni (torna la sezione
+  ridotta). Il `server` può scendere SENZA il caddy: senza `setAt` la riga
+  della variabile non mostra la data (prima della revisione la sezione dei
+  file d'ambiente saltava), e senza `replaced`/`skipped` l'esito dell'import
+  conta tutto come nuovo, nessuna riga saltata.

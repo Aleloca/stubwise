@@ -152,6 +152,7 @@ function PersonBody({ person }: { person: Person }) {
       <InstanceRolePart person={person} manages={manages} />
       <ProjectsPart person={person} />
       <DepartmentsPart person={person} />
+      {person.workspaces && person.workspaces.length > 0 && <WorkspacesPart person={person} />}
       <IdentitiesPart person={person} manages={manages} />
       {/* La cassaforte (lotto 10, D-6): sotto «Linked identities», solo full admin. */}
       <VaultAdminPart personId={person.personId} name={person.name} />
@@ -465,7 +466,20 @@ function ProjectsPart({ person }: { person: Person }) {
                     >
                       {p.name}
                     </Link>
-                    <span className="shrink-0 text-sm text-ink-muted">{p.role.name}</span>
+                    <span className="shrink-0 text-sm text-ink-muted" data-person-project-role>
+                      {p.workspaceOnly && p.workspace
+                        ? t("admin.person.projects.workspace", {
+                            role: p.workspace.roleName,
+                            workspace: p.workspace.name,
+                          })
+                        : p.workspace
+                          ? t("admin.person.projects.alsoWorkspace", {
+                              role: p.role.name,
+                              wsRole: p.workspace.roleName,
+                              workspace: p.workspace.name,
+                            })
+                          : p.role.name}
+                    </span>
                     {p.canManage && (
                       <Link
                         to="/p/$code/settings/$section"
@@ -552,6 +566,29 @@ function DepartmentsPart({ person }: { person: Person }) {
           ))}
         </ul>
       )}
+    </Part>
+  );
+}
+
+/** Shape `workspaces.md`: le workspace della persona, col ruolo; ognuna apre la sua scheda People. */
+function WorkspacesPart({ person }: { person: Person }) {
+  const { t } = useTranslation();
+  return (
+    <Part title={t("admin.person.workspaces.title")}>
+      <ul data-person-workspaces>
+        {(person.workspaces ?? []).map((w) => (
+          <li key={w.id} className={rowClass}>
+            <Link
+              to="/projects"
+              search={{ workspace: w.slug, view: "people" } as never}
+              className="text-md text-ink hover:underline"
+            >
+              {w.name}
+            </Link>
+            <span className="text-sm text-ink-muted">{w.roleName}</span>
+          </li>
+        ))}
+      </ul>
     </Part>
   );
 }

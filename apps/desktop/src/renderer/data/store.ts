@@ -9,6 +9,8 @@ import { matches, type FilterContext } from "../domain/filters";
 import { serverInProject } from "../domain/servers/projects";
 import { ACTIVITY } from "./seed/activity";
 import { BRIEFS } from "./seed/briefs";
+import { seedSearchHistory } from "./seed/searchHistory";
+import type { SearchHistoryEntry } from "./searchHistoryModel";
 import {
   CHAT_CHANNELS,
   CHAT_MESSAGES,
@@ -191,6 +193,7 @@ import {
   accessState as accessStateNow,
   registerMembershipSync,
   resetAccessState,
+  seatsIn,
   subscribeAccess,
   writeAccess as writeAccessNow,
   type AccessState,
@@ -275,6 +278,11 @@ export type ApiFnName =
   | "listTimeline"
   | "listDecisionLog"
   | "getLatestBrief"
+  | "getBrief"
+  | "searchHistory.listRecentResults"
+  | "searchHistory.rememberResult"
+  | "searchHistory.forgetResult"
+  | "searchHistory.clearRecentResults"
   | "listNotifications"
   | "markNotification"
   | "search"
@@ -762,6 +770,18 @@ export type ApiFnName =
   | "auth.reauthenticate"
   | "auth.enrollDuringReauth"
   // Amministrazione (area 9a, Task 4): People, inviti, ruoli, reparti, membri
+  | "workspaces.list"
+  | "workspaces.get"
+  | "workspaces.ofProject"
+  | "workspaces.listMembers"
+  | "workspaces.preview"
+  | "workspaces.create"
+  | "workspaces.rename"
+  | "workspaces.delete"
+  | "workspaces.setProjectWorkspace"
+  | "workspaces.addMember"
+  | "workspaces.setMemberRole"
+  | "workspaces.removeMember"
   | "admin.listPeople"
   | "admin.getPerson"
   | "admin.setInstanceRole"
@@ -927,6 +947,7 @@ export type ApiFnName =
   // Repository, file d'ambiente, Integration, Plugins (Task 4)
   | "projectSettings.listProjectRepositories"
   | "projectSettings.listRemoteRepositories"
+  | "projectSettings.listRemoteBranches"
   | "projectSettings.checkRepositoryAccess"
   | "projectSettings.simulateNextRepositoryCheck"
   | "projectSettings.createRepository"
@@ -1116,6 +1137,8 @@ interface State {
   requests: ProjectRequest[];
   milestones: Milestone[];
   briefs: WeeklyBrief[];
+  /** I risultati aperti di recente nella ⌘K, per persona (shape `search-history.md`). */
+  searchHistory: SearchHistoryEntry[];
   decisionLog: DecisionLogEntry[];
   dailyReports: DailyReport[];
   /** Autori git dei commit collegati a una persona dopo il seed (nome git → id persona). */
@@ -1408,6 +1431,19 @@ function withClaudeSeedActivity(task: Task): Task {
   return latest && latest > task.lastActivityAt ? { ...task, lastActivityAt: latest } : task;
 }
 
+/**
+ * `memberIds` del seme con anche chi vede il progetto dalla workspace
+ * (shape `workspaces.md`): le appartenenze del seme nascono da `memberIds`,
+ * le persone di workspace no, quindi si aggiungono qui, sugli accessi appena
+ * ripristinati. Dopo il seme le allinea `registerMembershipSync`.
+ */
+function withWorkspaceSeats(project: Project): Project {
+  const extra = seatsIn(accessStateNow())
+    .filter((x) => x.projectId === project.id && !project.memberIds.includes(x.personId))
+    .map((x) => x.personId);
+  return extra.length === 0 ? project : { ...project, memberIds: [...project.memberIds, ...extra] };
+}
+
 function freshState(): State {
   return {
     access: resetAccessState(),
@@ -1434,7 +1470,7 @@ function freshState(): State {
     instance: seedInstanceState(),
     googleWorkspaces: seedGoogleWorkspaces(),
     proposalsBeforeUnlink: new Map(),
-    projects: PROJECTS.map(copy),
+    projects: PROJECTS.map(copy).map(withWorkspaceSeats),
     statuses: PROJECT_STATUSES.map(copy),
     tasks: TASKS.map(copy).map(withClaudeSeedActivity),
     deletedTasks: [],
@@ -1443,6 +1479,7 @@ function freshState(): State {
     requests: REQUESTS.map(copy),
     milestones: MILESTONES.map(copy),
     briefs: BRIEFS.map(copy),
+    searchHistory: seedSearchHistory(TASKS, DOC_PAGES, DOC_SPACES),
     decisionLog: DECISION_LOG.map(copy),
     dailyReports: DAILY_REPORTS.map(copy),
     commitAuthorLinks: new Map(SEED_GIT_LINKS),
@@ -1691,6 +1728,9 @@ export function emptyStore(): void {
   writeAccessNow((a) => {
     a.roles = a.roles.filter((r) => r.preset);
     a.memberships = [];
+    a.workspaces = [];
+    a.workspaceProjects = [];
+    a.workspaceMembers = [];
     a.grants = [];
     a.departments = [];
     a.people = [];

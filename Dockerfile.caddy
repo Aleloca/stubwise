@@ -32,6 +32,13 @@ COPY apps/docs/package.json apps/docs/package.json
 COPY packages/api-client/package.json packages/api-client/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/shared/package.json packages/shared/package.json
+# `@stubwise/docs-engine` ed `@stubwise/embeddings` (28 nov 2026): docs-engine
+# importa `@stubwise/shared/app-links`, e il build delle dipendenze del server
+# qui sotto lo compila. Senza il suo manifest in questo layer pnpm non gli
+# crea node_modules/@stubwise/shared e il suo `tsc` fallisce. Stessa
+# correzione di apps/server/Dockerfile e apps/worker/Dockerfile.
+COPY packages/docs-engine/package.json packages/docs-engine/package.json
+COPY packages/embeddings/package.json packages/embeddings/package.json
 COPY packages/git/package.json packages/git/package.json
 # `@stubwise/google` entra qui dalla PORTA DI SERVIZIO: non è una dipendenza di
 # apps/web, ma lo è del server, e il `@stubwise/server^...` più sotto (che

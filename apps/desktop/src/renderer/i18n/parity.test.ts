@@ -73,6 +73,8 @@ describe("parità delle chiavi en/it", () => {
         "requests",
         "overview",
         "projects",
+        // Le workspace (shape workspaces.md, 27 nov 2026).
+        "workspaces",
         "settings",
         "mail",
         "calendar",

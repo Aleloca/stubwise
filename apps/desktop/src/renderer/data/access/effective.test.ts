@@ -22,6 +22,7 @@ import {
   effectivePermissions,
   isMember,
   roleIdOf,
+  seatsIn,
   seedAccessState,
   writeAccess,
 } from "./index";
@@ -53,7 +54,17 @@ const ALLOWED_DIFFERENCES: readonly {
   permission: string;
   projectId: string | null;
   reason: string;
-}[] = [];
+}[] = [
+  {
+    // Workspace (27 nov 2026): Nicola vede ORT, SPZ, LNT e BSC da Viewer della
+    // workspace «Clienti storici», e Viewer dà `project.usage.view`. È il bit
+    // «in almeno un progetto»; sui progetti del fixture non cambia niente.
+    personId: "p-nicola",
+    permission: "project.usage.view",
+    projectId: null,
+    reason: "Viewer dalla workspace «Clienti storici», su progetti nati dopo il fixture",
+  },
+];
 
 /**
  * Le persone che hanno perso TUTTI i permessi rispetto al fixture, col
@@ -408,15 +419,18 @@ describe("appartenenze e `project.memberIds`", () => {
     expect(aud.memberIds).not.toContain("p-irene");
   });
 
-  it("nel seme, `memberIds` e le appartenenze dicono la stessa cosa (Claude a parte)", () => {
+  it("nel seme, `memberIds` e i posti (appartenenze e workspace) dicono la stessa cosa (Claude a parte)", () => {
     for (const project of state.projects) {
       const humans = project.memberIds.filter((id) => id !== CLAUDE_ID).sort();
-      const members = accessState()
-        .memberships.filter((m) => m.projectId === project.id)
+      const seats = seatsIn(accessState())
+        .filter((m) => m.projectId === project.id)
         .map((m) => m.personId)
         .sort();
-      expect(members, project.code).toEqual(humans);
+      expect(seats, project.code).toEqual(humans);
     }
+    // Nicola vede ORT solo dalla workspace: è in `memberIds`, non fra le appartenenze.
+    expect(state.projectsById.get("prj-ort")!.memberIds).toContain("p-nicola");
+    expect(isMember("p-nicola", "prj-ort")).toBe(false);
   });
 });
 

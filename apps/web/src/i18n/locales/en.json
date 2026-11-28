@@ -3462,6 +3462,9 @@
       "departments": {
         "manage": "Manage departments"
       },
+      "workspaces": {
+        "manage": "Manage workspaces"
+      },
       "people": {
         "activity": {
           "view": "View people's daily activity"

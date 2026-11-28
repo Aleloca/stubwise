@@ -3462,6 +3462,9 @@
       "departments": {
         "manage": "Gestire i reparti"
       },
+      "workspaces": {
+        "manage": "Gestire le workspace"
+      },
       "people": {
         "activity": {
           "view": "Vedere l'attività del giorno delle persone"

@@ -164,6 +164,18 @@ describe("POST /api/repositories/:id/env-files/:fileId/import", () => {
     expect(decrypt(byKey.get("C")!, ENCRYPTION_KEY)).toBe("3");
   });
 
+  it("l'import dice quali chiavi ha SOSTITUITO e quali righe ha saltato (numero e motivo, mai il contenuto)", async () => {
+    const file = await createEnvFile(".env.replaced");
+    const fileId = (file.json() as { id: string }).id;
+    const post = (content: string) =>
+      app.inject({ method: "POST", url: `/api/repositories/${projectId}/env-files/${fileId}/import`, headers: { cookie: adminCookie }, payload: { content } });
+    await post("A=1");
+    const res = await post("A=2\nB=3\nnon una riga\n1X=segreto-della-riga");
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ count: 2, imported: ["A", "B"], replaced: ["A"], skipped: [{ line: 3, reason: "syntax" }, { line: 4, reason: "key" }] });
+    expect(res.body).not.toContain("segreto-della-riga");
+  });
+
   it("re-import aggiorna le chiavi esistenti senza toccare le altre", async () => {
     const file = await createEnvFile(".env.reimport");
     const fileId = (file.json() as { id: string }).id;
@@ -250,7 +262,8 @@ describe("GET /api/repositories/:id/env-files", () => {
     expect(found).toBeDefined();
     expect(found!.environmentId).toBe(environmentId);
     expect(found!.path).toBe(".env.list");
-    expect(found!.vars).toEqual([{ key: "SECRET", valueSet: true }]);
+    // Ritiro del web vecchio: quando è stata scritta (additivo), mai il valore.
+    expect(found!.vars).toEqual([{ key: "SECRET", valueSet: true, setAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) }]);
   });
 
   it("un member non può leggere: 403", async () => {

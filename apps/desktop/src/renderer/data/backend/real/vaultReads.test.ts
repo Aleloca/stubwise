@@ -344,7 +344,7 @@ describe("le letture della cassaforte, dalle rotte", () => {
       installFakeServer({
         "GET /api/vault/credentials": { body: { items: [item(C1)] } },
         "GET /api/people": { body: people },
-        [`GET /api/projects/${PROJECT_ID}/members`]: { body: members },
+        [`GET /api/projects/${PROJECT_ID}/members?include=workspace`]: { body: members },
         [`GET /api/credentials/${C1}/readers`]: {
           body: {
             readers: [
@@ -374,6 +374,32 @@ describe("le letture della cassaforte, dalle rotte", () => {
         "GET /api/vault/credentials": { body: { items: [item(C1, { canShare: false })] } },
       });
       expect(await vault.listShareTargets(C1)).toEqual({ people: [], roles: [] });
+    });
+
+    it("D16: chi vede il progetto solo per la workspace è fra le persone (il server lo accetta come lettore)", async () => {
+      const NICOLA = "44444444-4444-4444-8444-444444444449";
+      const { seen } = installFakeServer({
+        "GET /api/vault/credentials": { body: { items: [item(C1)] } },
+        "GET /api/people": { body: [] },
+        [`GET /api/projects/${PROJECT_ID}/members?include=workspace`]: {
+          body: [
+            {
+              userId: NICOLA,
+              email: "nicola@x.test",
+              roleId: "99999999-9999-4999-8999-999999999995",
+              roleName: "Viewer",
+              avatarUrl: null,
+              createdAt: "2026-11-01T10:00:00.000Z",
+              explicit: false,
+              workspaceId: "55555555-5555-4555-8555-555555555555",
+            },
+          ],
+        },
+        [`GET /api/credentials/${C1}/readers`]: { body: { readers: [], people: [] } },
+      });
+      const out = await vault.listShareTargets(C1);
+      expect(seen.some((r) => r.path === `/api/projects/${PROJECT_ID}/members?include=workspace`)).toBe(true);
+      expect(out.people.map((p) => p.personId)).toEqual([NICOLA]);
     });
   });
 
