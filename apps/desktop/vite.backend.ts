@@ -41,6 +41,12 @@ export function backendAliases(mode: BackendMode, target: BackendTarget = "elect
       ),
     },
     {
+      // La fase 2 della cassaforte (design §10): attivare, la propria chiave,
+      // il kit, il recupero, l'associazione del Mac. Solo nella build web.
+      find: /^@backend\/vault-setup$/,
+      replacement: resolve(data, app && target === "web" ? "backend/real/vault/setup-web.ts" : "backend/real/vault/setup-none.ts"),
+    },
+    {
       // Nel prototipo il namespace vero non si usa (lo importa solo
       // `backend/real/index.ts`): i test lo leggono sul modulo Electron.
       find: /^@backend\/vault$/,

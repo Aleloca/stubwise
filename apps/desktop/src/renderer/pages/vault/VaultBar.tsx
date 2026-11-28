@@ -51,6 +51,16 @@ export function openVaultInBrowser(): void {
   if (isAppBuild()) openInWeb("/credentials");
 }
 
+/**
+ * La pagina della cassaforte (fase 2, design §10): attivarla, creare la
+ * propria chiave. Nella build web è una pagina di qui; dal Mac si apre nel
+ * browser (la stessa pagina della nuova app, non il web vecchio).
+ */
+export function openVaultSetup(): void {
+  if (isWebAppBuild()) window.location.hash = "#/vault-setup";
+  else if (isAppBuild()) openInWeb("/app/#/vault-setup");
+}
+
 export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
   const { t } = useTranslation();
   const { viewer } = useViewer();
@@ -201,7 +211,19 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
       break;
     case "no_key":
       text = t("vault.bar.noKey");
-      action = browser;
+      // Fase 2: la chiave si crea nella pagina della cassaforte, nel browser.
+      action = (
+        <button
+          type="button"
+          className={isWebAppBuild() ? primaryButton : secondaryButton}
+          onClick={() => {
+            openVaultSetup();
+            if (!isWebAppBuild()) toast.show(t("vault.bar.openedBrowser"));
+          }}
+        >
+          {isWebAppBuild() ? t("vault.bar.createKey") : t("vault.bar.openBrowser")}
+        </button>
+      );
       break;
     case "key_pending":
       text = (
@@ -221,9 +243,23 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
       text = (
         <span className="flex flex-col">
           <span>{t("vault.bar.inactive")}</span>
-          {fullAdmin && <span>{t("vault.bar.inactiveAdmin")}</span>}
+          {fullAdmin && !isWebAppBuild() && <span>{t("vault.bar.inactiveAdmin")}</span>}
         </span>
       );
+      // Fase 2: l'admin la attiva nella pagina della cassaforte (nel browser).
+      if (fullAdmin && isAppBuild())
+        action = (
+          <button
+            type="button"
+            className={isWebAppBuild() ? primaryButton : secondaryButton}
+            onClick={() => {
+              openVaultSetup();
+              if (!isWebAppBuild()) toast.show(t("vault.bar.openedBrowser"));
+            }}
+          >
+            {isWebAppBuild() ? t("vault.bar.activateWeb") : t("vault.bar.openBrowser")}
+          </button>
+        );
       break;
   }
 
