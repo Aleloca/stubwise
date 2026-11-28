@@ -4,6 +4,8 @@ import {
   encryptPassword,
   generatePersonKeyPair,
   generateRecoveryKit,
+  keyFingerprint,
+  openDeviceSeal,
   openPrivateKey,
   parseRecoveryKit,
   sealPrivateKey,
@@ -12,6 +14,7 @@ import {
   wrapItemKey,
   wrapRecoveryChallenge,
 } from "@stubwise/vault-crypto";
+import { softwareDeviceKey } from "@stubwise/vault-crypto/testing";
 import { beforeEach, describe, expect, it } from "vitest";
 import { VaultCore, type CoreEvent } from "./core";
 import { toBase64Url } from "./bytes";
@@ -553,5 +556,124 @@ describe("il recupero col kit, nel worker (fase 2)", () => {
     expect(await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY })).toEqual({ ok: false, code: "reauth_required" });
     routes[`POST /api/vault/recovery/confirm/${BEA_KEY}`] = real;
     expect(await core.handle({ t: "recoveryConfirm", personKeyId: BEA_KEY })).toMatchObject({ ok: true, saved: 1 });
+  });
+});
+
+describe("l'associazione del Mac, nel worker (fase 2)", () => {
+  const LIVE_KEY = "11111111-1111-4111-8111-111111111111";
+  const DEVICE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const CHALLENGE = "77777777-7777-4777-8777-777777777777";
+  const STATE = "c3RhdGUtZGVsLW1hYw";
+  let core: VaultCore;
+  let pair: Awaited<ReturnType<typeof generatePersonKeyPair>>;
+  let mac: Awaited<ReturnType<typeof softwareDeviceKey>>;
+  let last4: string;
+
+  beforeEach(async () => {
+    core = setup();
+    pair = await generatePersonKeyPair();
+    mac = await softwareDeviceKey();
+    last4 = (await keyFingerprint(mac.publicKey)).replace(/\s/g, "").slice(-4).toLowerCase();
+    const sealed = await sealPrivateKey(prf.slice().buffer, pair.privateKeyPkcs8, pair.publicKey);
+    myKey = { id: LIVE_KEY, status: "confirmed", createdAt: "2026-11-01T00:00:00.000Z" };
+    const base = routes["GET /api/vault/status"]!;
+    routes["GET /api/vault/status"] = () => {
+      const out = base() as { body: Record<string, unknown> };
+      return { body: { ...out.body, seals: [{ passkeyId: PASSKEY_ID, credentialIdB64url: CRED }] } };
+    };
+    routes["GET /api/vault/keys/mine"] = () => ({
+      body: { id: LIVE_KEY, publicKey: pair.publicKey, status: "confirmed", seals: [{ passkeyId: PASSKEY_ID, credentialIdB64url: CRED, sealedPrivateKey: sealed }] },
+    });
+    routes["POST /api/vault/device-pairings/lookup"] = () => ({
+      body: {
+        deviceId: DEVICE,
+        deviceName: "MacBook di Ada",
+        devicePublicKey: mac.publicKey,
+        expiresAt: "2026-11-28T10:10:00.000Z",
+        patCreatedAt: "2026-11-28T09:58:00.000Z",
+        patLastUsedAt: null,
+      },
+    });
+    routes["POST /api/vault/actor-challenge"] = () => ({
+      body: wrapActorChallenge(new Uint8Array(32).fill(7), pair.publicKey, CHALLENGE, LIVE_KEY).then((wrapped) => ({
+        challengeId: CHALLENGE,
+        personKeyId: LIVE_KEY,
+        wrapped,
+        expiresAt: "2026-11-28T10:05:00.000Z",
+      })),
+    });
+    routes["POST /api/vault/device-seals"] = () => ({
+      status: 201,
+      body: { id: DEVICE, deviceName: "MacBook di Ada", createdAt: "2026-11-28T10:00:00.000Z" },
+    });
+  });
+
+  async function seal(typed: string, state = STATE) {
+    const buffer = prf.slice().buffer;
+    await core.handle({ t: "stash", prf: buffer });
+    const out = await core.handle({ t: "pairSeal", state, typed, assertion, credentialId: CRED, personId: ME });
+    return { buffer, out };
+  }
+
+  it("lookup: il nome e il login del Mac, MAI l'impronta (M3): la confronta il worker", async () => {
+    const out = await core.handle({ t: "pairLookup", state: STATE });
+    expect(out).toEqual({
+      ok: true,
+      deviceName: "MacBook di Ada",
+      patCreatedAt: "2026-11-28T09:58:00.000Z",
+      patLastUsedAt: null,
+      expiresAt: "2026-11-28T10:10:00.000Z",
+    });
+    expect(calls.find((c) => c.path.endsWith("/lookup"))!.body).toEqual({ state: STATE });
+    expect(JSON.stringify(out)).not.toContain(mac.publicKey.slice(0, 20));
+  });
+
+  it("sigillo: con gli ultimi 4 giusti, una passkey che apre, e la prova; il Mac lo apre", async () => {
+    await core.handle({ t: "pairLookup", state: STATE });
+    const { buffer, out } = await seal(last4.toUpperCase());
+    expect(out).toEqual({ ok: true });
+    expect(new Uint8Array(buffer).every((b) => b === 0)).toBe(true);
+    const body = calls.find((c) => c.path === "/api/vault/device-seals")!.body as {
+      pairingState: string;
+      deviceId: string;
+      seal: string;
+      actorProof: { challengeId: string };
+    };
+    expect(body.pairingState).toBe(STATE);
+    expect(body.deviceId).toBe(DEVICE);
+    expect(body.actorProof.challengeId).toBe(CHALLENGE);
+    await expect(
+      openDeviceSeal({ deviceSeal: body.seal, personPublicKey: pair.publicKey, personKeyId: LIVE_KEY, deviceId: DEVICE, deriveBits: mac.deriveBits }),
+    ).resolves.toBeDefined();
+    // Usata: lo stesso state non sigilla due volte.
+    expect((await seal(last4)).out).toEqual({ ok: false, code: "no_pairing" });
+  });
+
+  it("gli ultimi 4 sbagliati: niente verifica, niente sigillo, la PRF si azzera", async () => {
+    await core.handle({ t: "pairLookup", state: STATE });
+    const wrong = last4 === "0000" ? "1111" : "0000";
+    const { buffer, out } = await seal(wrong);
+    expect(out).toEqual({ ok: false, code: "fingerprint_mismatch" });
+    expect(new Uint8Array(buffer).every((b) => b === 0)).toBe(true);
+    expect(calls.some((c) => c.path.endsWith("/passkey/verify") || c.path === "/api/vault/device-seals")).toBe(false);
+  });
+
+  it("senza lookup, o con un altro state, niente sigillo", async () => {
+    expect((await seal(last4)).out).toEqual({ ok: false, code: "no_pairing" });
+    await core.handle({ t: "pairLookup", state: STATE });
+    expect((await seal(last4, "dW4tYWx0cm8")).out).toEqual({ ok: false, code: "no_pairing" });
+    expect(calls.some((c) => c.path === "/api/vault/device-seals")).toBe(false);
+  });
+
+  it("una PRF che non apre la propria chiave: niente sigillo", async () => {
+    await core.handle({ t: "pairLookup", state: STATE });
+    prf = crypto.getRandomValues(new Uint8Array(32));
+    expect((await seal(last4)).out).toEqual({ ok: false, code: "open_failed" });
+    expect(calls.some((c) => c.path === "/api/vault/device-seals")).toBe(false);
+  });
+
+  it("un'associazione scaduta o d'altri: il codice del server", async () => {
+    routes["POST /api/vault/device-pairings/lookup"] = () => ({ status: 404, body: { code: "pairing_invalid" } });
+    expect(await core.handle({ t: "pairLookup", state: STATE })).toEqual({ ok: false, code: "pairing_invalid" });
   });
 });

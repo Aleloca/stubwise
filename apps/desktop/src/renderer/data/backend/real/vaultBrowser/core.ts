@@ -3,6 +3,7 @@ import {
   credentialSharePreviewSchema,
   vaultActorChallengeResponseSchema,
   vaultConfirmResponseSchema,
+  vaultDevicePairingLookupResponseSchema,
   vaultPendingResponseSchema,
   vaultRecoveryChallengeResponseSchema,
   vaultRecoveryKeyPreviewSchema,
@@ -29,6 +30,7 @@ import {
   parseRecoveryKit,
   openPrivateKey,
   resealPrivateKey,
+  sealForDevice,
   sealPrivateKey,
   unwrapItemKey,
   wrapItemKey,
@@ -153,6 +155,15 @@ export type CoreRequest =
   | { t: "recoveryLoad"; kitText: string }
   | { t: "recoveryConfirm"; personKeyId: string }
   | { t: "recoveryForget" }
+  /**
+   * Fase 2, l'associazione del Mac (`/vault-pair`, solo nella build web): il
+   * worker legge l'associazione per `state` e ne calcola l'impronta, che alla
+   * pagina NON va (M3: si legge sul Mac e si scrive). `pairSeal` vuole gli
+   * ultimi 4 caratteri scritti, una passkey che apre la chiave (il tocco, con
+   * la PRF nello `stash`) e sigilla la privata per il Mac, con la prova.
+   */
+  | { t: "pairLookup"; state: string }
+  | { t: "pairSeal"; state: string; typed: string; assertion: unknown; credentialId: string; personId: string }
   | { t: "reveal"; id: string; action: "show" | "copy"; personId: string; sessionTag: string }
   /**
    * Una credenziale nuova: non vuole la cassaforte aperta (si cifra con le
@@ -287,6 +298,8 @@ export class VaultCore {
   private kit: { publicKey: string; purpose: "activate" | "rotate" } | null = null;
   /** Il kit del recupero, letto: la privata, chi aspetta (con le copie), e una prova non ancora consumata. */
   private recovery: { key: CryptoKey; people: VaultPendingPerson[]; proof: { challengeId: string; proof: string } | null } | null = null;
+  /** L'associazione letta: la pubblica del Mac e gli ultimi 4 della sua impronta, mai alla pagina. */
+  private pairing: { state: string; deviceId: string; devicePublicKey: string; last4: string } | null = null;
   /** La prima metà di `sealBegin`: la PRF che apre la chiave, e per quale passkey nuova. */
   private sealing: {
     prf: ArrayBuffer;
@@ -666,6 +679,42 @@ export class VaultCore {
     }
   }
 
+  /** Fase 2: la propria chiave sigillata per il Mac dell'associazione letta. */
+  private async pairSeal(req: Extract<CoreRequest, { t: "pairSeal" }>, prf: ArrayBuffer) {
+    const p = this.pairing;
+    if (!p || p.state !== req.state) return { ok: false as const, code: "no_pairing" };
+    if (String(req.typed).replace(/\s/g, "").toLowerCase() !== p.last4) return { ok: false as const, code: "fingerprint_mismatch" };
+    await this.http("POST", "/api/me/security/reauth/passkey/verify", { response: req.assertion });
+    const server = await this.whoOnServer();
+    if (server.userId !== req.personId) return { ok: false as const, code: "session" };
+    const mine = await this.http<VaultMyKeyResponse>("GET", "/api/vault/keys/mine");
+    const seal = mine.seals.find((x) => x.credentialIdB64url === req.credentialId);
+    if (!seal) return { ok: false as const, code: "no_seal" };
+    let privateKey: CryptoKey;
+    let deviceSeal: string;
+    try {
+      privateKey = await openPrivateKey(prf, seal.sealedPrivateKey, mine.publicKey);
+      deviceSeal = await sealForDevice({
+        prfOutput: prf,
+        sealed: seal.sealedPrivateKey,
+        personPublicKey: mine.publicKey,
+        personKeyId: mine.id,
+        devicePublicKey: p.devicePublicKey,
+        deviceId: p.deviceId,
+      });
+    } catch {
+      return { ok: false as const, code: "open_failed" };
+    }
+    await this.http("POST", "/api/vault/device-seals", {
+      pairingState: p.state,
+      deviceId: p.deviceId,
+      seal: deviceSeal,
+      actorProof: await this.prove(privateKey, mine.id),
+    });
+    this.pairing = null;
+    return { ok: true as const };
+  }
+
   /** L'anteprima della rotazione, letta con lo schema. */
   private async rotationPreview(): Promise<VaultRecoveryKeyPreview> {
     const out = vaultRecoveryKeyPreviewSchema.safeParse(await this.http("GET", "/api/vault/recovery-key/preview"));
@@ -819,7 +868,14 @@ export class VaultCore {
     try {
       return await this.dispatch(req);
     } catch (error) {
-      if (req.t === "unlock" || req.t === "createKey" || req.t === "sealBegin" || req.t === "sealFinish" || req.t === "stash")
+      if (
+        req.t === "unlock" ||
+        req.t === "createKey" ||
+        req.t === "sealBegin" ||
+        req.t === "sealFinish" ||
+        req.t === "pairSeal" ||
+        req.t === "stash"
+      )
         this.dropStash();
       if (req.t === "sealBegin" || req.t === "sealFinish") this.dropSealing();
       if (error instanceof HttpError) {
@@ -988,6 +1044,37 @@ export class VaultCore {
       case "recoveryForget":
         this.recovery = null;
         return { ok: true };
+      case "pairLookup": {
+        this.pairing = null;
+        const state = String(req.state);
+        const out = vaultDevicePairingLookupResponseSchema.safeParse(
+          await this.http("POST", "/api/vault/device-pairings/lookup", { state }),
+        );
+        if (!out.success) return { ok: false, code: "invalid_response" };
+        const fingerprint = await keyFingerprint(out.data.devicePublicKey);
+        this.pairing = {
+          state,
+          deviceId: out.data.deviceId,
+          devicePublicKey: out.data.devicePublicKey,
+          last4: fingerprint.replace(/\s/g, "").slice(-4).toLowerCase(),
+        };
+        return {
+          ok: true,
+          deviceName: out.data.deviceName,
+          patCreatedAt: out.data.patCreatedAt,
+          patLastUsedAt: out.data.patLastUsedAt,
+          expiresAt: out.data.expiresAt,
+        };
+      }
+      case "pairSeal": {
+        const prf = this.takeStash();
+        if (!prf) return { ok: false, code: "no_prf" };
+        try {
+          return await this.pairSeal(req, prf);
+        } finally {
+          wipe(prf);
+        }
+      }
       case "confirm": {
         if (!req.presence) return { ok: false, code: "presence_required" };
         const k = await this.live(req.personId, req.sessionTag);
